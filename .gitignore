@@ -1,0 +1,65 @@
+# Vivado generated folders
+**/.runs/**
+**/.sim/**
+**/.gen/**
+**/.cache/**
+**/.hw/**
+**/.Xil/**
+**/ip_user_files/**
+**/ipshared/**
+**/xsim.dir/**
+**/impl_1/**
+**/synth_1/**
+
+# Vivado generated files
+*.jou
+*.log
+*.str
+*.wdb
+*.vcd
+*.dcp
+*.rpx
+*.bit
+*.bin
+*.ltx
+*.mcs
+*.pb
+
+# Large/binary/archive files
+*.exe
+*.msi
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+
+# Documents that are usually not needed in code repo
+*.pdf
+*.docx
+*.pptx
+
+# Large data files
+*.tdms
+*.mat
+*.npy
+*.npz
+*.csv
+
+# Cache/temp
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.tmp
+*.bak
+*.old
+~$*
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+*.key
+*.pem
+config.local.*

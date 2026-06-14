@@ -1,0 +1,13 @@
+# compile verilog/system verilog design source files
+sv xil_defaultlib  --include "../../../../redpitaya.srcs/sources_1/bd/system/ipshared/ec67/hdl" --include "../../../../redpitaya.srcs/sources_1/bd/system/ipshared/6b56/hdl" --include "F:/vivado2020/Vivado/2020.1/data/xilinx_vip/include" \
+"../../../../../rtl/laser_lock_core.sv" \
+"../../../../../rtl/lpf_core.sv" \
+"../../../../../rtl/mixer_core.sv" \
+"../../../../../rtl/output_protect.sv" \
+"../../../../../sim/tb_laser_lock_core_v1c.sv" \
+
+# compile glbl module
+verilog xil_defaultlib "glbl.v"
+
+# Do not sort compile order
+nosort
