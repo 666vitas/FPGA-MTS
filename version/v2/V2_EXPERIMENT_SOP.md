@@ -1,5 +1,99 @@
 # V2_EXPERIMENT_SOP
 
+## 2026-06-14 v2B1 FPGA MTS Error Shadow PI 上板前 SOP（当前有效）
+
+本节覆盖本文档中旧的“D2-125 DC Error -> Red Pitaya IN1”旁路线描述。当前安全主线不是把 D2-125 的 DC Error 或 Servo Output 接进 Red Pitaya，而是使用 Red Pitaya 自己的 IN1/IN2 生成 FPGA 内部 error。
+
+### 当前允许接线
+
+```text
+Red Pitaya IN1 -> 混频前 PD/MTS 信号，必须在 +/-1 V 内
+Red Pitaya IN2 -> 外部 REF，必须在 +/-1 V 内
+Red Pitaya OUT1 -> 示波器 CH2：FPGA mixer+LPF error，当前约 0.15 V
+Red Pitaya OUT2 -> 示波器 CH4：FPGA P-only control
+```
+
+### 当前 FPGA 数据链路
+
+```text
+IN1 + IN2
+-> mixer_core
+-> lpf_core
+-> output_protect
+-> error_o
+-> OUT1
+
+同时：
+
+error_o
+-> pi_controller
+-> control_o
+-> OUT2
+```
+
+### 禁止接线
+
+```text
+D2-125 DC Error -> Red Pitaya IN1
+D2-125 Servo Output -> Red Pitaya IN1
+Red Pitaya OUT2 -> 激光器
+Red Pitaya OUT2 -> D2-125 Servo Output 三通
+Red Pitaya OUT2 -> 激光器电源 Scan
+任何超过 +/-1 V 的信号进入 IN1/IN2
+```
+
+### 用户手动 Vivado 操作
+
+Codex 本次只修改 RTL/SIM/MD，并运行独立 XSim，不运行 Vivado，不生成 bit/bin，不烧录。
+
+```text
+1. 用户打开 v0.94/project/redpitaya.xpr
+2. 用户在 Sources 中确认 pi_controller.sv 是否已经加入
+3. 如果没有，用户手动 Add Sources：
+   v0.94/rtl/pi_controller.sv
+4. 用户确认 laser_lock_core.sv、red_pitaya_top.sv 使用的是 v0.94/rtl 下的文件
+5. 用户手动 Run Synthesis
+6. 用户手动 Run Implementation
+7. 用户手动 Generate Bitstream
+8. 用户自行烧录 Red Pitaya
+```
+
+### 正确实验现象
+
+```text
+1. OUT1 / CH2 仍能看到 FPGA mixer+LPF error，约 0.15 V
+2. OUT2 / CH4 能看到跟 OUT1 同步的小控制信号
+3. OUT1 为正时，OUT2 同向变化，除非 polarity 设为反向
+4. OUT1 过零时，OUT2 也应过零
+5. OUT2 不应超过约 +/-0.18 V
+6. OUT2 不应打到 +/-1 V
+7. Ki=0 时，OUT2 不应慢慢爬升
+8. OUT2 不应随机跳变
+9. OUT2 第一轮只接示波器
+```
+
+### 异常现象和下一步
+
+```text
+OUT2 一直为 0：
+检查 laser_lock_core 是否真正接入 pi_controller，red_pitaya_top 是否将 DAC B 接到 laser_control。
+
+OUT2 方向反了：
+下一版只改 PID_POLARITY_DEFAULT。
+
+OUT2 太小：
+下一版可把 PID_KP_DEFAULT 从 2048 提高到 4096。
+
+OUT2 太大或接近 +/-1 V：
+立即停止，降低 PID_KP_DEFAULT 和 PID_OUTPUT_LIMIT_DEFAULT，检查 DAC B 路由和 saturation。
+
+OUT2 慢慢爬升：
+确认 PID_KI_DEFAULT = 0，检查 reset_integrator 和 enable。
+
+OUT1 被破坏：
+回退，检查 OUTPUT_MODE=3、mixer_core、lpf_core、output_protect 是否被误改。
+```
+
 ## 2026-06-14 v2B1 Shadow PI 实验 SOP
 
 当前真实接线：

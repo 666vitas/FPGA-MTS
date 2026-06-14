@@ -3,7 +3,7 @@
 <!--The data in this file is primarily intended for consumption by Xilinx tools.
 The structure and the elements are likely to change over the next few releases.
 This means code written to parse this file will need to be revisited each subsequent release.-->
-<application name="pa" timeStamp="Sun Jun 14 21:39:08 2026">
+<application name="pa" timeStamp="Sun Jun 14 22:10:21 2026">
 <section name="Project Information" visible="false">
 <property name="ProjectID" value="560ca0f36b3942dd81fe152b566251f4" type="ProjectID"/>
 <property name="ProjectIteration" value="13" type="ProjectIteration"/>
@@ -20,7 +20,7 @@ This means code written to parse this file will need to be revisited each subseq
 <property name="AddSources" value="17" type="JavaHandler"/>
 <property name="CloseProject" value="2" type="JavaHandler"/>
 <property name="EditDelete" value="1" type="JavaHandler"/>
-<property name="FileExit" value="12" type="JavaHandler"/>
+<property name="FileExit" value="13" type="JavaHandler"/>
 <property name="NewProject" value="3" type="JavaHandler"/>
 <property name="OpenProject" value="8" type="JavaHandler"/>
 <property name="RunBitgen" value="12" type="JavaHandler"/>
@@ -33,7 +33,7 @@ This means code written to parse this file will need to be revisited each subseq
 <property name="ToolsSettings" value="3" type="JavaHandler"/>
 <property name="UpdateRegId" value="3" type="JavaHandler"/>
 <property name="UpdateSourceFiles" value="1" type="JavaHandler"/>
-<property name="ViewTaskImplementation" value="6" type="JavaHandler"/>
+<property name="ViewTaskImplementation" value="7" type="JavaHandler"/>
 <property name="WaveformSaveConfiguration" value="3" type="JavaHandler"/>
 </item>
 <item name="Gui Handlers">
@@ -41,13 +41,13 @@ This means code written to parse this file will need to be revisited each subseq
 <property name="AbstractSearchablePanel_SHOW_SEARCH" value="11" type="GuiHandlerData"/>
 <property name="AddSrcWizard_SPECIFY_SIMULATION_SPECIFIC_HDL_FILES" value="1" type="GuiHandlerData"/>
 <property name="BaseDialog_CANCEL" value="9" type="GuiHandlerData"/>
-<property name="BaseDialog_OK" value="36" type="GuiHandlerData"/>
+<property name="BaseDialog_OK" value="37" type="GuiHandlerData"/>
 <property name="BaseDialog_YES" value="7" type="GuiHandlerData"/>
-<property name="CmdMsgDialog_OK" value="1" type="GuiHandlerData"/>
+<property name="CmdMsgDialog_OK" value="2" type="GuiHandlerData"/>
 <property name="CommandsInput_TYPE_TCL_COMMAND_HERE" value="73" type="GuiHandlerData"/>
 <property name="ExpReportTreePanel_EXP_REPORT_TREE_TABLE" value="8" type="GuiHandlerData"/>
 <property name="ExpRunTreePanel_EXP_RUN_TREE_TABLE" value="11" type="GuiHandlerData"/>
-<property name="FileSetPanel_FILE_SET_PANEL_TREE" value="407" type="GuiHandlerData"/>
+<property name="FileSetPanel_FILE_SET_PANEL_TREE" value="415" type="GuiHandlerData"/>
 <property name="FlowNavigatorTreePanel_FLOW_NAVIGATOR_TREE" value="99" type="GuiHandlerData"/>
 <property name="GettingStartedView_CREATE_NEW_PROJECT" value="1" type="GuiHandlerData"/>
 <property name="GettingStartedView_OPEN_EXAMPLE_PROJECT" value="1" type="GuiHandlerData"/>
@@ -97,7 +97,7 @@ This means code written to parse this file will need to be revisited each subseq
 <property name="PACommandNames_SRC_DISABLE" value="1" type="GuiHandlerData"/>
 <property name="PACommandNames_SYNTH_SETTINGS" value="1" type="GuiHandlerData"/>
 <property name="PAViews_CODE" value="4" type="GuiHandlerData"/>
-<property name="PAViews_DEVICE" value="22" type="GuiHandlerData"/>
+<property name="PAViews_DEVICE" value="23" type="GuiHandlerData"/>
 <property name="PAViews_FLOW_NAVIGATOR" value="1" type="GuiHandlerData"/>
 <property name="PAViews_PROJECT_SUMMARY" value="9" type="GuiHandlerData"/>
 <property name="ProgressDialog_CANCEL" value="1" type="GuiHandlerData"/>
@@ -130,6 +130,11 @@ This means code written to parse this file will need to be revisited each subseq
 <property name="TimingSumResultsTab_SHOW_ONLY_FAILING_CHECKS" value="3" type="GuiHandlerData"/>
 <property name="TouchpointSurveyDialog_NO" value="1" type="GuiHandlerData"/>
 <property name="WaveformNameTree_WAVEFORM_NAME_TREE" value="34" type="GuiHandlerData"/>
+</item>
+<item name="Other">
+<property name="GuiMode" value="17" type="GuiMode"/>
+<property name="BatchMode" value="0" type="BatchMode"/>
+<property name="TclMode" value="16" type="TclMode"/>
 </item>
 </section>
 </application>

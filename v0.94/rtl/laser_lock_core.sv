@@ -7,7 +7,9 @@
 // - OUTPUT_MODE = 3: mixer + post-mixer LPF output -> OUT1.
 //
 // This module still does not implement pre-mixer 10 MHz LPF, 1.8 MHz HPF,
-// digital gain, I/Q, PID, sweep, AI, D2-125 drive, or laser feedback.
+// digital gain, I/Q, sweep, AI, D2-125 drive, or laser feedback.
+// v2B1 adds a Shadow PI path: the protected error signal is observed on OUT1
+// and also feeds pi_controller so OUT2 can show a small P-only control signal.
 
 `timescale 1ns/1ps
 
@@ -50,8 +52,8 @@ module laser_lock_core #(
     // v1ab 中输出 pd_i 或 ref_i 的保护后结果，未来接 DAC A / OUT1 候选路径。
     output logic signed [13:0] error_o,
 
-    // control_o：控制输出。
-    // 第一阶段不做 PID，不控制激光器，所以始终为 0。
+    // control_o：Shadow PI 控制输出。
+    // v2B1 只接 OUT2 示波器观察，不直接控制激光器。
     output logic signed [13:0] control_o
 );
 
@@ -125,8 +127,7 @@ module laser_lock_core #(
         .data_o  (protected_error)
     );
 
-    // control_o 在第一阶段始终为 0。
-    // 这在硬件上等价于把 DAC B 候选控制量固定接地到数字 0。
+    // OUT1 继续观察保护后的 error；同一个 protected_error 也进入 Shadow PI。
     assign error_o = protected_error;
 
     always_ff @(posedge clk_i) begin

@@ -1,5 +1,90 @@
 # STATUS
 
+## 2026-06-14 当前主线：v2B1 FPGA MTS Error Shadow PI（当前有效）
+
+当前安全主线已经从旧的“D2-125 DC Error -> Red Pitaya IN1”旁路方案，修正为使用 Red Pitaya 自身 IN1/IN2 生成 FPGA 内部 error，并把该 error 同时送到 OUT1 观察和 OUT2 Shadow PI 控制输出。
+
+### 当前硬件接线边界
+
+```text
+Red Pitaya IN1 -> 混频前 PD/MTS 信号，必须在 +/-1 V 内
+Red Pitaya IN2 -> 外部 REF，必须在 +/-1 V 内
+Red Pitaya OUT1 -> 示波器 CH2：FPGA mixer+LPF error，当前约 0.15 V
+Red Pitaya OUT2 -> 示波器 CH4：FPGA P-only control
+```
+
+禁止：
+
+```text
+D2-125 DC Error -> Red Pitaya IN1
+D2-125 Servo Output -> Red Pitaya IN1
+Red Pitaya OUT2 -> 激光器
+Red Pitaya OUT2 -> D2-125 Servo Output 三通
+Red Pitaya OUT2 -> 激光器电源 Scan
+任何超过 +/-1 V 的信号进入 IN1/IN2
+```
+
+### 当前代码状态
+
+```text
+v0.94/rtl/laser_lock_core.sv：
+control_o 不再固定为 0，已接入 pi_controller。
+
+v0.94/rtl/red_pitaya_top.sv：
+OUT1 / DAC A 仍为 laser_error；
+OUT2 / DAC B 已改为 laser_control。
+
+v0.94/rtl/pi_controller.sv：
+本次未修改，继续使用 v2A 已完成的 PI 控制器核心。
+
+v0.94/sim/tb_laser_lock_core_v2b1_shadow_pi_dc_error.sv：
+新增 v2B1 Shadow PI 行为仿真。
+```
+
+### 初始参数
+
+```text
+PID_ENABLE_DEFAULT = 1
+PID_HOLD_DEFAULT = 0
+PID_RESET_INTEGRATOR_DEFAULT = 0
+PID_POLARITY_DEFAULT = 0
+PID_KP_DEFAULT = 16'sd2048
+PID_KI_DEFAULT = 16'sd0
+PID_OFFSET_DEFAULT = 14'sd0
+PID_OUTPUT_LIMIT_DEFAULT = 14'd1500
+PID_UPDATE_HZ = 10_000
+```
+
+含义：
+
+```text
+Kp=2048：OUT2 约为 OUT1 error 的 1/2
+Ki=0：避免 OUT2 积分慢慢爬升
+output_limit=1500：约 +/-0.18 V，防止 OUT2 接近 +/-1 V
+```
+
+### 独立仿真状态
+
+```text
+xvlog：0 error
+xelab：0 error
+xsim：SUMMARY tests=13 pass=13 fail=0
+```
+
+### 本轮不执行
+
+```text
+Codex 不运行 Vivado
+Codex 不运行 synthesis
+Codex 不运行 implementation
+Codex 不生成 bitstream
+Codex 不生成 bin
+Codex 不烧录 Red Pitaya
+Codex 不修改 redpitaya.xpr
+```
+
+Vivado、bitstream、bin 和烧录由用户手动完成。
+
 ## 2026-06-14 当前主线：v2B1 Shadow PI DC Error
 
 当前下一步不是 `ramp_generator`，不是完整 `scan/lock`，也不是 FPGA 直接替代 D2-125。当前下一步定义为：

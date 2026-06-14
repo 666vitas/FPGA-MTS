@@ -1,5 +1,83 @@
 # V2_NEXT_STEPS
 
+## 2026-06-14 v2B1 Shadow PI 当前下一步（当前有效）
+
+v2B1 已把 v2A 的 `pi_controller.sv` 接入主链路的 Shadow PI 位置。当前目标不是闭环替代 D2-125，而是先让 FPGA 在 OUT2 上输出一个安全、很小、可观察的 P-only control。
+
+### 当前 RTL 链路
+
+```text
+IN1 + IN2
+-> mixer_core
+-> lpf_core
+-> output_protect
+-> error_o
+-> OUT1
+
+同时：
+
+error_o
+-> pi_controller
+-> control_o
+-> OUT2
+```
+
+### 已完成
+
+```text
+laser_lock_core.sv：control_o 不再固定为 0，已实例化 pi_controller
+red_pitaya_top.sv：OUT1 / DAC A 仍接 laser_error，OUT2 / DAC B 改接 laser_control
+tb_laser_lock_core_v2b1_shadow_pi_dc_error.sv：新增 v2B1 Shadow PI 行为仿真
+XSim：tests=13 pass=13 fail=0
+```
+
+### Codex 本次不做
+
+```text
+Codex 不运行 Vivado
+Codex 不运行 synthesis
+Codex 不运行 implementation
+Codex 不生成 bitstream
+Codex 不生成 bin
+Codex 不烧录 Red Pitaya
+Codex 不修改 redpitaya.xpr
+```
+
+### 用户手动下一步
+
+```text
+1. 打开 v0.94/project/redpitaya.xpr
+2. 在 Sources 中确认 v0.94/rtl/pi_controller.sv 已存在
+3. 如果不存在，手动 Add Sources：v0.94/rtl/pi_controller.sv
+4. 确认 laser_lock_core.sv 和 red_pitaya_top.sv 来自 v0.94/rtl
+5. 手动 Run Synthesis
+6. 手动 Run Implementation
+7. 手动 Generate Bitstream
+8. 烧录后先只接示波器，不接激光，不接 D2-125 Servo Output
+```
+
+### 烧录后应该看到
+
+```text
+OUT1 / CH2：仍是 FPGA mixer+LPF error，当前约 0.15 V
+OUT2 / CH4：跟随 OUT1 error 的小 P-only control
+Kp=2048：OUT2 约为 OUT1 的 1/2
+Ki=0：OUT2 不应慢慢爬升
+output_limit=1500：OUT2 不应超过约 +/-0.18 V
+polarity=0：OUT2 与 OUT1 同向
+```
+
+### 必须停止的现象
+
+```text
+OUT2 接近 +/-1 V
+OUT2 随机跳变
+OUT2 慢慢爬升
+OUT1 原有 error 现象消失
+任意 IN1/IN2 输入超过 +/-1 V
+有人准备把 OUT2 接激光器或 D2-125 Servo Output
+```
+
 ## 2026-06-14 下一步重定义：v2B1 Shadow PI DC Error
 
 当前下一步不是 `ramp_generator`，不是完整 `scan/lock`，而是：
