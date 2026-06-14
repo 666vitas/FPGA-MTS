@@ -207,6 +207,7 @@ logic signed [15-1:0] dac_a_sum, dac_b_sum;
 logic signed [15-1:0] dac_a_sum_official;
 logic signed [15-1:0] dac_b_sum_official;
 logic signed [15-1:0] dac_a_sum_laser;
+logic signed [15-1:0] dac_b_sum_laser;
 
 // Custom laser lock core outputs, still before the official DAC saturation path.
 logic signed [14-1:0] laser_error;
@@ -443,9 +444,10 @@ laser_lock_core #(
 assign dac_a_sum_official = asg_dat[0] + pid_dat[0];
 assign dac_b_sum_official = asg_dat[1] + pid_dat[1];
 assign dac_a_sum_laser    = {laser_error[13], laser_error};
+assign dac_b_sum_laser    = {laser_control[13], laser_control};
 
 assign dac_a_sum = USE_LASER_LOCK_CORE ? dac_a_sum_laser : dac_a_sum_official;
-assign dac_b_sum = dac_b_sum_official;
+assign dac_b_sum = USE_LASER_LOCK_CORE ? dac_b_sum_laser : dac_b_sum_official;
 
 // saturation
 assign dac_a = (^dac_a_sum[15-1:15-2]) ? {dac_a_sum[15-1], {13{~dac_a_sum[15-1]}}} : dac_a_sum[14-1:0];

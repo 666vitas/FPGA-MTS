@@ -18,7 +18,17 @@ module laser_lock_core #(
     // 2: raw mixer output, used to observe IN1 x IN2 before LPF.
     // 3: mixer + post-mixer LPF output, used to observe low/difference/baseband output.
     // other: output 0, so an invalid mode does not drive an unknown signal.
-    parameter int OUTPUT_MODE = 0
+    parameter int OUTPUT_MODE = 0,
+    parameter int CLK_HZ = 125_000_000,
+    parameter int PID_UPDATE_HZ = 10_000,
+    parameter bit PID_ENABLE_DEFAULT = 1'b1,
+    parameter bit PID_HOLD_DEFAULT = 1'b0,
+    parameter bit PID_RESET_INTEGRATOR_DEFAULT = 1'b0,
+    parameter bit PID_POLARITY_DEFAULT = 1'b0,
+    parameter logic signed [15:0] PID_KP_DEFAULT = 16'sd2048,
+    parameter logic signed [15:0] PID_KI_DEFAULT = 16'sd0,
+    parameter logic signed [13:0] PID_OFFSET_DEFAULT = 14'sd0,
+    parameter logic [13:0] PID_OUTPUT_LIMIT_DEFAULT = 14'd1500
 ) (
     // clk_i：模块时钟。
     // 未来接官方 adc_clk，让本模块和 adc_dat[0]/adc_dat[1] 在同一个时钟域。
@@ -48,6 +58,16 @@ module laser_lock_core #(
     logic signed [13:0] selected_signal;
     logic signed [13:0] mixer_signal;
     logic signed [13:0] lpf_signal;
+    logic signed [13:0] protected_error;
+
+    localparam int PID_CE_DIV = (PID_UPDATE_HZ <= 0) ? 1 : ((CLK_HZ / PID_UPDATE_HZ) < 1 ? 1 : (CLK_HZ / PID_UPDATE_HZ));
+    localparam int PID_CE_COUNT_WIDTH = (PID_CE_DIV <= 1) ? 1 : $clog2(PID_CE_DIV);
+
+    logic [PID_CE_COUNT_WIDTH-1:0] pid_ce_cnt_q;
+    logic pid_ce_q;
+    logic signed [31:0] p_term_unused;
+    logic signed [31:0] i_term_unused;
+    logic sat_unused;
 
     mixer_core #(
         .IN_WIDTH  (14),
@@ -102,11 +122,53 @@ module laser_lock_core #(
         .rstn_i  (rstn_i),
         .enable_i(1'b1),
         .data_i  (selected_signal),
-        .data_o  (error_o)
+        .data_o  (protected_error)
     );
 
     // control_o 在第一阶段始终为 0。
     // 这在硬件上等价于把 DAC B 候选控制量固定接地到数字 0。
-    assign control_o = 14'sd0;
+    assign error_o = protected_error;
+
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
+            pid_ce_cnt_q <= '0;
+            pid_ce_q     <= 1'b0;
+        end else if (PID_CE_DIV <= 1) begin
+            pid_ce_cnt_q <= '0;
+            pid_ce_q     <= 1'b1;
+        end else if (pid_ce_cnt_q == PID_CE_DIV - 1) begin
+            pid_ce_cnt_q <= '0;
+            pid_ce_q     <= 1'b1;
+        end else begin
+            pid_ce_cnt_q <= pid_ce_cnt_q + 1'b1;
+            pid_ce_q     <= 1'b0;
+        end
+    end
+
+    pi_controller #(
+        .ERROR_WIDTH(14),
+        .GAIN_WIDTH (16),
+        .OUT_WIDTH  (14),
+        .ACC_WIDTH  (48),
+        .KP_SHIFT   (12),
+        .KI_SHIFT   (12)
+    ) i_pi_controller (
+        .clk_i             (clk_i),
+        .rstn_i            (rstn_i),
+        .pid_ce_i          (pid_ce_q),
+        .enable_i          (PID_ENABLE_DEFAULT),
+        .hold_i            (PID_HOLD_DEFAULT),
+        .reset_integrator_i(PID_RESET_INTEGRATOR_DEFAULT),
+        .polarity_i        (PID_POLARITY_DEFAULT),
+        .error_i           (protected_error),
+        .kp_i              (PID_KP_DEFAULT),
+        .ki_i              (PID_KI_DEFAULT),
+        .offset_i          (PID_OFFSET_DEFAULT),
+        .output_limit_i    (PID_OUTPUT_LIMIT_DEFAULT),
+        .control_o         (control_o),
+        .p_term_o          (p_term_unused),
+        .i_term_o          (i_term_unused),
+        .sat_o             (sat_unused)
+    );
 
 endmodule
