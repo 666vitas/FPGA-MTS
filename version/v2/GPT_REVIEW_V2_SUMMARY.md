@@ -1,5 +1,43 @@
 # GPT_REVIEW_V2_SUMMARY
 
+## 2026-06-14 给 GPT 的 v2B1 判断摘要
+
+当前下一步应判断为：
+
+```text
+v2B1 Shadow PI DC Error
+
+D2-125 DC Error
+-> Red Pitaya IN1
+-> pi_controller
+-> OUT2 示波器
+```
+
+v2A 已完成的是 FPGA 版 D2-125 Servo Core，不是完整 D2-125 替代。v2A 对应 D2-125 的这一段：
+
+```text
+D2-125 Error Input -> Servo PI/PID -> Servo Output
+```
+
+FPGA 中对应：
+
+```text
+error_i -> pi_controller.sv -> control_o
+```
+
+当前真实接线仍由 D2-125 完成扫描和锁定：
+
+```text
+D2-125 Ramp -> 示波器 CH1
+D2-125 DC Error -> 示波器 CH3
+模拟 mixer 后 error -> D2-125 Error Input
+D2-125 Servo Output -> 激光器电源 / 激光器锁定控制端
+D2-125 Aux Servo Output -> 激光器电源 Scan
+Red Pitaya OUT2 -> 后续示波器 CH4
+```
+
+GPT 需要避免把 v2A 仿真通过解释成“FPGA 已锁定激光”。v2A2 的 `tests=165 pass=165 fail=0` 只证明 `pi_controller.sv` 独立 testbench 通过。
+
 本文档给 GPT 一个清晰的 v2 总览，避免把 v2a-1、v2a-2 误解成完整系统版本。
 
 ## 1. 一句话结论

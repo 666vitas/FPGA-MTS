@@ -1,5 +1,37 @@
 # V2_SYSTEM_ARCHITECTURE_AND_STAGE_MAP
 
+## 2026-06-14 v2B1 Shadow PI 更新
+
+当前 v2B 不直接跳到完整系统集成，而先进入：
+
+```text
+v2B1 Shadow PI DC Error 旁路测试
+```
+
+v2A 的定位需要重新强调：
+
+```text
+v2A 已完成 FPGA 版 D2-125 Servo Core；
+v2A 不是完整 D2-125 替代；
+v2A 还没有接入 red_pitaya_top；
+v2A 还没有接 OUT2；
+v2A 还没有生成 bitstream；
+v2A 还没有上板；
+v2A 还没有控制激光。
+```
+
+v2B1 当前链路：
+
+```text
+D2-125 DC Error Monitor
+-> Red Pitaya IN1
+-> v2A 已完成的 pi_controller.sv
+-> Red Pitaya OUT2
+-> 示波器 CH4
+```
+
+v2B1 不替代 D2-125 Ramp，不替代 D2-125 Servo Output，不替代 D2-125 Aux Servo Output。D2-125 继续完成真实扫描、找谱线、缩小扫描范围和锁定。
+
 本文档用于把 v2 从“几个代码子步骤”重新放回完整实验链路里。请把 v2a-1 和 v2a-2 理解成 v2A 里面的 PI 控制器零件测试，不要理解成两个已经可以上板替代 D2-125 的完整系统版本。
 
 ## 1. v2 总目标

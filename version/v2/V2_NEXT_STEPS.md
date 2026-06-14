@@ -1,5 +1,52 @@
 # V2_NEXT_STEPS
 
+## 2026-06-14 下一步重定义：v2B1 Shadow PI DC Error
+
+当前下一步不是 `ramp_generator`，不是完整 `scan/lock`，而是：
+
+```text
+v2B1 Shadow PI DC Error
+
+D2-125 DC Error
+-> Red Pitaya IN1
+-> pi_controller
+-> OUT2 示波器
+```
+
+v2A 已完成的是 FPGA 版 D2-125 Servo Core，不是完整 D2-125 替代。它对应：
+
+```text
+D2-125 Error Input -> Servo PI/PID -> Servo Output
+error_i -> pi_controller.sv -> control_o
+```
+
+v2A2 独立 XSim 结果：
+
+```text
+tb_pi_controller summary: tests=165 pass=165 fail=0
+```
+
+这只说明 `pi_controller.sv` 独立 testbench 通过，不说明它已经接入 `red_pitaya_top`、OUT2、bitstream 或真实激光。
+
+当前真实接线必须作为 v2B1 前提：
+
+```text
+D2-125 Ramp -> 示波器 CH1
+D2-125 DC Error -> 示波器 CH3
+模拟 mixer 后 error -> D2-125 Error Input
+D2-125 Servo Output -> 激光器电源 / 激光器锁定控制端
+D2-125 Aux Servo Output -> 激光器电源 Scan
+Red Pitaya OUT2 -> 后续示波器 CH4
+```
+
+下一条代码任务标题草案：
+
+```text
+v2B1 Shadow PI DC Error to OUT2 RTL Integration
+```
+
+本次不执行该代码任务。
+
 ## 1. 当前状态
 
 ```text

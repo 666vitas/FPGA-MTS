@@ -1,5 +1,64 @@
 # STATUS
 
+## 2026-06-14 当前主线：v2B1 Shadow PI DC Error
+
+当前下一步不是 `ramp_generator`，不是完整 `scan/lock`，也不是 FPGA 直接替代 D2-125。当前下一步定义为：
+
+```text
+v2B1 Shadow PI DC Error 旁路测试
+
+D2-125 DC Error
+-> Red Pitaya IN1
+-> pi_controller
+-> OUT2 示波器
+```
+
+当前真实接线：
+
+```text
+模拟 mixer 后 error -> D2-125 Error Input
+D2-125 Servo Output -> 三通 -> 激光器电源 / 激光器锁定控制端
+D2-125 Aux Servo Output -> 激光器电源 Scan
+D2-125 Ramp -> 示波器 CH1
+D2-125 DC Error -> 示波器 CH3，后续接 Red Pitaya IN1
+Red Pitaya OUT2 -> 后续示波器 CH4
+```
+
+v2A 已完成的是 FPGA 版 D2-125 Servo Core，不是完整 D2-125 替代：
+
+```text
+D2-125 Error Input -> Servo PI/PID -> Servo Output
+对应
+error_i -> pi_controller.sv -> control_o
+```
+
+v2A2 独立仿真报告结论：
+
+```text
+tb_pi_controller summary: tests=165 pass=165 fail=0
+```
+
+这只证明 `pi_controller.sv` 独立 testbench 通过，不证明它已进入主工程、已接 OUT2、已生成 bitstream、已上板或已控制激光。
+
+下一步代码边界：
+
+```text
+允许修改：
+v0.94/rtl/laser_lock_core.sv
+v0.94/rtl/red_pitaya_top.sv
+
+允许新建：
+v0.94/sim/tb_laser_lock_core_v2b1_shadow_pi_dc_error.sv
+
+禁止修改：
+v0.94/rtl/pi_controller.sv
+v0.94/rtl/mixer_core.sv
+v0.94/rtl/lpf_core.sv
+v0.94/rtl/output_protect.sv
+```
+
+本轮文档任务不修改任何 `.sv`，不运行 XSim，不运行 Vivado，不生成 bitstream，不上板。
+
 ## 当前阶段
 
 ```text

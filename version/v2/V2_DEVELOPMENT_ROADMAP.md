@@ -1,5 +1,40 @@
 # V2_DEVELOPMENT_ROADMAP
 
+## 2026-06-14 v2B1 Shadow PI 路线插入
+
+v2A / v2a-1 / v2a-2 已完成的是 FPGA 版 D2-125 Servo Core，不是完整 D2-125 替代。
+
+当前推荐路线改为：
+
+```text
+v2B1：DC Error Shadow PI
+v2C：Vivado 综合 / bitstream
+v2D：OUT2 示波器测试
+v2E：真实 error 开环观察
+v2F：低增益手动替代 Servo Output
+v3：Ramp / Scan / Lock 状态机
+```
+
+v2B1 数据链路：
+
+```text
+D2-125 DC Error Monitor
+-> Red Pitaya IN1
+-> v2A 已完成的 pi_controller.sv
+-> Red Pitaya OUT2
+-> 示波器 CH4
+```
+
+v2B1 只做 Shadow PI：D2-125 继续负责真实扫描和真实锁定；OUT2 只接示波器；不替代 D2-125 Ramp、Servo Output 或 Aux Servo Output。
+
+下一步允许的代码范围：
+
+```text
+允许修改：laser_lock_core.sv、red_pitaya_top.sv
+允许新建：tb_laser_lock_core_v2b1_shadow_pi_dc_error.sv
+禁止修改：pi_controller.sv、mixer_core.sv、lpf_core.sv、output_protect.sv
+```
+
 本文档给出 v2 的主阶段路线。v2a-1 和 v2a-2 只是 v2A 的内部子阶段，不再作为整个 v2 的主体叙述。
 
 ## 1. 总原则

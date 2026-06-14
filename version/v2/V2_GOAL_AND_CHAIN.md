@@ -1,5 +1,43 @@
 # V2_GOAL_AND_CHAIN
 
+## 2026-06-14 v2A 用途与 v2B1 目标链路
+
+v2A 已完成的是 FPGA 版 D2-125 Servo Core，不是完整 D2-125 替代。
+
+```text
+D2-125 Error Input
+-> Servo PI/PID
+-> Servo Output
+
+FPGA 对应：
+
+error_i
+-> pi_controller.sv
+-> control_o
+```
+
+v2A 还没有接入 `red_pitaya_top`，还没有接 OUT2，还没有生成 bitstream，还没有上板，还没有控制激光。
+
+当前下一步是 v2B1 Shadow PI DC Error：
+
+```text
+D2-125 DC Error Monitor
+-> Red Pitaya IN1
+-> pi_controller.sv
+-> Red Pitaya OUT2
+-> 示波器 CH4
+```
+
+当前真实锁定链路仍由 D2-125 完成：
+
+```text
+模拟 mixer 后 error -> D2-125 Error Input
+D2-125 Servo Output -> 激光器电源 / 激光器锁定控制端
+D2-125 Aux Servo Output -> 激光器电源 Scan
+```
+
+不要把当前系统写成“FPGA 已经替代 D2-125”。v2B1 只是第一次让 FPGA 在旁路上计算一个 shadow control。
+
 本文档说明 v2 的总目标和真实信号链。更完整的阶段地图见 `E:\new\fpga_lock\v94\version\v2\V2_SYSTEM_ARCHITECTURE_AND_STAGE_MAP.md`。
 
 ## 1. v2 总目标

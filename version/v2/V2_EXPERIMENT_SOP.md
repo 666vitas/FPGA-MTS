@@ -1,5 +1,70 @@
 # V2_EXPERIMENT_SOP
 
+## 2026-06-14 v2B1 Shadow PI 实验 SOP
+
+当前真实接线：
+
+```text
+D2-125 Ramp -> 示波器 CH1
+D2-125 DC Error -> 示波器 CH3
+模拟 mixer 后 error -> D2-125 Error Input
+D2-125 Servo Output -> 三通 -> 激光器电源 / 激光器锁定控制端
+D2-125 Aux Servo Output -> 激光器电源 Scan
+Red Pitaya OUT2 -> 后续示波器 CH4
+```
+
+v2B1 目标：
+
+```text
+D2-125 DC Error Monitor
+-> Red Pitaya IN1
+-> pi_controller.sv
+-> Red Pitaya OUT2
+-> 示波器 CH4
+```
+
+实验前：
+
+```text
+1. 保持 D2-125 原锁定链路不变；
+2. 确认 D2-125 可以正常扫到谱线并锁定；
+3. 确认 CH1 = D2-125 Ramp；
+4. 确认 CH3 = D2-125 DC Error；
+5. Red Pitaya OUT2 不接任何激光器输入。
+```
+
+上板第一轮：
+
+```text
+1. 烧录 v2B1 bitstream；
+2. Red Pitaya IN1 接 D2-125 DC Error Monitor；
+3. Red Pitaya OUT2 接示波器 CH4；
+4. D2-125 继续锁定激光；
+5. 观察 CH3 和 CH4 的关系。
+```
+
+判断标准：
+
+```text
+CH3 接近 0 时，CH4 应接近 0 或小范围变化；
+CH3 正负变化时，CH4 应有对应方向变化；
+CH4 不能随机跳变；
+CH4 不能长时间饱和；
+CH4 不能超过 output_limit；
+Ki=0 时，CH4 不应出现积分式慢慢爬升。
+```
+
+禁止事项：
+
+```text
+OUT2 不接激光；
+OUT2 不与 D2-125 Servo Output 并联；
+不替代 D2-125 Ramp；
+不替代 D2-125 Aux Servo Output；
+不做 scan/lock 状态机；
+不声称 FPGA 已锁定激光。
+```
+
 本文档服务于 v2 FPGA PI/PID 替代 D2-125 阶段。
 
 ## 1. 上板前检查
@@ -214,4 +279,3 @@ disable -> reset_integrator -> 检查 OUT2 -> 设置参数 -> enable
 - D2-125 是 v2 的基准；
 - FPGA PI 第一版只要求安全可控，不要求立刻优于 D2-125；
 - 若 FPGA PI 不稳定，回退 D2-125，不继续硬推。
-
