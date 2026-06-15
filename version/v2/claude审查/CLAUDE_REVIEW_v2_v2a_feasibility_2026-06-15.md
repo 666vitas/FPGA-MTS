@@ -409,3 +409,202 @@ v2B1 (laser_lock_core with pi_controller) 尚未在 Vivado 中走完完整编译
 **审查结束。本报告未修改任何 RTL、testbench 或 Vivado 工程文件。**
 
 *只读审查工具: Read × 29 次, Glob × 2 次。审查范围覆盖 v0.94/rtl/ (全部 .sv), v0.94/sim/ (核心 testbench), version/v2/v0.94/ (全部 .md), guanfang-v0.94 (pid.sv, pwm.sv)。*
+
+---
+
+# 十二、v2B1 上板前二次审查补充
+
+**二次审查日期**: 2026-06-15  
+**审查触发条件**: Codex 已完成 v2-0 文档同步（见 `CODEX_v2_0_doc_sync_2026-06-15.md`），需在烧录前做最终检查  
+**二次审查范围**: `laser_lock_core.sv` (225行), `pi_controller.sv` (179行), `red_pitaya_top.sv` (706行), `tb_laser_lock_core_v2b1_shadow_pi_dc_error.sv` (209行), `tb_pi_controller.sv` (665行), Codex 执行记录
+
+## 12.1 当前是否可以烧录
+
+**可以烧录上板观察。**
+
+判断依据：
+
+- `tb_laser_lock_core_v2b1_shadow_pi_dc_error.sv` 全部 15 个 check 通过（V2B1_SHADOW_PI_SIM PASS），仿真覆盖了 reset 清零、Kp 缩放、pid_ce 保持、Ki=0 无积分爬升、output_limit 钳位、极性反转、mode3 mixer+LPF+PI 全链路
+- `tb_pi_controller.sv` 全部 60+ 个 check 通过，覆盖 pi_controller 所有功能维度——包括 P/I 计算、anti-windup、积分钳位、极性、hold、reset、enable、disable、饱和恢复、动态限幅、长时稳定性 1000 次迭代、优先级链
+- `red_pitaya_top.sv` 中 `USE_LASER_LOCK_CORE=1'b1`，`LASER_LOCK_OUTPUT_MODE=3`，OUT1/OUT2 路由正确
+- v1ab 已证明 ADC→DAC 基本通路可用（IN1→OUT1 和 IN2→OUT1 均通过板上验证）
+- Codex 的 v2-0 文档同步已将四个过期文档更新到与代码一致，减少了后续误判风险
+
+但这不是无条件的"可以烧录"。烧录后的实验边界必须严格限定在 12.5 节所列的五类实验之内，并遵守 12.6 节的六项禁令。
+
+## 12.2 当前实验边界
+
+逐项明确：
+
+**1. 是否允许烧录后 OUT1/OUT2 接示波器观察？**
+
+允许。这是 v2B1 Shadow PI 的唯一设计目标。OUT1 接示波器 CH2 观察 FPGA mixer+LPF error 信号，OUT2 接示波器 CH4 观察 P-only control 信号。这部分是安全的——output_limit=1500 把 OUT2 限制在约 ±0.18V，远低于 Red Pitaya 的 ±1V 满幅。两个输出都不接任何执行器。
+
+**2. 是否允许 OUT2 接激光器 / PZT / 电流控制端？**
+
+**不允许。** 这是 v2B1 的最核心安全红线。理由：
+
+- 当前是 P-only（Ki=0），无积分消除稳态误差，OUT2 无法在 DC 误差下维持稳定控制
+- PID 参数全部是编译时常量，无法在线调整——如果观察到的 control 行为不符合预期，需要改参数后重新跑 Vivado→bitstream→fpgautil，不能在线修正
+- 缺少输出 slew rate 限制和上电 soft-start——FPGA 上电到 PLL 锁定之间有不确定状态
+- 没有任何 PS 端看门狗——如果 FPGA 逻辑挂死或 AXI 总线异常，OUT2 会保持最后的值或跳变到不确定状态
+- 代码注释里反复写明了"OUT2 is oscilloscope-only""OUT2 must not be used as proof that FPGA has locked the laser""Before OUT2 is connected to any real actuator, the enable strategy must be reviewed and made safe again"——这些不是修辞，是安全断言
+
+**3. 是否允许称为真实闭环锁定实验？**
+
+**不允许。** v2B1 连开环都不完整（无 sweep，无 lock detection，无 FSM），根本谈不上"闭环"。任何声称"v2B1 实现了激光锁定"的说法都是不诚实的。当前可以称为"v2B1 Shadow PI 示波器观察实验"或"v2B1 数字 PI 核心板级行为验证"。
+
+## 12.3 当前代码状态复核
+
+以下为 2026-06-15 二次审查的实际代码逐行核查结果：
+
+| 检查项 | 当前值 | 所在文件:行号 |
+|--------|--------|-------------|
+| 当前是否为 v2B1 Shadow PI | **是** | laser_lock_core.sv:11-12 注释明确写 "v2B1 adds a Shadow PI path" |
+| Ki 是否仍为 0 | **是，`PID_KI_DEFAULT = 16'sd0`** | laser_lock_core.sv:56 |
+| 当前是否仍为 P-only | **是** | laser_lock_core.sv:54 注释 "Ki=0 makes this ... a P-only board observation" |
+| OUT1 输出什么 | **Mixer+LPF 后的 protected error** | laser_lock_core.sv:170 `assign error_o = protected_error`；red_pitaya_top.sv:467 `dac_a_sum_laser = {laser_error[13], laser_error}` |
+| OUT2 输出什么 | **P-only PI control_o，限幅 ±1500 counts (~±0.18V)** | laser_lock_core.sv:218 `control_o`；red_pitaya_top.sv:468 `dac_b_sum_laser = {laser_control[13], laser_control}` |
+| USE_LASER_LOCK_CORE 是否为 1 | **是，`1'b1`** | red_pitaya_top.sv:146 |
+| LASER_LOCK_OUTPUT_MODE 是否为 3 | **是，`3`** | red_pitaya_top.sv:147 |
+| 是否已有 ramp/sweep | **没有** | 全文搜索无 ramp/sweep 模块 |
+| 是否已有 scan/lock FSM | **没有** | 全文搜索无 FSM 模块 |
+| 是否已有在线调参寄存器 | **没有** | 所有 PI 参数为 laser_lock_core 的 parameter，无 sys_bus 映射 |
+
+补充确认：
+
+- `pi_controller.sv` 的 testbench 以 KP_SHIFT=4、KI_SHIFT=4 运行（tb_pi_controller.sv:9-10），而 laser_lock_core 实例化时使用 KP_SHIFT=12、KI_SHIFT=12（laser_lock_core.sv:203-204）。这是**有意为之**：testbench 用较小的 shift 值让数值更大、更容易观察；真实硬件用 KP_SHIFT=12 配合 Kp=2048 使 OUT2 ≈ error_o/2。两者的定点格式逻辑一致，只是缩放不同，不构成风险。
+- Codex v2-0 正确地将 `03_VERSION_EXECUTION_CHECKLISTS.md` 中的 `pid_lock_core.sv` 引用修正为 `pi_controller.sv`（CODEX_v2_0_doc_sync_2026-06-15.md:49），消除了 "创建不存在的文件" 的风险。
+
+## 12.4 烧录前检查清单
+
+以下每一项在烧录前必须逐一确认（打勾项）：
+
+**Vivado 工程检查：**
+
+- [ ] Vivado synthesis 通过（无 error，warning 需逐条审查）
+- [ ] Implementation 通过（无 error，需关注 timing 报告）
+- [ ] Bitstream 成功生成（.bit 文件存在且大小合理）
+- [ ] 确认 top 文件是 `red_pitaya_top.sv`，不含旧版覆盖
+- [ ] 确认 `USE_LASER_LOCK_CORE = 1'b1`（当前代码已是，若 Vivado 中改过需检查）
+- [ ] 确认 `LASER_LOCK_OUTPUT_MODE = 3`（当前代码已是，同上）
+- [ ] 确认 `laser_lock_core.sv`、`mixer_core.sv`、`lpf_core.sv`、`output_protect.sv`、`pi_controller.sv` 全部在 Vivado Design Sources 中，无遗漏无重复
+- [ ] .bit 已转换为 .bit.bin，已 scp 到 Red Pitaya
+
+**接线安全检查：**
+
+- [ ] IN1 输入信号幅度小于 ±1V（经过衰减器或分压，确认在安全范围）
+- [ ] IN2 输入信号幅度小于 ±1V（同上）
+- [ ] OUT1 仅接示波器 CH2（高阻探头，不接任何负载）
+- [ ] OUT2 仅接示波器 CH4（高阻探头，不接任何负载）
+- [ ] 激光器 PZT 控制端 **不接** OUT2
+- [ ] 激光器电流控制端 **不接** OUT2
+- [ ] D2-125 Servo Output 或 Error Input **不接** OUT2
+- [ ] 所有 BNC 线缆标签清晰：示波器探头 vs 激光器反馈，物理上不会接错
+
+**实验环境检查：**
+
+- [ ] 实验台上 OUT2 BNC 线缆目标只有示波器，没有 T 型接头分到别处
+- [ ] 如果 OUT2 经过任何放大器、buffer、转接板，确认这些中间设备没有接到激光器
+- [ ] 实验记录本上标注"v2B1 Shadow PI 上板观察，非闭环实验"
+
+## 12.5 允许进行的上板实验
+
+以下五类实验可以安全进行，不会对设备或实验造成风险：
+
+**1. 空输入安全测试**
+
+- IN1 和 IN2 悬空或接地
+- 上电加载 bitstream
+- 观察 OUT1 是否接近 0V（噪声基底）
+- 观察 OUT2 是否接近 0V
+- 目的：确认 reset 后所有输出安全归零，无异常跳变
+
+**2. IN1 小信号输入测试**
+
+- IN1 接信号发生器，输出 1kHz sine, 100mVpp, 0V offset
+- IN2 悬空
+- 示波器 CH2 接 OUT1，预期看到同频波形（幅度可能不同）
+- 示波器 CH4 接 OUT2，预期看到约一半幅度的 P-only response
+- 目的：确认 ADC→mixer→LPF→OUT1 路径正确，PI 有响应
+
+**3. IN1/IN2 混频观察测试**
+
+- IN1 接信号发生器 CH1，输出 1MHz sine, 200mVpp
+- IN2 接信号发生器 CH2，输出 1.001MHz sine, 200mVpp
+- 示波器 CH2 接 OUT1
+- 预期：OUT1 出现约 1kHz 的低频差拍包络（混频+LPF 的基带输出）
+- 目的：确认 mixer+LPF 链路的真实差频解调能力
+
+**4. OUT1 error_o 示波器观察**
+
+- 实验条件同上面的测试 2 或 3
+- 重点观察 OUT1 的：幅度（不应超过 ±1V）、噪声水平、是否有削顶或饱和
+- 记录 OUT1 波形截图，与 Codex 的仿真预期对比（OUTPUT_MODE=3 时预期 error 约 0.12-0.15V，以实际观察为准）
+- 目的：给未来的 ramp/sweep 设计提供真实的 error 幅度数据
+
+**5. OUT2 P-only control_o 示波器观察**
+
+- 实验条件同上
+- 重点观察 OUT2 的：幅度（预期 ≤ OUT1/2，因 Kp=2048 和 KP_SHIFT=12）、是否被 output_limit=1500 钳位、是否出现 unexpected DC drift（如果有说明 Ki 路径被意外激活或硬件异常）
+- 记录 OUT2 对 IN1 幅度变化的响应：改变 IN1 幅度，OUT2 应同步比例变化
+- 目的：确认 P-only PI 在真实硬件上的行为与仿真一致，为后续启用 Ki 提供基线数据
+
+## 12.6 禁止进行的实验
+
+以下六项在当前 v2B1 阶段**严格禁止**。这不是建议，是安全红线：
+
+**1. 禁止 OUT2 接激光器 PZT**
+
+OUT2 只有 P-only 控制（Ki=0），无积分意味着它像一个固定增益的比例放大器，无法消除稳态误差。如果强行接 PZT 并期望它"稳频"，结果要么是始终有残差（最好的情况），要么是 OUT2 漂移后激光器跳模（更可能的情况）。且没有软件看门狗，无法紧急关断。
+
+**2. 禁止 OUT2 接激光电流控制端**
+
+同上，且激光电流控制的响应带宽和电压范围与 PZT 完全不同。v2B1 的 PI 参数（Kp=2048, output_limit=1500, update rate=10kHz）从未针对电流控制端标定过。错误的参数组合可能让激光器进入不可预测的工作点。
+
+**3. 禁止 OUT2 接 D2-125 Servo Output**
+
+这本质上是把两个不同设计的控制器串在一起——FPGA 的 P-only OUT2 进入 D2-125 的模拟 PID——构成一个不理解的复合控制回路。两台设备的输出范围、地参考、带宽都不匹配。轻则没有效果，重则 D2-125 输入过载。
+
+**4. 禁止声称已经完成闭环锁定**
+
+v2B1 没有 sweep，没有 lock detection，没有 FSM，Ki=0。这些缺失使得"闭环锁定"在技术上不可能。即使碰巧 IN1/IN2 混频后的 error 看起来像锁定误差信号，也不代表系统处于闭环状态。在学术记录中声称"已完成锁定"是不诚实的。
+
+**5. 禁止声称已经完整替代 D2-125**
+
+GPT_README.md 中明确写了"v2a is the first digital replacement of the D2-125 servo core, but it does not yet replace the full D2-125 workflow"。v2B1 替代的是 D2-125 中约 40% 的功能（Error Input → PI 计算），60% 的功能（sweep、scan/lock FSM、relock、lock quality、Aux Servo）完全缺失。这是一个"伺服核心的数字原型"，不是一个"D2-125 的替代品"。
+
+**6. 禁止现在做 CNN/AI/自动锁定**
+
+项目文档中确实规划了 AI 辅助（01_PROJECT_MASTER_PLAN.md 的 stage v9，04_EXPERIMENT_DRIVEN_IMPLEMENTATION_PLAN.md 的 Phase E），但这些是最后的阶段。在一个连 sweep 和 basic PI 闭环都没跑通的系统上做 AI/CNN，属于典型的"过早优化"和"空中楼阁"。正确的顺序是：先把 PI 闭环跑通（v2-1→v2-2），积累至少几十小时的真实锁定数据，再考虑用这些数据训练或辅助判断。
+
+## 12.7 最终结论
+
+直接回答四个问题：
+
+**1. 现在能不能烧录？**
+
+能。前提是你逐项走完 12.4 的检查清单，特别是接线安全部分。仿真全部通过（tb_pi_controller 60+ check, tb_laser_lock_core_v2b1 15 check），v1ab 已验证了硬件通路，没有理由不烧。但烧完之后你只能做 12.5 的五类实验。
+
+**2. 烧录后能不能接激光器？**
+
+不能。OUT1 和 OUT2 都只能接示波器。OUT2 在 v2B1 的安全模型中是"oscilloscope-only"，代码注释里写了至少五遍。等 v2-1（启用小 Ki + 电子学回环验证）和 v2-2（加安全保护 + 外部放大器确认）全部完成后，再讨论接激光器。
+
+**3. 烧录后能不能称为锁定实验？**
+
+不能。这不是锁定实验，是"Shadow PI 板级行为观察实验"。你可以在笔记里写"v2B1 上板观察，OUT2 P-only control 行为与仿真一致"，但不能写"实现了 FPGA 激光锁定"。两者的区别不是措辞问题——前者是如实记录观察结果，后者是虚假声称完成了一个技术上不可能在当前代码下完成的功能。
+
+**4. 下一步是上板观察，还是继续改代码？**
+
+**上板观察。** 当前代码状态已经达到了"可以烧录、值得观察"的门槛。你需要先看到真实的 OUT1 和 OUT2 在示波器上的波形，记录以下基线数据——这些数据会直接影响 v2-1 的 Ki 取值和 v2-2 的 sweep 幅度设计：
+
+- OUT1 error 在实际 IN1/IN2 信号下的 DC offset 和波动幅度
+- OUT2 control 对 IN1 幅度变化的 P-only 响应
+- PI update rate 10kHz 在示波器上是否可见（OUT2 的台阶状变化）
+- 噪声基底是否在可接受范围内
+
+拿到这些数据后，再进入 v2-1（改一行 Ki 参数，重新编译，再烧）。
+
+---
+
+**二次审查结束。本审查未新增任何文件，未修改任何 RTL、testbench 或 Vivado 工程文件，仅在已有审查报告末尾追加本章节。**
