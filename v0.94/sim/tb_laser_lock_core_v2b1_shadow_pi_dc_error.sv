@@ -1,5 +1,19 @@
 `timescale 1ns/1ps
 
+// v2B1 FPGA MTS Error Shadow PI behavior test.
+//
+// Historical naming note:
+// The "dc_error" suffix in this filename is a historical name. The current
+// valid test is NOT "D2-125 DC Error enters Red Pitaya IN1".
+//
+// Current valid chain under test:
+// IN1 + IN2 -> mixer_core -> lpf_core -> error_o -> OUT1
+// and the same error_o/protected_error -> pi_controller -> control_o -> OUT2.
+//
+// The testbench verifies board-observable behavior through laser_lock_core's
+// public ports: reset safety, OUT1 error visibility, OUT2 P-only scaling,
+// output_limit, polarity, Ki=0 no integral climb, and pid_ce hold behavior.
+
 module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
 
     logic clk = 1'b0;
@@ -46,6 +60,9 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
         abs_int = (value < 0) ? -value : value;
     endfunction
 
+    // dut_direct uses OUTPUT_MODE=0 as a simple passthrough source. It makes
+    // the OUT1 error value exact, so the test can check Kp=2048 scaling and
+    // pid_ce hold behavior without depending on LPF settling.
     laser_lock_core #(
         .OUTPUT_MODE(0),
         .CLK_HZ(8),
@@ -62,6 +79,8 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
         .control_o(control_direct)
     );
 
+    // dut_limit checks that the Shadow PI output_limit protects OUT2 and keeps
+    // the control signal small before any board experiment.
     laser_lock_core #(
         .OUTPUT_MODE(0),
         .CLK_HZ(1),
@@ -78,6 +97,8 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
         .control_o(control_limit)
     );
 
+    // dut_reverse checks polarity reversal. This is the knob used if OUT2 is
+    // observed to move opposite to the intended control direction.
     laser_lock_core #(
         .OUTPUT_MODE(0),
         .CLK_HZ(1),
@@ -95,6 +116,8 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
         .control_o(control_reverse)
     );
 
+    // dut_mode3 checks the real v2B1 mode: IN1/IN2 are mixed, post-mixer LPF
+    // creates the error, OUT1 observes that error, and the same error feeds PI.
     laser_lock_core #(
         .OUTPUT_MODE(3),
         .CLK_HZ(1),

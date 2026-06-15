@@ -1,5 +1,80 @@
 # 06_V2_PID_DEVELOPMENT_RULES
 
+## 0. 2026-06-15 v2B1 当前有效补充规则
+
+当前 v2A 已完成独立 `pi_controller.sv` 的 P/I/anti-windup 基础开发。v2B1 的当前有效阶段是：
+
+```text
+v2B1 FPGA MTS Error Shadow PI
+```
+
+v2B1 在明确授权下允许修改：
+
+```text
+v0.94/rtl/laser_lock_core.sv
+v0.94/rtl/red_pitaya_top.sv
+v0.94/sim/ 中对应 laser_lock_core 的 testbench
+```
+
+v2B1 当前有效链路是：
+
+```text
+Red Pitaya IN1 -> 混频前 PD/MTS 信号，必须在 +/-1 V 内
+Red Pitaya IN2 -> REF，必须在 +/-1 V 内
+
+IN1 + IN2
+-> mixer_core
+-> lpf_core
+-> output_protect
+-> error_o
+-> OUT1
+
+同时：
+
+error_o
+-> pi_controller
+-> control_o
+-> OUT2
+```
+
+v2B1 必须保持：
+
+```text
+OUT1 保持 error observation
+OUT2 只接示波器
+OUT2 不接激光
+OUT2 不接 D2-125 Servo Output
+OUT2 不接 Scan
+D2-125 DC Error 不作为 Red Pitaya IN1 输入
+Codex 不操作 Vivado，Vivado 由用户手动完成
+```
+
+### enable 默认值规则
+
+一般安全规则：
+
+```text
+OUT2 接真实执行器前，enable 默认必须为 0。
+```
+
+v2B1 示波器 Shadow PI 例外：
+
+```text
+为了让 OUT2 在示波器上可见，允许 PID_ENABLE_DEFAULT=1。
+```
+
+但必须同时满足：
+
+```text
+Ki=0
+output_limit 很小
+OUT2 只接示波器
+文档明确禁止接激光
+用户手动确认接线
+```
+
+该例外不能自动延伸到 v2D/v2E/v2F 的真实执行器测试。
+
 ## 1. v2 目标
 
 v2 目标是用 FPGA PI/PID 逐步替代 D2-125 的基本 servo 功能。

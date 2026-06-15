@@ -94,7 +94,9 @@ OUT1 被破坏：
 回退，检查 OUTPUT_MODE=3、mixer_core、lpf_core、output_protect 是否被误改。
 ```
 
-## 2026-06-14 v2B1 Shadow PI 实验 SOP
+## 2026-06-14 旧方案记录：v2B1 Shadow PI DC Error 实验 SOP（已废弃 / 禁止执行）
+
+> 注意：本节保留为历史记录，不再作为当前实验 SOP。禁止执行“D2-125 DC Error -> Red Pitaya IN1”。当前有效 SOP 是本文档最前面的“v2B1 FPGA MTS Error Shadow PI 上板前 SOP”。
 
 当前真实接线：
 

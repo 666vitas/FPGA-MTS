@@ -1,5 +1,32 @@
 # V2_SYSTEM_ARCHITECTURE_AND_STAGE_MAP
 
+## 2026-06-15 v2B1 FPGA MTS Error Shadow PI（当前有效）
+
+当前 v2B1 有效路线是 FPGA MTS Error Shadow PI，不是 D2-125 DC Error 旁路进板子。
+
+```text
+Red Pitaya IN1 -> 混频前 PD/MTS 信号，必须在 +/-1 V 内
+Red Pitaya IN2 -> REF，必须在 +/-1 V 内
+
+IN1 + IN2
+-> mixer_core
+-> lpf_core
+-> output_protect
+-> error_o
+-> OUT1
+
+同时：
+
+error_o
+-> pi_controller
+-> control_o
+-> OUT2
+```
+
+OUT1 继续作为 FPGA mixer+LPF error observation。OUT2 当前只接示波器 CH4，观察 P-only Shadow PI control，不接激光、不接 D2-125 Servo Output、不接 Scan。
+
+本文档后续旧 “Shadow PI DC Error” 描述仅作为历史记录，已废弃，禁止执行。
+
 ## 2026-06-14 v2B1 Shadow PI 更新
 
 当前 v2B 不直接跳到完整系统集成，而先进入：

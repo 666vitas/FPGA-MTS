@@ -210,6 +210,13 @@ logic signed [15-1:0] dac_a_sum_laser;
 logic signed [15-1:0] dac_b_sum_laser;
 
 // Custom laser lock core outputs, still before the official DAC saturation path.
+// In v2B1:
+// - OUT1 / DAC A = laser_error, used on oscilloscope CH2 to observe the FPGA
+//   mixer+LPF error signal.
+// - OUT2 / DAC B = laser_control, used on oscilloscope CH4 to observe the
+//   Shadow PI control signal.
+// OUT2 is oscilloscope-only in this stage. Do not connect it to a laser
+// actuator, D2-125 Servo Output tee, or Scan input.
 logic signed [14-1:0] laser_error;
 logic signed [14-1:0] laser_control;
 
@@ -440,12 +447,19 @@ laser_lock_core #(
 // DAC IO
 ////////////////////////////////////////////////////////////////////////////////
 
-// Sumation of ASG and PID signal perform saturation before sending to DAC 
+// Sumation of ASG and PID signal perform saturation before sending to DAC.
+// The laser path only changes the data source selected for DAC A/B. It keeps
+// the existing DAC saturation, signed-to-unsigned conversion, and ODDR output
+// structure below; PLL, ADC IO, PS, AXI, DDR, and DAC IO primitives are not
+// changed here.
 assign dac_a_sum_official = asg_dat[0] + pid_dat[0];
 assign dac_b_sum_official = asg_dat[1] + pid_dat[1];
 assign dac_a_sum_laser    = {laser_error[13], laser_error};
 assign dac_b_sum_laser    = {laser_control[13], laser_control};
 
+// USE_LASER_LOCK_CORE=1:
+//   DAC A / OUT1 shows laser_error.
+//   DAC B / OUT2 shows laser_control.
 assign dac_a_sum = USE_LASER_LOCK_CORE ? dac_a_sum_laser : dac_a_sum_official;
 assign dac_b_sum = USE_LASER_LOCK_CORE ? dac_b_sum_laser : dac_b_sum_official;
 

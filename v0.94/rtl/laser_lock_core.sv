@@ -21,15 +21,29 @@ module laser_lock_core #(
     // 3: mixer + post-mixer LPF output, used to observe low/difference/baseband output.
     // other: output 0, so an invalid mode does not drive an unknown signal.
     parameter int OUTPUT_MODE = 0,
+    // CLK_HZ is the input clock rate. In the real Red Pitaya top level this is
+    // the ADC clock domain, about 125 MHz. The PI path must stay in this clock
+    // domain; do not create a separate PI clock.
     parameter int CLK_HZ = 125_000_000,
+    // PID_UPDATE_HZ is the PI update rate. A one-cycle clock-enable pulse is
+    // generated from CLK_HZ so pi_controller updates at this slower rate.
     parameter int PID_UPDATE_HZ = 10_000,
+    // v2B1 enables the controller only because OUT2 is restricted to an
+    // oscilloscope-only Shadow PI test. Before OUT2 is connected to any real
+    // actuator, the enable strategy must be reviewed and made safe again.
     parameter bit PID_ENABLE_DEFAULT = 1'b1,
     parameter bit PID_HOLD_DEFAULT = 1'b0,
     parameter bit PID_RESET_INTEGRATOR_DEFAULT = 1'b0,
     parameter bit PID_POLARITY_DEFAULT = 1'b0,
+    // Kp=2048 with KP_SHIFT=12 makes OUT2 approximately one half of error_o.
+    // If OUT1 error is about 0.15 V, the expected OUT2 control is about 0.075 V.
     parameter logic signed [15:0] PID_KP_DEFAULT = 16'sd2048,
+    // Ki=0 makes this first Shadow PI integration a P-only board observation.
+    // This avoids a slow integrator climb while the output is only being viewed.
     parameter logic signed [15:0] PID_KI_DEFAULT = 16'sd0,
     parameter logic signed [13:0] PID_OFFSET_DEFAULT = 14'sd0,
+    // 1500 counts is roughly +/-0.18 V on the Red Pitaya output scale. It keeps
+    // OUT2 far below the +/-1 V full-scale range during the oscilloscope test.
     parameter logic [13:0] PID_OUTPUT_LIMIT_DEFAULT = 14'd1500
 ) (
     // clk_i：模块时钟。
@@ -60,8 +74,15 @@ module laser_lock_core #(
     logic signed [13:0] selected_signal;
     logic signed [13:0] mixer_signal;
     logic signed [13:0] lpf_signal;
+    // protected_error is the 14-bit signed error after output_protect.
+    // OUT1 shows this same protected_error, and pi_controller.error_i uses it
+    // too. This makes the oscilloscope-visible OUT1 error and the OUT2 control
+    // calculation come from the same FPGA signal.
     logic signed [13:0] protected_error;
 
+    // Divide the ADC clock into a single-cycle clock-enable pulse for PI
+    // updates. This is not a new clock. It prevents PI/I-term updates from
+    // happening on every 125 MHz sample.
     localparam int PID_CE_DIV = (PID_UPDATE_HZ <= 0) ? 1 : ((CLK_HZ / PID_UPDATE_HZ) < 1 ? 1 : (CLK_HZ / PID_UPDATE_HZ));
     localparam int PID_CE_COUNT_WIDTH = (PID_CE_DIV <= 1) ? 1 : $clog2(PID_CE_DIV);
 
@@ -146,6 +167,11 @@ module laser_lock_core #(
         end
     end
 
+    // pi_controller is the FPGA version of the D2-125 servo core's basic
+    // Error Input -> Servo PI/PID -> Servo Output path. It is not the full
+    // D2-125: there is no ramp, Aux Servo Output, scan/lock FSM, peak search,
+    // relock, or lock-quality logic here. With Ki=0 in v2B1, this instance is
+    // used as P-only Shadow PI. red_pitaya_top routes control_o to OUT2.
     pi_controller #(
         .ERROR_WIDTH(14),
         .GAIN_WIDTH (16),

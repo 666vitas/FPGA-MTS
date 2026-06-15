@@ -1,5 +1,21 @@
 # 02_CODEX_WORKFLOW_COMPLETE
 
+## 0.0 当前项目 Vivado 操作边界（2026-06-15）
+
+当前项目中，Codex 默认永远不操作 Vivado。即使独立 XSim 已通过，也不能自动运行：
+
+```text
+Vivado Add Sources
+synthesis
+implementation
+Generate Bitstream
+write_bitstream
+生成 bit/bin
+烧录 Red Pitaya
+```
+
+Vivado Add Sources、综合、实现、生成 bit/bin、烧录都由用户手动完成。Codex 只能给出手动操作清单、检查 RTL/SIM/MD、运行被明确允许的独立 XSim。
+
 当前状态参见 [[STATUS]]。本文件合并自原 02_CODEX_GPT_WORKFLOW_RULES、05_CODEX_SKILL_PROMPT_PREFIX_RULES、06_TASK_ROUTER_RULES。
 
 ## 0. Codex 与 GPT 分工

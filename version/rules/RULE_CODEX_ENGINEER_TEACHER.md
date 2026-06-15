@@ -1,5 +1,19 @@
 # RULE_CODEX_ENGINEER_TEACHER
 
+## 0.0 RTL 注释教学要求补充（2026-06-15）
+
+涉及新 RTL 或修改 RTL 时，代码注释必须解释硬件等价物和板上现象，不能只写一行短注释。
+
+至少说明：
+
+```text
+这段 RTL 在 FPGA 里等价于什么硬件连接/寄存器/计数器/选择器；
+它对应真实激光稳频链路中的哪一段；
+OUT1/OUT2 在示波器上分别应该看到什么；
+如果接错或参数过大，会出现什么风险；
+是否修改了 ADC/PLL/ODDR/PS/AXI/DDR/XDC 等底层结构。
+```
+
 ## 0. 与其他规则的关系
 
 如果 `01_TEACHING_ENGINEER_RULES.md` 与本文件重复，以本文件作为输出格式约束，以 `01_TEACHING_ENGINEER_RULES.md` 作为教学内容补充。

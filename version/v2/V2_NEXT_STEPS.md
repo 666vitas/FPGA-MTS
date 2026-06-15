@@ -78,7 +78,9 @@ OUT1 原有 error 现象消失
 有人准备把 OUT2 接激光器或 D2-125 Servo Output
 ```
 
-## 2026-06-14 下一步重定义：v2B1 Shadow PI DC Error
+## 2026-06-14 旧方案记录：v2B1 Shadow PI DC Error（已废弃 / 禁止执行）
+
+> 注意：本节保留为历史记录，不再作为当前下一步。禁止执行“D2-125 DC Error -> Red Pitaya IN1”。当前有效下一步见本文档最前面的“v2B1 Shadow PI 当前下一步”。
 
 当前下一步不是 `ramp_generator`，不是完整 `scan/lock`，而是：
 

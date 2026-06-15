@@ -85,7 +85,9 @@ Codex 不修改 redpitaya.xpr
 
 Vivado、bitstream、bin 和烧录由用户手动完成。
 
-## 2026-06-14 当前主线：v2B1 Shadow PI DC Error
+## 2026-06-14 旧方案记录：v2B1 Shadow PI DC Error（已废弃 / 禁止执行）
+
+> 注意：本节保留为历史记录，不再作为当前执行路线。禁止把 D2-125 DC Error 或 D2-125 Servo Output 接入 Red Pitaya IN1。当前有效主线见本文档最前面的“v2B1 FPGA MTS Error Shadow PI”。
 
 当前下一步不是 `ramp_generator`，不是完整 `scan/lock`，也不是 FPGA 直接替代 D2-125。当前下一步定义为：
 
