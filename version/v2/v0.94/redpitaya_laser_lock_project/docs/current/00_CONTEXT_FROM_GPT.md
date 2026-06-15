@@ -1,5 +1,43 @@
 # 项目上下文说明
 
+## v2-0 状态同步补充（2026-06-15）
+
+本文件早期内容写于 v1ab / v1 前期阶段，部分“当前不做 PID / 官方工程只读 / 不接 top”的说法已经落后于真实工程。以 `E:\new\fpga_lock\v94\v0.94` 当前实际代码为准，真实状态如下：
+
+```text
+当前不是“PID 未实现”。
+当前 v2B1 已经集成 mixer_core + lpf_core + output_protect + pi_controller。
+pi_controller.sv 是 PI 控制器，不是完整 PID；它没有 D 项。
+当前 PID_KI_DEFAULT = 0，所以实际运行模式是 P-only Shadow PI。
+OUT1 当前用于 error_o 示波器观察。
+OUT2 当前用于 control_o 示波器观察。
+OUT2 只是示波器观察级，不接激光器，不接 D2-125 Servo Output，不接 Scan。
+当前还没有真正接入激光器闭环。
+当前还没有 ramp/sweep 模块。
+当前还没有 scan/lock/relock FSM。
+当前还没有在线寄存器调参接口，Kp/Ki/limit 等仍是编译时参数。
+```
+
+当前有效 v2B1 数据链路是：
+
+```text
+IN1(PD/MTS) + IN2(REF)
+-> mixer_core
+-> lpf_core
+-> output_protect
+-> error_o
+-> OUT1
+
+同时：
+
+error_o/protected_error
+-> pi_controller
+-> control_o
+-> OUT2
+```
+
+因此，下面旧章节中的“PID 当前不做”“当前只做学习、文档和规划”“不直接接入官方 top”等内容，只能按历史阶段理解，不能作为 2026-06-15 之后的当前状态。
+
 ## 0. 本文件作用
 
 本文件记录当前项目的背景、目标和边界。
@@ -75,11 +113,11 @@ error      -> Red Pitaya OUT1
 | 内容 | 当前状态 |
 |---|---|
 | sweep / scan | 当前不做 |
-| PID | 当前不做 |
+| PID / PI | v2B1 已经集成 P-only Shadow PI，Ki=0，OUT2 可观察 `control_o`，但尚未真实闭环 |
 | AI | 当前不做 |
 | scan / lock / relock FSM | 当前不做 |
 | 直接控制激光器 | 当前不做 |
-| 修改官方 `red_pitaya_top.sv` | 当前不做 |
+| 修改官方 `red_pitaya_top.sv` | v2B1 已在真实工程中接入 `laser_lock_core` 输出路由；本轮 v2-0 不再修改 RTL |
 | 修改官方 Vivado 工程 | 当前不做 |
 
 ## 5. 当前原则
@@ -146,11 +184,11 @@ redpitaya_laser_lock_project\experiment_logs
 ## 9. 已确认
 
 - 实验背景是 MTS 激光稳频。
-- 当前只做 `PD/REF -> FPGA -> error signal` 的前期规划。
+- 当前真实工程已经从 `PD/REF -> FPGA -> error signal` 推进到 v2B1：`error_o -> pi_controller -> control_o` 的 P-only Shadow PI 示波器观察。
 - 当前不做 sweep。
-- 当前不做 PID。
+- 当前不创建新的 PID 模块；实际使用 `pi_controller.sv`，不创建 `pid_lock_core.sv`。
 - 当前不做 AI。
-- 官方工程当前只读。
+- 本轮 v2-0 文档同步不修改 RTL/testbench/Vivado；历史“官方工程只读”不再代表真实代码从未集成。
 - 自定义内容放在 `redpitaya_laser_lock_project`。
 
 ## 10. 不确定，需要人工确认
@@ -163,19 +201,20 @@ redpitaya_laser_lock_project\experiment_logs
 
 ## 11. 下一步建议
 
-不要立即写 Verilog。
+不要立即写新的 Verilog，也不要创建 `pid_lock_core.sv`。
 
-建议按以下顺序继续：
+下一步只建议进入 v2-1 的最小安全演示准备：
 
 ```text
-docs\current\02_TOP_LEARNING_OUTLINE.md
-learning\L01_top_overview.md
-learning\L02_adc_path.md
-learning\L03_dac_path.md
+启用很小 Ki
+保持 output_limit 很小
+由用户手动完成 Vivado 编译
+先做电子学回环测试
+OUT2 仍然只接示波器，不接激光器
 ```
 
 ## 12. 给 GPT 审查的问题
 
 1. 当前是否应继续保持官方工程只读？
-2. `PD/REF -> FPGA -> error signal` 是否仍是当前唯一主线？
-3. 是否确认 sweep、PID、AI 全部后置？
+2. v2-1 启用很小 Ki 前，电子学回环的输入幅度、输出限幅和安全停止条件是什么？
+3. sweep、scan/lock/relock、AI/CNN 是否继续后置到 v2 后续或 v3/v5？

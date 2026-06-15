@@ -22,6 +22,32 @@ Step 3: 两步都真实上板通过后，才进入 v1c_mixer_only
 
 因此当前下一步不是写 mixer，而是做 `v1ab-1：IN1 -> OUT1`。
 
+## v2-0 状态同步补充（2026-06-15）
+
+上面的 v1ab/v1c/v1d 清单保留为历史执行记录。根据当前真实工程和 Claude 审查报告，v2B1 已经不是“准备写 PID”的阶段，而是已经把 PI 控制器接入主链路的 P-only Shadow PI 阶段：
+
+```text
+IN1 + IN2 -> mixer_core -> lpf_core -> output_protect -> error_o -> OUT1
+error_o/protected_error -> pi_controller -> control_o -> OUT2
+```
+
+当前确认：
+
+```text
+pi_controller.sv 已实现并集成到 laser_lock_core.sv。
+实际使用 pi_controller.sv，不创建 pid_lock_core.sv。
+pi_controller 是 PI 控制器，不是完整 PID。
+当前 Ki=0，所以运行模式是 P-only Shadow PI。
+OUT1 用于 error_o 示波器观察。
+OUT2 用于 control_o 示波器观察。
+OUT2 尚未接激光器闭环。
+当前没有 ramp/sweep。
+当前没有 scan/lock FSM。
+当前没有在线寄存器调参接口。
+```
+
+下一步只能进入 v2-1：启用很小 Ki、保持 output_limit 很小、用户手动 Vivado 编译、电子学回环测试、OUT2 仍然只接示波器。
+
 ## v1ab-1：Vivado 编译检查
 
 当前状态：这一项已经完成过。以后如果改 `LASER_LOCK_OUTPUT_MODE` 或重新生成 bitstream，仍要按本节重新检查。
@@ -408,39 +434,46 @@ v1ab IN2 -> OUT1 已真实上板通过
 
 ### 需要理解什么
 
-- `v2_fpga_pid` 是用 FPGA 自己算 PID；
-- `error_o` 变成 PID 输入；
-- `control_o` 变成控制输出候选；
+- `v2_fpga_pid` 旧名容易误导；当前实际是 `pi_controller.sv` 做 PI，不是完整 PID；
+- v2B1 已经把 `error_o/protected_error` 接入 `pi_controller`；
+- `control_o` 已经成为 OUT2 的 Shadow PI 观察输出；
+- 当前 `PID_KI_DEFAULT=0`，所以实际是 P-only Shadow PI；
 - `OUT2` 必须先接示波器或假负载。
 
 ### 需要检查哪些文件
 
-- `pid_lock_core.sv`
+- `pi_controller.sv`
 - `laser_lock_core.sv`
-- PID testbench
-- PID safety report
+- `red_pitaya_top.sv`
+- `tb_pi_controller.sv`
+- `tb_laser_lock_core_v2b1_shadow_pi_dc_error.sv`
+- PI safety report / v2B1 记录
 
 ### Vivado 操作
 
-- Add Sources 加入 PID；
+- 不创建 `pid_lock_core.sv`；
+- 如果 Vivado Sources 中缺少 `pi_controller.sv`，由用户手动 Add Sources；
 - 检查乘法器和 timing；
 - 生成测试 bitstream。
 
 ### 实验操作
 
-- 假 error 输入；
+- v2-1 先启用很小 Ki；
+- 保持 `output_limit` 很小；
+- 先做电子学回环或假 error 输入；
 - `OUT2 -> 示波器`；
 - 不直接闭环激光器。
 
 ### 成功标准
 
 - `OUT2` 对 error 有合理响应；
+- P-only / 小 Ki 响应方向可解释；
 - reset/disable 时安全；
 - 不积分失控。
 
 ### 失败排查
 
-- PID disable；
+- PI disable；
 - 积分项清零；
 - 回到 v1g。
 

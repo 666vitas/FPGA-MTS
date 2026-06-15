@@ -1,5 +1,42 @@
 # 当前状态总结
 
+## v2-0 状态同步补充（2026-06-15）
+
+根据 Claude 独立审查报告和 `E:\new\fpga_lock\v94\v0.94` 当前实际 RTL/SIM，本文档早期 v1ab 状态已经落后。当前不能再说“PID 还没有实现”或“control_o 恒为 0”。真实状态是：
+
+```text
+v2B1 已经集成 mixer_core + lpf_core + output_protect + pi_controller。
+pi_controller.sv 是 PI 控制器，不是完整 PID。
+当前 Ki=0，因此实际运行模式是 P-only Shadow PI。
+OUT1 当前用于 error_o 示波器观察。
+OUT2 当前用于 control_o 示波器观察。
+OUT2 目前只允许示波器观察，不接激光器。
+当前还没有真实激光闭环。
+当前还没有 ramp/sweep 模块。
+当前还没有 scan/lock FSM。
+当前还没有在线寄存器调参接口。
+```
+
+当前有效数据链路：
+
+```text
+IN1 + IN2
+-> mixer_core
+-> lpf_core
+-> output_protect
+-> error_o
+-> OUT1
+
+同时：
+
+error_o/protected_error
+-> pi_controller
+-> control_o
+-> OUT2
+```
+
+因此，下面旧章节中的 v1ab 描述只作为历史阶段记录；当前总状态应以本 v2-0 补充为准。
+
 ## 0. 本文件作用
 
 本文件总结当前项目已经完成什么、还没有完成什么，以及下一步最小目标是什么。它面向 FPGA / Verilog / Vivado 新手，尽量用“总账本”的方式帮你判断项目现在站在哪个位置。
@@ -14,7 +51,7 @@
 - `L04_clock_reset`：整理了 `adc_clk`、`adc_rstn` 等时钟复位关系。
 - `IMPLEMENTATION_PLAN_mts_error_chain_v1`：明确第一阶段使用外部 `4.6 MHz REF`，FPGA 不生成 REF、不驱动 EOM，只做数字处理链路。
 - `v1ab_passthrough_debug`：把 v1a `IN1 -> OUT1` 和 v1b `IN2 -> OUT1` 合并为一个可通过 `OUTPUT_MODE` 选择的调试版本。
-- `laser_lock_core.sv`：已实现 `pd_i/ref_i` 直通选择、`error_o` 输出和 `control_o = 0`。
+- 历史 `v1ab` 版 `laser_lock_core.sv`：曾用于 `pd_i/ref_i` 直通选择、`error_o` 输出和 `control_o = 0`；当前 v2B1 已不再是这个状态。
 - `output_protect.sv`：已实现基础输出保护寄存器，用于 reset 时输出安全值。
 - `tb_laser_lock_core_v1ab.sv`：已覆盖 `OUTPUT_MODE=0` 和 `OUTPUT_MODE=1` 的仿真检查。
 - `BOARD_TEST_v1ab`：已写出 `IN1 -> OUT1` 和 `IN2 -> OUT1` 的上板测试 SOP。
@@ -45,9 +82,9 @@ BIN FILE loaded through FPGA manager successfully
 
 ## 2. 当前 RTL 状态
 
-当前 `v1ab` 的 RTL 行为很简单，目的是验证输入输出通路，不是实现 MTS 解调。
+历史 `v1ab` 的 RTL 行为很简单，目的是验证输入输出通路，不是实现 MTS 解调。当前真实工程已经推进到 v2B1 Shadow PI，不能再把下面内容当成当前最新 RTL 状态。
 
-`laser_lock_core.sv` 当前状态：
+历史 `v1ab` 版 `laser_lock_core.sv` 状态：
 
 ```text
 OUTPUT_MODE = 0: pd_i  -> error_o
@@ -55,17 +92,35 @@ OUTPUT_MODE = 1: ref_i -> error_o
 control_o = 0
 ```
 
+上述是旧 v1ab 状态。当前 v2B1 的真实状态是：
+
+```text
+OUTPUT_MODE = 3: mixer_core + lpf_core -> output_protect -> error_o -> OUT1
+error_o/protected_error -> pi_controller -> control_o -> OUT2
+PID_KP_DEFAULT = 2048
+PID_KI_DEFAULT = 0
+PID_OUTPUT_LIMIT_DEFAULT = 1500
+```
+
+已经实现并集成：
+
+- mixer_core；
+- lpf_core；
+- output_protect；
+- pi_controller；
+- OUT1 error_o 路由；
+- OUT2 control_o 路由。
+
 还没有实现：
 
-- mixer；
-- LPF；
-- BPF；
-- PID；
-- sweep；
-- lock/relock FSM；
-- AI。
+- 非零 Ki 的真实电子学回环验证；
+- ramp/sweep；
+- scan/lock/relock FSM；
+- 在线寄存器调参接口；
+- AI/CNN；
+- 真实激光器闭环。
 
-所以当前版本不能称为真正的 MTS error generator。它只是上板调试用的“通路验证版”。
+所以当前版本可以称为“v2B1 P-only Shadow PI 示波器观察版”，不能称为完整 D2-125 替代，也不能称为已完成 PID 闭环锁激光。
 
 ## 3. 当前 Vivado / top 状态需要确认
 

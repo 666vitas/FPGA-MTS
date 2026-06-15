@@ -2,6 +2,33 @@
 
 本文件把项目从当前 `v1ab_passthrough_debug` 到最终 AI-assisted locking 的路线拆成小版本。每个版本只增加一个主要能力。
 
+## v2-0 状态同步补充（2026-06-15）
+
+根据 Claude 独立审查报告和当前真实工程，PI core 已经提前进入 v2B1，不应再把 PI/PID 写成很后面的全新模块任务。当前真实状态：
+
+```text
+v2B1 已经集成 mixer_core + lpf_core + output_protect + pi_controller。
+pi_controller.sv 是 PI 控制器，不是完整 PID。
+当前 Ki=0，因此运行模式是 P-only Shadow PI。
+OUT1 = error_o 示波器观察。
+OUT2 = control_o 示波器观察。
+OUT2 还没有接激光器闭环。
+当前还没有 ramp/sweep。
+当前还没有 scan/lock FSM。
+当前还没有在线寄存器调参接口。
+```
+
+后续 v2 的重点不是创建 `pid_lock_core.sv`，而是：
+
+```text
+启用很小 Ki
+保持 output_limit 很小
+完成 Vivado 编译
+完成电子学回环测试
+OUT2 仍然只接示波器
+之后再进入 ramp/sweep 与 scan/lock
+```
+
 当前统一主线：
 
 ```text
@@ -61,7 +88,7 @@ FPGA v1 后续要逐步等效替代：
 输出：
 
 - `error_o -> OUT1`；
-- `control_o = 0`，`OUT2` 不应有异常控制输出。
+- 历史 v1ab 阶段为 `control_o = 0`，`OUT2` 不应有异常控制输出；当前 v2B1 已改为 `control_o -> OUT2` 的 P-only Shadow PI 观察输出。
 
 要新增的 RTL：
 
@@ -494,13 +521,23 @@ Vivado 操作：
 目标：
 
 ```text
-error_o -> digital PID -> control_o -> OUT2
+error_o -> pi_controller -> control_o -> OUT2
+```
+
+状态同步：
+
+```text
+本节旧标题中的 PID 是历史叫法。
+当前实际使用 pi_controller.sv，不创建 pid_lock_core.sv。
+pi_controller.sv 已实现并集成到 laser_lock_core.sv。
+当前 Ki=0，所以 v2B1 是 P-only Shadow PI 示波器观察版。
+当前不是“PID 未实现”，而是“PI 已集成但尚未真实闭环”。
 ```
 
 输入：
 
 - FPGA error；
-- PID 参数；
+- PI 参数；
 - enable/disable 信号。
 
 输出：
@@ -509,10 +546,11 @@ error_o -> digital PID -> control_o -> OUT2
 
 要新增的 RTL：
 
-- `pid_lock_core.sv`；
-- 积分限幅；
-- 输出限幅；
-- enable/reset/hold 逻辑。
+- 不创建 `pid_lock_core.sv`；
+- 当前继续使用 `pi_controller.sv`；
+- v2-1 只考虑把 `PID_KI_DEFAULT` 从 0 改成很小的非零值；
+- 保持 `PID_OUTPUT_LIMIT_DEFAULT` 很小；
+- 后续才考虑在线寄存器调参接口。
 
 testbench：
 
@@ -523,13 +561,14 @@ testbench：
 
 Vivado 操作：
 
-- Add Sources 加入 PID 模块；
+- 如果 Vivado 工程缺少 `pi_controller.sv`，由用户手动 Add Sources；
 - 注意乘法器、位宽、timing；
 - 先生成调试 bitstream。
 
 上板测试：
 
-- 先用假负载或示波器看 `OUT2`；
+- 先做电子学回环或假 error；
+- 只用示波器看 `OUT2`；
 - 不直接闭环激光器；
 - 确认输出范围和符号。
 
@@ -538,11 +577,12 @@ Vivado 操作：
 - `OUT2` 对 error 有可解释响应；
 - 不乱跳；
 - reset/disable 时安全。
+- 小 Ki 不导致慢慢爬升失控。
 
 失败回退：
 
-- PID disable；
-- `control_o = 0`；
+- PI disable；
+- `control_o` 回到安全零输出；
 - 回到 `v1g`。
 
 是否允许接 `D2-125`：
@@ -555,7 +595,7 @@ Vivado 操作：
 
 意义：
 
-逐步替代 `D2-125`。
+逐步替代 `D2-125` 的基础 servo core。它不能代表完整 D2-125 替代，因为 ramp/sweep、scan/lock/relock、锁定质量判断和在线调参仍未完成。
 
 ## v3_fpga_sweep
 
