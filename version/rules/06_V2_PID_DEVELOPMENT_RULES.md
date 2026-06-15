@@ -1,5 +1,28 @@
 # 06_V2_PID_DEVELOPMENT_RULES
 
+## 0.0A v2B1 RTL/SIM 注释规则（2026-06-15）
+
+v2B1 以后，只要 Codex 修改或新增 RTL / SIM，注释必须服务于真实实验链路，不能只服务于代码阅读。至少要说明：
+
+```text
+当前替代的是 D2-125 的基础 Servo Core，不是完整 D2-125；
+IN1/IN2 如何生成 FPGA 内部 error；
+OUT1 为什么继续作为 error observation；
+OUT2 为什么只是 Shadow PI control；
+OUT2 第一阶段为什么只接示波器；
+reset、enable、output_limit、saturation 如何防止上板风险；
+Codex 为什么不操作 Vivado、bitstream 和上板。
+```
+
+当前有效 v2B1 路线固定为：
+
+```text
+IN1 + IN2 -> mixer_core -> lpf_core -> output_protect -> error_o -> OUT1
+error_o -> pi_controller -> control_o -> OUT2
+```
+
+`D2-125 DC Error -> Red Pitaya IN1` 是已废弃路线，不得作为当前 v2B1 输入来源。
+
 ## 0. 2026-06-15 v2B1 当前有效补充规则
 
 当前 v2A 已完成独立 `pi_controller.sv` 的 P/I/anti-windup 基础开发。v2B1 的当前有效阶段是：

@@ -1,5 +1,64 @@
 # V2_DEVELOPMENT_ROADMAP
 
+## 2026-06-15 v2 当前有效路线：FPGA MTS Error Shadow PI
+
+v2 的总目标不是“一步完整复刻 D2-125”，而是先用 FPGA 数字 PI 逐步替代 D2-125 的基础 servo core。D2-125 还包含 Ramp、Offset、Scan/Lock 切换、Servo Output、Aux Servo Output、relock、锁定质量判断等完整工作流；这些不属于当前 v2B1，后续放到 v3 以后处理。
+
+当前有效链路是：
+
+```text
+Red Pitaya IN1 -> 混频前 PD/MTS 信号，必须在 +/-1 V 内
+Red Pitaya IN2 -> REF，必须在 +/-1 V 内
+
+IN1 + IN2
+-> mixer_core
+-> lpf_core
+-> output_protect
+-> error_o
+-> OUT1
+
+同时：
+
+error_o
+-> pi_controller
+-> control_o
+-> OUT2
+```
+
+当前禁止继续把下面旧方案当作有效路线：
+
+```text
+D2-125 DC Error Monitor -> Red Pitaya IN1 -> pi_controller -> OUT2
+```
+
+该 DC Error 旁路方案只保留为历史记录，不再执行。禁止把 D2-125 DC Error、D2-125 Servo Output、激光电源 Scan 或任何超过 +/-1 V 的信号接入 Red Pitaya IN1/IN2。OUT2 在 v2B1/v2D 第一阶段只接示波器，不接激光、不接 D2-125 Servo Output、不接 Scan。
+
+## v2B1 到 v3/v4/v5 的阶段边界
+
+| 阶段 | 替代对象 | 代码功能 | 板上现象 | 是否接激光 |
+|---|---|---|---|---|
+| v2B1 | D2-125 Servo Core 的 shadow output | `error_o -> pi_controller -> OUT2` | OUT1 = FPGA error；OUT2 = 小幅 P-only control | 否 |
+| v2C | Vivado project bit generation | 用户手动综合、实现、生成 bitstream | 还没有板上波形结论 | 否 |
+| v2D | OUT2 示波器空载上板测试 | bitstream 烧录后 OUT2 只接 CH4 | OUT2 跟随 OUT1，且不超过约 +/-0.18 V | 否 |
+| v2E | 参数方向确认 | 调整 polarity、Kp、limit | OUT2 方向和幅度可解释 | 否 |
+| v2F | 低增益替代 Servo Output | OUT2 接一个真实控制端，D2 输出断开 | error 不发散，OUT2 不饱和 | 是，低增益 |
+| v2G | FPGA PI 与 D2-125 对比 | 记录 RMS、锁定时间、饱和次数 | 形成可重复对比数据 | 是 |
+| v3 | 替代 scan 和 lock 工作流 | ramp、scan/lock FSM、relock | FPGA 能扫描、找峰、切锁 | 后续 |
+| v4/v5 | 自动优化和 AI | 数据集、基准、AI 参数建议 | 自动调参/锁定状态识别 | 后续 |
+
+## 当前 v2 代码文件作用
+
+| 文件 | 当前作用 | 小白理解 |
+|---|---|---|
+| `v0.94/rtl/red_pitaya_top.sv` | 把 `laser_lock_core` 的 `error_o/control_o` 路由到 OUT1/OUT2 | 板子最外层接线板，决定 OUT1/OUT2 最后输出什么 |
+| `v0.94/rtl/laser_lock_core.sv` | v2B1 主链路：IN1/IN2 混频、低通、保护、送 PI | FPGA 内部的“误差信号生成 + Shadow PI”小系统 |
+| `v0.94/rtl/mixer_core.sv` | 数字混频 | 把 PD/MTS 信号和 REF 相乘 |
+| `v0.94/rtl/lpf_core.sv` | mixer 后低通 | 把混频后的高频项压下去，留下 error-like signal |
+| `v0.94/rtl/output_protect.sv` | 输出保护和 reset 安全 | 避免 reset 或异常时输出乱跑 |
+| `v0.94/rtl/pi_controller.sv` | v2A 完成的 PI core | 只替代 D2-125 servo core 的基础控制计算 |
+| `v0.94/sim/tb_pi_controller.sv` | 独立 PI core 回归测试 | 证明 PI 零件自己算得对 |
+| `v0.94/sim/tb_laser_lock_core_v2b1_shadow_pi_dc_error.sv` | v2B1 集成行为测试 | 证明 OUT1 仍看 error，OUT2 会给小幅 Shadow PI 输出 |
+
 ## 2026-06-14 v2B1 Shadow PI 路线插入
 
 v2A / v2a-1 / v2a-2 已完成的是 FPGA 版 D2-125 Servo Core，不是完整 D2-125 替代。

@@ -1,5 +1,29 @@
 # RULE_CODEX_ENGINEER_TEACHER
 
+## 0.0A RTL/SIM 注释必须讲清真实实验链路（2026-06-15）
+
+Codex 以后新增或修改 RTL / SIM 时，注释不能只写“这里是 mux”“这里是 counter”。凡是涉及 Red Pitaya、MTS error、PI/PID、OUT1/OUT2、D2-125 替代路线，必须同时讲清：
+
+```text
+1. 这段代码替代真实实验链路里的哪一小块；
+2. 输入从哪里来，输出到哪里去；
+3. 用户烧录后在 OUT1/OUT2 示波器通道上应该看到什么；
+4. IN1/IN2/OUT2 的电压安全边界；
+5. reset、enable、hold、limit、saturation 为什么是安全保护；
+6. 本阶段为什么不由 Codex 操作 Vivado、不生成 bitstream、不接激光。
+```
+
+对当前 v2B1，注释里的有效路线只能是：
+
+```text
+Red Pitaya IN1 -> PD/MTS signal
+Red Pitaya IN2 -> REF
+IN1 + IN2 -> mixer_core -> lpf_core -> output_protect -> error_o -> OUT1
+error_o -> pi_controller -> control_o -> OUT2
+```
+
+`D2-125 DC Error -> Red Pitaya IN1 -> pi_controller -> OUT2` 是历史废弃路线，不能再作为当前任务的实验接线或板上预期。
+
 ## 0.0 RTL 注释教学要求补充（2026-06-15）
 
 涉及新 RTL 或修改 RTL 时，代码注释必须解释硬件等价物和板上现象，不能只写一行短注释。

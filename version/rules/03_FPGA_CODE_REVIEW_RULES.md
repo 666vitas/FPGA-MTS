@@ -1,5 +1,25 @@
 # 03_FPGA_CODE_REVIEW_RULES
 
+## 0.0 RTL/SIM 注释审查硬规则（2026-06-15）
+
+凡是新增或修改 RTL / testbench，只要会影响 Red Pitaya IN1/IN2/OUT1/OUT2、PI/PID、MTS error、D2-125 替代路线，就必须在代码注释中解释清楚下面 6 件事。否则即使仿真 PASS，也视为文档和工程可读性不合格：
+
+1. 这段 RTL 在真实链路中替代 D2-125 或实验系统的哪一个小部件。
+2. 输入来自哪里，输出接到哪里，尤其是 IN1、IN2、OUT1、OUT2 的关系。
+3. 烧录后用户在示波器上应该看到什么，例如 OUT1 error、OUT2 P-only control。
+4. 电压安全边界是什么，例如 IN1/IN2 必须在 +/-1 V 内，OUT2 第一阶段只接示波器。
+5. reset、enable、hold、output_limit、saturation 的安全意义是什么。
+6. 为什么本阶段不运行 Vivado、不生成 bitstream、不接激光，或者这些动作由用户另行手动完成。
+
+当前 v2B1 的有效解释必须写成：
+
+```text
+IN1 + IN2 -> mixer_core -> lpf_core -> output_protect -> error_o -> OUT1
+同一个 error_o/protected_error -> pi_controller -> control_o -> OUT2
+```
+
+禁止把 `D2-125 DC Error -> Red Pitaya IN1 -> pi_controller -> OUT2` 写成当前有效路线。该路线只能作为历史废弃方案出现，并必须标注“禁止执行”。
+
 ## 0. 本文件作用
 
 本文件是 FPGA 工程师审查清单。每次修改 RTL 前后都必须按本文件检查。当前状态参见 [[STATUS]]。

@@ -130,11 +130,19 @@ localparam int unsigned GDW = DWE;
 
 // Laser lock debug integration switch.
 // USE_LASER_LOCK_CORE = 0 keeps the official ASG + PID DAC path.
+// USE_LASER_LOCK_CORE = 1 is the current v2B1 Shadow PI integration mode:
+//   ADC IN1 + ADC IN2 are processed by laser_lock_core.
+//   DAC A / OUT1 becomes the FPGA error observation output.
+//   DAC B / OUT2 becomes the small P-only Shadow PI control output.
+// This switch does not change ADC IO, PLL, ODDR, PS, AXI, DDR, or constraints.
 // LASER_LOCK_OUTPUT_MODE:
 // 0 = IN1/pd_i -> OUT1
 // 1 = IN2/ref_i -> OUT1
 // 2 = raw mixer -> OUT1
 // 3 = mixer + post-mixer LPF -> OUT1
+// Current board expectation for OUTPUT_MODE=3:
+//   OUT1/CH2: FPGA mixer+LPF error, about 0.12 to 0.15 V in the current setup.
+//   OUT2/CH4: Shadow PI control derived from OUT1, not a real laser drive.
 localparam logic USE_LASER_LOCK_CORE = 1'b1;
 localparam int   LASER_LOCK_OUTPUT_MODE = 3;
 
@@ -217,6 +225,8 @@ logic signed [15-1:0] dac_b_sum_laser;
 //   Shadow PI control signal.
 // OUT2 is oscilloscope-only in this stage. Do not connect it to a laser
 // actuator, D2-125 Servo Output tee, or Scan input.
+// This is not the old D2-125 DC Error input route. The error is generated
+// inside FPGA from IN1/IN2 by mixer_core + lpf_core + output_protect.
 logic signed [14-1:0] laser_error;
 logic signed [14-1:0] laser_control;
 
@@ -460,6 +470,10 @@ assign dac_b_sum_laser    = {laser_control[13], laser_control};
 // USE_LASER_LOCK_CORE=1:
 //   DAC A / OUT1 shows laser_error.
 //   DAC B / OUT2 shows laser_control.
+// Scope meaning after bitstream is manually generated and loaded:
+//   OUT1 should keep the v1/v2 error-observation role.
+//   OUT2 should be a small, limited Shadow PI waveform.
+//   OUT2 must not be used as proof that FPGA has locked the laser.
 assign dac_a_sum = USE_LASER_LOCK_CORE ? dac_a_sum_laser : dac_a_sum_official;
 assign dac_b_sum = USE_LASER_LOCK_CORE ? dac_b_sum_laser : dac_b_sum_official;
 

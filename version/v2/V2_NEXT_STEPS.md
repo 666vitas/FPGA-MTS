@@ -59,7 +59,7 @@ Codex 不修改 redpitaya.xpr
 ### 烧录后应该看到
 
 ```text
-OUT1 / CH2：仍是 FPGA mixer+LPF error，当前约 0.15 V
+OUT1 / CH2：仍是 FPGA mixer+LPF error，当前约 0.12~0.15 V
 OUT2 / CH4：跟随 OUT1 error 的小 P-only control
 Kp=2048：OUT2 约为 OUT1 的 1/2
 Ki=0：OUT2 不应慢慢爬升

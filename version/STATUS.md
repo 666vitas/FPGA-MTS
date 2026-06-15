@@ -9,7 +9,7 @@
 ```text
 Red Pitaya IN1 -> 混频前 PD/MTS 信号，必须在 +/-1 V 内
 Red Pitaya IN2 -> 外部 REF，必须在 +/-1 V 内
-Red Pitaya OUT1 -> 示波器 CH2：FPGA mixer+LPF error，当前约 0.15 V
+Red Pitaya OUT1 -> 示波器 CH2：FPGA mixer+LPF error，当前约 0.12~0.15 V
 Red Pitaya OUT2 -> 示波器 CH4：FPGA P-only control
 ```
 
@@ -145,6 +145,17 @@ v0.94/rtl/output_protect.sv
 ```
 
 本轮文档任务不修改任何 `.sv`，不运行 XSim，不运行 Vivado，不生成 bitstream，不上板。
+
+## 2026-06-15 注释与路线清理状态
+
+本轮允许对 RTL/SIM 增加解释性注释，但不允许改变功能逻辑。当前已经把 v2B1 的有效路线固定为：
+
+```text
+IN1 + IN2 -> mixer_core -> lpf_core -> output_protect -> error_o -> OUT1
+error_o -> pi_controller -> control_o -> OUT2
+```
+
+所有后续文档和代码注释都必须把 `D2-125 DC Error -> Red Pitaya IN1` 视为历史废弃路线，不得作为当前接线方案。OUT1 在 v2B1-v2F 继续作为 error observation；OUT2 第一阶段只接示波器。
 
 ## 当前阶段
 

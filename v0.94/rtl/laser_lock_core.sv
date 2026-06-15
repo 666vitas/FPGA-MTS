@@ -10,6 +10,15 @@
 // digital gain, I/Q, sweep, AI, D2-125 drive, or laser feedback.
 // v2B1 adds a Shadow PI path: the protected error signal is observed on OUT1
 // and also feeds pi_controller so OUT2 can show a small P-only control signal.
+//
+// Current v2B1 hardware meaning:
+// - IN1 is the pre-mixer PD/MTS signal, kept within the Red Pitaya +/-1 V range.
+// - IN2 is the external REF signal, also kept within +/-1 V.
+// - OUT1 is the protected FPGA mixer+LPF error observation point.
+// - OUT2 is only a small Shadow PI control signal for oscilloscope observation.
+// This is not the old "D2-125 DC Error -> Red Pitaya IN1" route, and it is not
+// a complete D2-125 replacement. Ramp, scan/lock switching, Aux Servo Output,
+// relock, and lock-quality decisions belong to later stages.
 
 `timescale 1ns/1ps
 
@@ -20,6 +29,9 @@ module laser_lock_core #(
     // 2: raw mixer output, used to observe IN1 x IN2 before LPF.
     // 3: mixer + post-mixer LPF output, used to observe low/difference/baseband output.
     // other: output 0, so an invalid mode does not drive an unknown signal.
+    // In the current v2B1 board test, OUTPUT_MODE=3 means OUT1/CH2 should show
+    // the FPGA-generated error, about 0.12 to 0.15 V in the user's present
+    // observation. OUT2/CH4 should show the P-only control derived from it.
     parameter int OUTPUT_MODE = 0,
     // CLK_HZ is the input clock rate. In the real Red Pitaya top level this is
     // the ADC clock domain, about 125 MHz. The PI path must stay in this clock
@@ -36,7 +48,8 @@ module laser_lock_core #(
     parameter bit PID_RESET_INTEGRATOR_DEFAULT = 1'b0,
     parameter bit PID_POLARITY_DEFAULT = 1'b0,
     // Kp=2048 with KP_SHIFT=12 makes OUT2 approximately one half of error_o.
-    // If OUT1 error is about 0.15 V, the expected OUT2 control is about 0.075 V.
+    // If OUT1 error is about 0.12 to 0.15 V, the expected OUT2 control is about
+    // 0.06 to 0.075 V.
     parameter logic signed [15:0] PID_KP_DEFAULT = 16'sd2048,
     // Ki=0 makes this first Shadow PI integration a P-only board observation.
     // This avoids a slow integrator climb while the output is only being viewed.
@@ -67,7 +80,10 @@ module laser_lock_core #(
     output logic signed [13:0] error_o,
 
     // control_o：Shadow PI 控制输出。
-    // v2B1 只接 OUT2 示波器观察，不直接控制激光器。
+    // v2B1 只接 OUT2 示波器观察，不直接控制激光器、不接 D2-125
+    // Servo Output、不接 Scan。If this signal is ever routed to a real actuator,
+    // the physical voltage range, polarity, bandwidth, and initial pid_ce rate
+    // must be reviewed first.
     output logic signed [13:0] control_o
 );
 
@@ -149,6 +165,8 @@ module laser_lock_core #(
     );
 
     // OUT1 继续观察保护后的 error；同一个 protected_error 也进入 Shadow PI。
+    // Board expectation: OUT1/CH2 is the "can I still see the FPGA error?"
+    // safety channel. If OUT1 disappears or changes meaning, v2B1 must stop.
     assign error_o = protected_error;
 
     always_ff @(posedge clk_i) begin
@@ -172,6 +190,11 @@ module laser_lock_core #(
     // D2-125: there is no ramp, Aux Servo Output, scan/lock FSM, peak search,
     // relock, or lock-quality logic here. With Ki=0 in v2B1, this instance is
     // used as P-only Shadow PI. red_pitaya_top routes control_o to OUT2.
+    // Safety meaning:
+    // - enable controls whether OUT2 can be nonzero.
+    // - Ki=0 prevents slow integral drift during this first board observation.
+    // - output_limit keeps OUT2 well below full scale.
+    // - saturation prevents wraparound if the calculated control is too large.
     pi_controller #(
         .ERROR_WIDTH(14),
         .GAIN_WIDTH (16),

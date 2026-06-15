@@ -27,6 +27,8 @@ OUT1 继续作为 FPGA mixer+LPF error observation。OUT2 当前只接示波器 
 
 本文档后续旧 “Shadow PI DC Error” 描述仅作为历史记录，已废弃，禁止执行。
 
+从 2026-06-15 起，凡是本文档后面出现 `D2-125 DC Error Monitor -> Red Pitaya IN1 -> pi_controller -> OUT2`，都只能按历史废弃方案理解，不能作为当前接线、当前代码目标或当前上板预期。
+
 ## 2026-06-14 v2B1 Shadow PI 更新
 
 当前 v2B 不直接跳到完整系统集成，而先进入：

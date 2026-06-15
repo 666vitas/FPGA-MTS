@@ -13,6 +13,13 @@
 // The testbench verifies board-observable behavior through laser_lock_core's
 // public ports: reset safety, OUT1 error visibility, OUT2 P-only scaling,
 // output_limit, polarity, Ki=0 no integral climb, and pid_ce hold behavior.
+//
+// Board interpretation:
+// - PASS here means the integrated RTL has the expected Shadow PI behavior in
+//   simulation.
+// - It does not mean Vivado synthesis/implementation/bitstream has been run.
+// - It does not mean OUT2 may be connected to a laser. OUT2 remains
+//   oscilloscope-only until later physical interface checks are complete.
 
 module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
 
@@ -142,6 +149,8 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
         ref_mode3 = 14'sd0;
 
         wait_cycles(4);
+        // Reset safety corresponds to the first board check after programming:
+        // both OUT1 error and OUT2 control must start from a known safe zero.
         check("reset clears direct control_o", control_direct == 14'sd0);
         check("reset clears mode3 error_o", error_mode3 == 14'sd0);
 
@@ -150,24 +159,38 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
         ref_direct = 14'sd0;
         wait_cycles(12);
 
+        // OUTPUT_MODE=0 is a controlled input-to-OUT1 check. It proves that the
+        // later OUT2 calculation uses the same visible error source.
         check("OUTPUT_MODE=0 exposes protected error source", error_direct == 14'sd400);
+        // With Kp=2048 and KP_SHIFT=12, the board expectation is OUT2/CH4 at
+        // about one half of OUT1/CH2, before any real actuator is connected.
         check("Kp=2048 makes control_o half of error_o", control_direct == 14'sd200);
 
         pd_direct = 14'sd600;
         wait_cycles(1);
+        // Between pid_ce pulses, OUT2 should hold its previous value. This is
+        // how the PI update-rate divider avoids a 125 MHz control update.
         check("control_o holds between pid_ce pulses", control_direct == 14'sd200);
         wait_cycles(4);
         check("control_o updates on next pid_ce pulse", control_direct == 14'sd300);
 
         wait_cycles(16);
+        // Ki=0 is deliberate in v2B1. It prevents a slow OUT2 climb while the
+        // signal is only being observed on an oscilloscope.
         check("Ki=0 prevents integral climb at fixed error", control_direct == 14'sd300);
 
+        // output_limit is the last simulation guard before board observation:
+        // a large error must not make OUT2 approach full-scale.
         check("output_limit clamps positive OUT2 control", control_limit == 14'sd100);
+        // polarity is the future safe direction switch. If a board test shows
+        // the response is inverted, this parameter flips OUT2 without rewiring.
         check("polarity=1 reverses OUT2 control direction", control_reverse == -14'sd200);
 
         pd_mode3 = 14'sd4096;
         ref_mode3 = 14'sd4096;
         wait_cycles(128);
+        // OUTPUT_MODE=3 is the current real v2B1 route: IN1/IN2 create an FPGA
+        // error, OUT1 observes it, and OUT2 follows it through P-only control.
         check("OUTPUT_MODE=3 still produces mixer plus LPF error", error_mode3 > 14'sd0);
         check("OUTPUT_MODE=3 drives Shadow PI control from error source", control_mode3 > 14'sd0);
         check("mode3 P-only control is approximately half the visible error", abs_int(control_mode3 - (error_mode3 >>> 1)) <= 2);

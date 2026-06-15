@@ -9,7 +9,7 @@
 ```text
 Red Pitaya IN1 -> 混频前 PD/MTS 信号，必须在 +/-1 V 内
 Red Pitaya IN2 -> 外部 REF，必须在 +/-1 V 内
-Red Pitaya OUT1 -> 示波器 CH2：FPGA mixer+LPF error，当前约 0.15 V
+Red Pitaya OUT1 -> 示波器 CH2：FPGA mixer+LPF error，当前约 0.12~0.15 V
 Red Pitaya OUT2 -> 示波器 CH4：FPGA P-only control
 ```
 
@@ -61,7 +61,7 @@ Codex 本次只修改 RTL/SIM/MD，并运行独立 XSim，不运行 Vivado，不
 ### 正确实验现象
 
 ```text
-1. OUT1 / CH2 仍能看到 FPGA mixer+LPF error，约 0.15 V
+1. OUT1 / CH2 仍能看到 FPGA mixer+LPF error，约 0.12~0.15 V
 2. OUT2 / CH4 能看到跟 OUT1 同步的小控制信号
 3. OUT1 为正时，OUT2 同向变化，除非 polarity 设为反向
 4. OUT1 过零时，OUT2 也应过零
