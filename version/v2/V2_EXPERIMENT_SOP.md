@@ -1,5 +1,46 @@
 # V2_EXPERIMENT_SOP
 
+## 2026-06-16 v2B1 timing-safe P-only Shadow Control 上板前 SOP（当前有效）
+
+本节覆盖后续所有“完整 PI 直接接 OUT2”或“D2-125 DC Error 旁路进 Red Pitaya”的旧描述。当前有效实验目标只有一个：在 Vivado timing 重新通过后，让 OUT2 输出一个很小的 P-only shadow control，并且 OUT2 第一阶段只接示波器。
+
+当前允许看到的信号：
+
+```text
+OUT1 / CH2：FPGA mixer+LPF error，预计仍约 0.12~0.15 V
+OUT2 / CH4：timing-safe P-only shadow control，预计约为 OUT1 的 1/2
+OUT2 limit：PID_OUTPUT_LIMIT_DEFAULT=1500，约 +/-0.18 V，不是 +/-1 V
+```
+
+当前 RTL 含义：
+
+```text
+pi_controller.sv：保留完整 PI，不修改，不作为 v2B1 默认板级路径。
+laser_lock_core.sv：默认 USE_FULL_PI_CONTROLLER=0，使用 protected_error >>> 1 的 timing-safe P-only 路径。
+```
+
+烧录前硬性条件：
+
+```text
+必须手动重新 Run Synthesis。
+必须手动重新 Run Implementation。
+必须确认 timing 通过，WNS/TNS 不再是负值阻塞。
+只有 timing 通过后才允许 Generate Bitstream。
+timing fail 的 bitstream 不允许烧录。
+```
+
+示波器接线：
+
+```text
+OUT1 -> 示波器 CH2
+OUT2 -> 示波器 CH4
+OUT2 不接激光器
+OUT2 不接 D2-125 Servo Output
+OUT2 不接 D2-125 Scan / Aux / Current / PZT 控制端
+```
+
+如果 OUT2 接近 `+/-1 V`、随机跳变、慢慢爬升、或 OUT1 原有 error 消失，立即停止，不进入激光闭环。
+
 ## 2026-06-14 v2B1 FPGA MTS Error Shadow PI 上板前 SOP（当前有效）
 
 本节覆盖本文档中旧的“D2-125 DC Error -> Red Pitaya IN1”旁路线描述。当前安全主线不是把 D2-125 的 DC Error 或 Servo Output 接进 Red Pitaya，而是使用 Red Pitaya 自己的 IN1/IN2 生成 FPGA 内部 error。

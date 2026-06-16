@@ -8,17 +8,28 @@
 //
 // This module still does not implement pre-mixer 10 MHz LPF, 1.8 MHz HPF,
 // digital gain, I/Q, sweep, AI, D2-125 drive, or laser feedback.
-// v2B1 adds a Shadow PI path: the protected error signal is observed on OUT1
-// and also feeds pi_controller so OUT2 can show a small P-only control signal.
+// v2B1 adds a Shadow Control path: the protected error signal is observed on
+// OUT1 and also feeds the OUT2 shadow-control logic.
 //
 // Current v2B1 hardware meaning:
 // - IN1 is the pre-mixer PD/MTS signal, kept within the Red Pitaya +/-1 V range.
 // - IN2 is the external REF signal, also kept within +/-1 V.
 // - OUT1 is the protected FPGA mixer+LPF error observation point.
-// - OUT2 is only a small Shadow PI control signal for oscilloscope observation.
+// - OUT2 is only a small timing-safe P-only shadow control signal for
+//   oscilloscope observation.
 // This is not the old "D2-125 DC Error -> Red Pitaya IN1" route, and it is not
 // a complete D2-125 replacement. Ramp, scan/lock switching, Aux Servo Output,
 // relock, and lock-quality decisions belong to later stages.
+//
+// Timing note:
+// A manual Vivado implementation run showed that directly placing the complete
+// pi_controller in the v2B1 top-level path failed timing at 125 MHz
+// (WNS about -10.995 ns). The worst path was inside
+// i_laser_lock_core/i_pi_controller, through DSP48E1/CARRY4/integrator/
+// anti-windup/control limiting logic. That PI core remains valuable as the
+// v2A-verified complete PI module, but the default v2B1 board path now uses a
+// small registered P-only shadow-control path. The complete PI branch is kept
+// only for future pipeline work.
 
 `timescale 1ns/1ps
 
@@ -33,6 +44,13 @@ module laser_lock_core #(
     // the FPGA-generated error, about 0.12 to 0.15 V in the user's present
     // observation. OUT2/CH4 should show the P-only control derived from it.
     parameter int OUTPUT_MODE = 0,
+    // USE_FULL_PI_CONTROLLER selects which OUT2 control path is elaborated.
+    // 0: timing-safe P-only Shadow Control. This is the current v2B1 default.
+    //    It is only for OUT2 oscilloscope observation.
+    // 1: instantiate the complete v2A pi_controller. This is preserved for
+    //    future pipeline work; direct use in the 125 MHz main project has
+    //    already shown timing failure and is not the default board path.
+    parameter bit USE_FULL_PI_CONTROLLER = 1'b0,
     // CLK_HZ is the input clock rate. In the real Red Pitaya top level this is
     // the ADC clock domain, about 125 MHz. The PI path must stay in this clock
     // domain; do not create a separate PI clock.
@@ -79,7 +97,7 @@ module laser_lock_core #(
     // v1ab 中输出 pd_i 或 ref_i 的保护后结果，未来接 DAC A / OUT1 候选路径。
     output logic signed [13:0] error_o,
 
-    // control_o：Shadow PI 控制输出。
+    // control_o：Shadow Control 输出。
     // v2B1 只接 OUT2 示波器观察，不直接控制激光器、不接 D2-125
     // Servo Output、不接 Scan。If this signal is ever routed to a real actuator,
     // the physical voltage range, polarity, bandwidth, and initial pid_ce rate
@@ -91,9 +109,9 @@ module laser_lock_core #(
     logic signed [13:0] mixer_signal;
     logic signed [13:0] lpf_signal;
     // protected_error is the 14-bit signed error after output_protect.
-    // OUT1 shows this same protected_error, and pi_controller.error_i uses it
-    // too. This makes the oscilloscope-visible OUT1 error and the OUT2 control
-    // calculation come from the same FPGA signal.
+    // OUT1 shows this same protected_error, and the OUT2 Shadow Control
+    // calculation uses it too. This makes the oscilloscope-visible OUT1 error
+    // and the OUT2 control calculation come from the same FPGA signal.
     logic signed [13:0] protected_error;
 
     // Divide the ADC clock into a single-cycle clock-enable pulse for PI
@@ -185,40 +203,108 @@ module laser_lock_core #(
         end
     end
 
-    // pi_controller is the FPGA version of the D2-125 servo core's basic
-    // Error Input -> Servo PI/PID -> Servo Output path. It is not the full
-    // D2-125: there is no ramp, Aux Servo Output, scan/lock FSM, peak search,
-    // relock, or lock-quality logic here. With Ki=0 in v2B1, this instance is
-    // used as P-only Shadow PI. red_pitaya_top routes control_o to OUT2.
-    // Safety meaning:
-    // - enable controls whether OUT2 can be nonzero.
-    // - Ki=0 prevents slow integral drift during this first board observation.
-    // - output_limit keeps OUT2 well below full scale.
-    // - saturation prevents wraparound if the calculated control is too large.
-    pi_controller #(
-        .ERROR_WIDTH(14),
-        .GAIN_WIDTH (16),
-        .OUT_WIDTH  (14),
-        .ACC_WIDTH  (48),
-        .KP_SHIFT   (12),
-        .KI_SHIFT   (12)
-    ) i_pi_controller (
-        .clk_i             (clk_i),
-        .rstn_i            (rstn_i),
-        .pid_ce_i          (pid_ce_q),
-        .enable_i          (PID_ENABLE_DEFAULT),
-        .hold_i            (PID_HOLD_DEFAULT),
-        .reset_integrator_i(PID_RESET_INTEGRATOR_DEFAULT),
-        .polarity_i        (PID_POLARITY_DEFAULT),
-        .error_i           (protected_error),
-        .kp_i              (PID_KP_DEFAULT),
-        .ki_i              (PID_KI_DEFAULT),
-        .offset_i          (PID_OFFSET_DEFAULT),
-        .output_limit_i    (PID_OUTPUT_LIMIT_DEFAULT),
-        .control_o         (control_o),
-        .p_term_o          (p_term_unused),
-        .i_term_o          (i_term_unused),
-        .sat_o             (sat_unused)
-    );
+    generate
+        if (USE_FULL_PI_CONTROLLER) begin : g_full_pi_controller
+            // Complete PI path, preserved but not used by the default v2B1
+            // board build.
+            //
+            // Hardware meaning:
+            // pi_controller is the FPGA version of the D2-125 servo core's
+            // basic Error Input -> Servo PI/PID -> Servo Output path. It is not
+            // the full D2-125: there is no ramp, Aux Servo Output, scan/lock
+            // FSM, peak search, relock, or lock-quality logic here.
+            //
+            // Timing warning:
+            // Directly using this complete PI branch in the 125 MHz main
+            // project caused implementation timing failure. Future v2B2/v2B3
+            // work should pipeline this PI path before making it the default
+            // OUT2 route again.
+            pi_controller #(
+                .ERROR_WIDTH(14),
+                .GAIN_WIDTH (16),
+                .OUT_WIDTH  (14),
+                .ACC_WIDTH  (48),
+                .KP_SHIFT   (12),
+                .KI_SHIFT   (12)
+            ) i_pi_controller (
+                .clk_i             (clk_i),
+                .rstn_i            (rstn_i),
+                .pid_ce_i          (pid_ce_q),
+                .enable_i          (PID_ENABLE_DEFAULT),
+                .hold_i            (PID_HOLD_DEFAULT),
+                .reset_integrator_i(PID_RESET_INTEGRATOR_DEFAULT),
+                .polarity_i        (PID_POLARITY_DEFAULT),
+                .error_i           (protected_error),
+                .kp_i              (PID_KP_DEFAULT),
+                .ki_i              (PID_KI_DEFAULT),
+                .offset_i          (PID_OFFSET_DEFAULT),
+                .output_limit_i    (PID_OUTPUT_LIMIT_DEFAULT),
+                .control_o         (control_o),
+                .p_term_o          (p_term_unused),
+                .i_term_o          (i_term_unused),
+                .sat_o             (sat_unused)
+            );
+        end else begin : g_timing_safe_p_only
+            localparam logic [13:0] P_ONLY_OUT_POS_MAX_U = 14'd8191;
+            localparam logic signed [14:0] P_ONLY_LIMIT_POS =
+                (PID_OUTPUT_LIMIT_DEFAULT > P_ONLY_OUT_POS_MAX_U)
+                    ? 15'sd8191
+                    : $signed({1'b0, PID_OUTPUT_LIMIT_DEFAULT});
+            localparam logic signed [14:0] P_ONLY_LIMIT_NEG = -P_ONLY_LIMIT_POS;
+
+            logic signed [14:0] p_only_error_ext_w;
+            logic signed [14:0] p_only_error_pol_w;
+            logic signed [14:0] p_only_scaled_w;
+            logic signed [13:0] p_only_limited_w;
+
+            // Timing-safe v2B1 default path:
+            //
+            // protected_error -> optional polarity -> arithmetic right shift by
+            // one -> output_limit -> registered control_o.
+            //
+            // This is deliberately much smaller than the complete PI path:
+            // no DSP multiplier, no 48-bit integrator, no anti-windup freeze
+            // tree, and no long P+I+offset limiter chain. OUT2 is about half
+            // of OUT1 because of the >>> 1 scale, so a 0.12~0.15 V OUT1 error
+            // should produce about 0.06~0.075 V on OUT2. The 1500-count limit
+            // keeps OUT2 near +/-0.18 V and far from the +/-1 V Red Pitaya
+            // output range. OUT2 remains oscilloscope-only: do not connect it
+            // to a laser, D2-125 Servo Output, or Scan input.
+            assign p_only_error_ext_w = {protected_error[13], protected_error};
+            assign p_only_error_pol_w = PID_POLARITY_DEFAULT
+                                      ? -p_only_error_ext_w
+                                      :  p_only_error_ext_w;
+            assign p_only_scaled_w = p_only_error_pol_w >>> 1;
+
+            always_comb begin
+                if (p_only_scaled_w > P_ONLY_LIMIT_POS) begin
+                    p_only_limited_w = P_ONLY_LIMIT_POS[13:0];
+                end else if (p_only_scaled_w < P_ONLY_LIMIT_NEG) begin
+                    p_only_limited_w = P_ONLY_LIMIT_NEG[13:0];
+                end else begin
+                    p_only_limited_w = p_only_scaled_w[13:0];
+                end
+            end
+
+            always_ff @(posedge clk_i) begin
+                if (!rstn_i) begin
+                    control_o <= 14'sd0;
+                end else if (!PID_ENABLE_DEFAULT) begin
+                    control_o <= 14'sd0;
+                end else if (PID_HOLD_DEFAULT) begin
+                    control_o <= control_o;
+                end else if (pid_ce_q) begin
+                    control_o <= p_only_limited_w;
+                end else begin
+                    control_o <= control_o;
+                end
+            end
+
+            assign p_term_unused = {{18{p_only_limited_w[13]}}, p_only_limited_w};
+            assign i_term_unused = 32'sd0;
+            assign sat_unused    = (p_only_scaled_w > P_ONLY_LIMIT_POS) ||
+                                   (p_only_scaled_w < P_ONLY_LIMIT_NEG);
+        end
+    endgenerate
 
 endmodule

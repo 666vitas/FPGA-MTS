@@ -5,7 +5,7 @@ sv xil_defaultlib  --include "../../../../redpitaya.srcs/sources_1/bd/system/ips
 "../../../../../rtl/mixer_core.sv" \
 "../../../../../rtl/output_protect.sv" \
 "../../../../../rtl/pi_controller.sv" \
-"../../../../../sim/tb_laser_lock_core_v1c.sv" \
+"../../../../../sim/tb_laser_lock_core_v2b1_shadow_pi_dc_error.sv" \
 
 # compile glbl module
 verilog xil_defaultlib "glbl.v"

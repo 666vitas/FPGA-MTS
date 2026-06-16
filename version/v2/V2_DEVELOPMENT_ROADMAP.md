@@ -1,5 +1,29 @@
 # V2_DEVELOPMENT_ROADMAP
 
+## 2026-06-16 v2B1 timing 修复后的当前有效路线
+
+v2B1 的默认上板目标从“完整 `pi_controller` 直接驱动 OUT2”调整为“timing-safe P-only Shadow Control”。原因是：手动 Vivado Implementation 已显示完整 PI 直接进入 125 MHz 主路径会严重 timing fail，约 `WNS=-10.995 ns`、`TNS=-5029 ns`，最差路径在 `i_laser_lock_core/i_pi_controller` 内部，穿过 DSP、CARRY、integrator、anti-windup 和 limiter。
+
+当前保留两条路线，但默认只走安全路线：
+
+| 路线 | 当前状态 | 用途 |
+|---|---|---|
+| `USE_FULL_PI_CONTROLLER=0` | v2B1 默认 | 小逻辑、寄存输出、P-only、OUT2 只接示波器，优先解决 timing |
+| `USE_FULL_PI_CONTROLLER=1` | 保留但不默认 | 完整 PI + anti-windup，后续 v2B2/v2B3 做流水线化后再回到主路径 |
+
+当前有效阶段划分：
+
+```text
+v2B1：timing-safe P-only Shadow Control，上板前必须重新跑 Vivado timing
+v2B2：完整 pi_controller 流水线化设计，不改变 v2A 算法意图
+v2B3：流水线 PI 重新集成到 OUT2 路径
+v2C：Vivado 综合、实现、时序、DRC 和 bitstream
+v2D：OUT2 示波器空载上板测试
+v2F：低增益闭环替代 D2-125
+```
+
+小白理解：现在先让 OUT2 有一个很小、可预测、容易过时序的影子控制量。完整 PI 没丢，只是不能拿一个已经 timing fail 的长组合路径去冒险烧板。
+
 ## 2026-06-15 v2 当前有效路线：FPGA MTS Error Shadow PI
 
 v2 的总目标不是“一步完整复刻 D2-125”，而是先用 FPGA 数字 PI 逐步替代 D2-125 的基础 servo core。D2-125 还包含 Ramp、Offset、Scan/Lock 切换、Servo Output、Aux Servo Output、relock、锁定质量判断等完整工作流；这些不属于当前 v2B1，后续放到 v3 以后处理。

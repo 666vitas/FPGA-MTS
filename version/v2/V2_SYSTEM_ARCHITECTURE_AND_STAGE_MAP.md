@@ -1,5 +1,48 @@
 # V2_SYSTEM_ARCHITECTURE_AND_STAGE_MAP
 
+## 2026-06-16 当前系统架构修正：v2B1 默认不是完整 PI，而是 timing-safe P-only Shadow Control
+
+当前 v2B1 板级默认链路必须按下面理解：
+
+```text
+Red Pitaya IN1 + IN2
+-> mixer_core
+-> lpf_core
+-> output_protect
+-> protected_error
+-> error_o / OUT1
+
+同一个 protected_error
+-> timing-safe P-only Shadow Control
+-> control_o / OUT2
+```
+
+完整 `pi_controller.sv` 的地位：
+
+```text
+它仍然是 v2A 已验证的完整 PI + anti-windup 控制器。
+它没有删除，也没有被本轮修改。
+它暂时不作为 v2B1 默认上板路径。
+原因是完整 PI 直接放入主工程曾出现约 WNS=-10.995 ns 的 timing failure。
+后续 v2B2/v2B3 需要对完整 PI 路径做流水线化，再重新集成到 OUT2。
+```
+
+当前能声称的现象：
+
+```text
+OUT1：继续观察 FPGA mixer+LPF error。
+OUT2：观察小幅 P-only shadow control，约 OUT1 的一半，受约 +/-0.18 V 限制。
+```
+
+当前不能声称：
+
+```text
+不能声称完整 PI 已经 timing-clean 接入主工程。
+不能声称 FPGA 已闭环控制激光。
+不能声称已经替代 D2-125。
+不能声称可以直接上板烧录；必须先由用户手动重新跑 Vivado synthesis/implementation/timing。
+```
+
 ## 2026-06-15 v2B1 FPGA MTS Error Shadow PI（当前有效）
 
 当前 v2B1 有效路线是 FPGA MTS Error Shadow PI，不是 D2-125 DC Error 旁路进板子。

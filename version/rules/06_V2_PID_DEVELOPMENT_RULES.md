@@ -1,5 +1,18 @@
 # 06_V2_PID_DEVELOPMENT_RULES
 
+## 0.0B v2B1 timing-safe 默认路径规则（2026-06-16）
+
+完整 `pi_controller.sv` 是 v2A 的完整 PI + anti-windup 核心，继续保留，不删除、不弱化。但 v2B1 主工程默认不能再直接使用完整 PI 路径驱动 OUT2，因为手动 implementation 已显示约 `WNS=-10.995 ns` 的 timing failure。
+
+当前规则：
+
+```text
+USE_FULL_PI_CONTROLLER = 0：v2B1 默认，使用 timing-safe P-only Shadow Control。
+USE_FULL_PI_CONTROLLER = 1：仅保留给后续 v2B2/v2B3 流水线 PI 开发和对照验证。
+```
+
+在完整 PI 完成流水线化并重新通过 Vivado timing 前，不能把它作为可上板默认路径；也不能用 multicycle/false path 掩盖未验证的长控制路径。
+
 ## 0.0A v2B1 RTL/SIM 注释规则（2026-06-15）
 
 v2B1 以后，只要 Codex 修改或新增 RTL / SIM，注释必须服务于真实实验链路，不能只服务于代码阅读。至少要说明：

@@ -1,5 +1,40 @@
 # V2_NEXT_STEPS
 
+## 2026-06-16 当前下一步：用户手动 Vivado timing 复查，不直接上板
+
+v2B1 已改为默认 `USE_FULL_PI_CONTROLLER=0` 的 timing-safe P-only Shadow Control。完整 `pi_controller.sv` 没有删除、没有改坏，但当前不作为默认 OUT2 板级路径；后续需要 v2B2/v2B3 做流水线 PI 后再重新接回。
+
+用户手动下一步只允许：
+
+```text
+1. 打开 v0.94/project/redpitaya.xpr
+2. 确认仿真 tb 文件没有被当作 Design Source 使用
+3. 确认 top module 仍为 red_pitaya_top
+4. 确认 laser_lock_core.sv 来自 v0.94/rtl
+5. 手动 Run Synthesis
+6. 手动 Run Implementation
+7. 检查 timing summary：WNS/TNS 必须不再是阻塞性负值
+8. 只有 timing 通过后，才允许 Generate Bitstream
+9. 烧录后第一轮只接示波器：OUT1->CH2，OUT2->CH4
+```
+
+仍然禁止：
+
+```text
+不要把 timing fail 的设计拿去烧录
+不要用 multicycle path 或 false path 掩盖未经验证的控制路径
+不要把 OUT2 接激光器
+不要把 OUT2 接 D2-125 Servo Output / Scan / Aux / Current / PZT
+不要声称已经闭环替代 D2-125
+```
+
+示波器预期：
+
+```text
+OUT1：原 FPGA mixer+LPF error，预计约 0.12~0.15 V
+OUT2：小 P-only shadow control，约 OUT1 的一半，且受 +/-0.18 V 左右限制
+```
+
 ## 2026-06-14 v2B1 Shadow PI 当前下一步（当前有效）
 
 v2B1 已把 v2A 的 `pi_controller.sv` 接入主链路的 Shadow PI 位置。当前目标不是闭环替代 D2-125，而是先让 FPGA 在 OUT2 上输出一个安全、很小、可观察的 P-only control。

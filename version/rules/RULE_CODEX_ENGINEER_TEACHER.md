@@ -1,5 +1,18 @@
 # RULE_CODEX_ENGINEER_TEACHER
 
+## 0.0B v2B1 timing 教学说明规则（2026-06-16）
+
+以后解释 v2B1 时必须讲清楚：完整 PI 算法和可上板 timing-clean 路径不是同一件事。`pi_controller.sv` 独立仿真通过，说明算法零件可用；Vivado timing failure 说明这个零件直接接入 125 MHz 主路径太长，需要先做 timing-safe 旁路或流水线化。
+
+面向小白必须这样解释：
+
+```text
+完整 pi_controller 像一个功能完整但很长的计算链。
+v2B1 当前先用很短的 P-only Shadow Control，让 OUT2 有可观察的小信号，并尽量通过 timing。
+后续 v2B2/v2B3 再把完整 PI 切成多拍流水线，重新接回 OUT2。
+不能把 timing fail 的设计烧板，也不能靠约束假装它安全。
+```
+
 ## 0.0A RTL/SIM 注释必须讲清真实实验链路（2026-06-15）
 
 Codex 以后新增或修改 RTL / SIM 时，注释不能只写“这里是 mux”“这里是 counter”。凡是涉及 Red Pitaya、MTS error、PI/PID、OUT1/OUT2、D2-125 替代路线，必须同时讲清：

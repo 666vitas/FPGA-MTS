@@ -1,5 +1,51 @@
 # STATUS
 
+## 2026-06-16 当前主线：v2B1 timing-safe P-only Shadow Control（当前有效）
+
+手动 Vivado Implementation 已暴露一个关键 timing 问题：完整 `pi_controller.sv` 直接放进 v2B1 主工程路径时，125 MHz 下未通过时序，记录现象约为 `WNS=-10.995 ns`、`TNS=-5029 ns`。最差路径位于：
+
+```text
+i_laser_lock_core/u_output_protect/data_o_reg
+-> i_laser_lock_core/i_pi_controller
+-> control_o_reg
+```
+
+该路径穿过 DSP48E1、CARRY4、48-bit integrator、anti-windup freeze、integrator_accepted、P+I+offset limiter 和 `control_o` 更新逻辑。结论是：完整 PI 算法仍然保留为 v2A 已验证核心，但不能再作为 v2B1 默认上板路径。
+
+当前有效 RTL 策略：
+
+```text
+v0.94/rtl/pi_controller.sv：不修改，保留完整 PI + anti-windup，供后续 v2B2/v2B3 流水线化使用。
+v0.94/rtl/laser_lock_core.sv：默认 USE_FULL_PI_CONTROLLER=0，使用 timing-safe P-only Shadow Control。
+OUT1：继续观察 FPGA mixer+LPF error。
+OUT2：只输出很小的 P-only shadow control，只接示波器。
+```
+
+当前默认板级链路：
+
+```text
+IN1 + IN2
+-> mixer_core
+-> lpf_core
+-> output_protect
+-> error_o / OUT1
+
+同一个 protected_error
+-> timing-safe P-only Shadow Control
+-> control_o / OUT2
+```
+
+OUT2 预期：约为 OUT1 error 的 1/2，并受 `PID_OUTPUT_LIMIT_DEFAULT=1500` 限制，约 `+/-0.18 V`。当前仍不能接激光器，不能接 D2-125 Servo Output，不能接 Scan，不能声称已经闭环替代 D2-125。
+
+本轮独立 XSim 回归：
+
+```text
+xvlog：0 error，0 warning
+xelab：0 error，0 warning
+xsim：tests=18 pass=18 fail=0
+日志：v0.94/xvlog.log，v0.94/xelab.log，v0.94/xsim.log
+```
+
 ## 2026-06-14 当前主线：v2B1 FPGA MTS Error Shadow PI（当前有效）
 
 当前安全主线已经从旧的“D2-125 DC Error -> Red Pitaya IN1”旁路方案，修正为使用 Red Pitaya 自身 IN1/IN2 生成 FPGA 内部 error，并把该 error 同时送到 OUT1 观察和 OUT2 Shadow PI 控制输出。

@@ -1,5 +1,19 @@
 # 03_FPGA_CODE_REVIEW_RULES
 
+## 0.0B v2B1 timing 审查硬规则（2026-06-16）
+
+v2B1 已经出现过完整 `pi_controller.sv` 直接放入主工程后的 Vivado implementation timing failure，记录约为 `WNS=-10.995 ns`、`TNS=-5029 ns`。最差路径在 `i_laser_lock_core/i_pi_controller`，经过 DSP48E1、CARRY4、integrator、anti-windup 和 limiter。
+
+审查规则：
+
+```text
+1. v2B1 默认板级路径必须使用 timing-safe P-only Shadow Control。
+2. 完整 pi_controller 可以保留，但不能默认直接接 OUT2 上板，除非后续完成流水线化并重新通过 timing。
+3. 不允许用未经论证的 multicycle path、false path 或约束技巧掩盖真实控制路径 timing failure。
+4. timing fail 的设计不允许生成用于上板的 bitstream。
+5. Codex 不操作 Vivado；Vivado synthesis/implementation/timing 由用户手动执行并记录。
+```
+
 ## 0.0 RTL/SIM 注释审查硬规则（2026-06-15）
 
 凡是新增或修改 RTL / testbench，只要会影响 Red Pitaya IN1/IN2/OUT1/OUT2、PI/PID、MTS error、D2-125 替代路线，就必须在代码注释中解释清楚下面 6 件事。否则即使仿真 PASS，也视为文档和工程可读性不合格：

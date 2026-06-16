@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-// v2B1 FPGA MTS Error Shadow PI behavior test.
+// v2B1 FPGA MTS Error timing-safe Shadow Control behavior test.
 //
 // Historical naming note:
 // The "dc_error" suffix in this filename is a historical name. The current
@@ -8,11 +8,12 @@
 //
 // Current valid chain under test:
 // IN1 + IN2 -> mixer_core -> lpf_core -> error_o -> OUT1
-// and the same error_o/protected_error -> pi_controller -> control_o -> OUT2.
+// and the same error_o/protected_error -> timing-safe P-only control_o -> OUT2.
 //
 // The testbench verifies board-observable behavior through laser_lock_core's
 // public ports: reset safety, OUT1 error visibility, OUT2 P-only scaling,
-// output_limit, polarity, Ki=0 no integral climb, and pid_ce hold behavior.
+// output_limit, polarity, no-integrator default behavior, and pid_ce hold
+// behavior.
 //
 // Board interpretation:
 // - PASS here means the integrated RTL has the expected Shadow PI behavior in
@@ -68,10 +69,12 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
     endfunction
 
     // dut_direct uses OUTPUT_MODE=0 as a simple passthrough source. It makes
-    // the OUT1 error value exact, so the test can check Kp=2048 scaling and
-    // pid_ce hold behavior without depending on LPF settling.
+    // the OUT1 error value exact, so the test can check default timing-safe
+    // half-scale control and pid_ce hold behavior without depending on LPF
+    // settling.
     laser_lock_core #(
         .OUTPUT_MODE(0),
+        .USE_FULL_PI_CONTROLLER(1'b0),
         .CLK_HZ(8),
         .PID_UPDATE_HZ(2),
         .PID_KP_DEFAULT(16'sd2048),
@@ -86,10 +89,11 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
         .control_o(control_direct)
     );
 
-    // dut_limit checks that the Shadow PI output_limit protects OUT2 and keeps
-    // the control signal small before any board experiment.
+    // dut_limit checks that the Shadow Control output_limit protects OUT2 and
+    // keeps the control signal small before any board experiment.
     laser_lock_core #(
         .OUTPUT_MODE(0),
+        .USE_FULL_PI_CONTROLLER(1'b0),
         .CLK_HZ(1),
         .PID_UPDATE_HZ(1),
         .PID_KP_DEFAULT(16'sd2048),
@@ -108,6 +112,7 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
     // observed to move opposite to the intended control direction.
     laser_lock_core #(
         .OUTPUT_MODE(0),
+        .USE_FULL_PI_CONTROLLER(1'b0),
         .CLK_HZ(1),
         .PID_UPDATE_HZ(1),
         .PID_POLARITY_DEFAULT(1'b1),
@@ -124,9 +129,11 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
     );
 
     // dut_mode3 checks the real v2B1 mode: IN1/IN2 are mixed, post-mixer LPF
-    // creates the error, OUT1 observes that error, and the same error feeds PI.
+    // creates the error, OUT1 observes that error, and the same error feeds
+    // the timing-safe P-only Shadow Control path.
     laser_lock_core #(
         .OUTPUT_MODE(3),
+        .USE_FULL_PI_CONTROLLER(1'b0),
         .CLK_HZ(1),
         .PID_UPDATE_HZ(1),
         .PID_KP_DEFAULT(16'sd2048),
@@ -164,7 +171,10 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
         check("OUTPUT_MODE=0 exposes protected error source", error_direct == 14'sd400);
         // With Kp=2048 and KP_SHIFT=12, the board expectation is OUT2/CH4 at
         // about one half of OUT1/CH2, before any real actuator is connected.
-        check("Kp=2048 makes control_o half of error_o", control_direct == 14'sd200);
+        // In the default v2B1 timing-safe branch this is implemented as >>> 1,
+        // not by instantiating the complete PI multiplier/integrator path.
+        check("default timing-safe path is selected", dut_direct.USE_FULL_PI_CONTROLLER == 1'b0);
+        check("timing-safe P-only makes control_o half of positive error_o", control_direct == 14'sd200);
 
         pd_direct = 14'sd600;
         wait_cycles(1);
@@ -174,10 +184,20 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
         wait_cycles(4);
         check("control_o updates on next pid_ce pulse", control_direct == 14'sd300);
 
+        pd_direct = -14'sd400;
+        wait_cycles(8);
+        check("OUTPUT_MODE=0 exposes negative protected error source", error_direct == -14'sd400);
+        check("timing-safe P-only makes control_o half of negative error_o", control_direct == -14'sd200);
+
+        pd_direct = 14'sd600;
+        wait_cycles(8);
+        check("timing-safe P-only recovers from negative to positive error", control_direct == 14'sd300);
+
         wait_cycles(16);
-        // Ki=0 is deliberate in v2B1. It prevents a slow OUT2 climb while the
-        // signal is only being observed on an oscilloscope.
-        check("Ki=0 prevents integral climb at fixed error", control_direct == 14'sd300);
+        // The default v2B1 branch does not instantiate the complete PI
+        // integrator at all. This prevents a slow OUT2 climb while the signal
+        // is only being observed on an oscilloscope.
+        check("timing-safe P-only default has no integral climb at fixed error", control_direct == 14'sd300);
 
         // output_limit is the last simulation guard before board observation:
         // a large error must not make OUT2 approach full-scale.
@@ -192,16 +212,17 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
         // OUTPUT_MODE=3 is the current real v2B1 route: IN1/IN2 create an FPGA
         // error, OUT1 observes it, and OUT2 follows it through P-only control.
         check("OUTPUT_MODE=3 still produces mixer plus LPF error", error_mode3 > 14'sd0);
-        check("OUTPUT_MODE=3 drives Shadow PI control from error source", control_mode3 > 14'sd0);
+        check("OUTPUT_MODE=3 drives Shadow Control from error source", control_mode3 > 14'sd0);
         check("mode3 P-only control is approximately half the visible error", abs_int(control_mode3 - (error_mode3 >>> 1)) <= 2);
         check("default v2B1 limit keeps OUT2 below 1500 counts", abs_int(control_mode3) <= 1500);
+        check("mode3 also uses timing-safe default path", dut_mode3.USE_FULL_PI_CONTROLLER == 1'b0);
 
         $display("SUMMARY tests=%0d pass=%0d fail=%0d", tests, pass_count, fail_count);
         if (fail_count == 0) begin
-            $display("V2B1_SHADOW_PI_SIM PASS");
+            $display("V2B1_TIMING_SAFE_SHADOW_CONTROL_SIM PASS");
             $finish;
         end else begin
-            $display("V2B1_SHADOW_PI_SIM FAIL");
+            $display("V2B1_TIMING_SAFE_SHADOW_CONTROL_SIM FAIL");
             $fatal(1);
         end
     end
