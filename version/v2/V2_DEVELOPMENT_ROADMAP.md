@@ -1,5 +1,25 @@
 # V2_DEVELOPMENT_ROADMAP
 
+## 2026-06-22 v2B1 上板验证完成：OUT2 安全输出验证通过
+
+v2B1 timing-safe P-only Shadow Control 已完成 timing-clean 上板示波器测试。用户记录的 implementation 结果：`WNS=+0.361 ns`、`TNS=0.000 ns`、`Failing Endpoints=0`。烧录后 OUT1 输出 FPGA mixer+LPF error，OUT2 输出 P-only shadow control。
+
+两组板级数据均支持半幅关系：
+
+| 数据文件 | OUT2 Vpp | OUT1 Vpp | OUT2 / OUT1 | 结论 |
+|---|---:|---:|---:|---|
+| `mixer.csv` | `0.01771 V` | `0.03439 V` | `0.515` | 与 `protected_error >>> 1` 一致 |
+| `no-mixer.csv` | `0.02644 V` | `0.04768 V` | `0.555` | 与当前 P-only shadow control 一致 |
+
+v2B1 已完成的范围是“OUT2 安全输出验证”，不是完整 PI/PID，也不是激光闭环。下一路线固定为：
+
+```text
+v2B2：timing-clean pipelined PI controller。
+v2B3：将流水线 PI 重新集成到 OUT2。
+v2D/v2E：在 OUT2 仍只接示波器的前提下继续开环观察。
+v2F：满足物理接口、安全限幅和低增益条件后，才讨论闭环替代 D2-125。
+```
+
 ## 2026-06-16 v2B1 timing 修复后的当前有效路线
 
 v2B1 的默认上板目标从“完整 `pi_controller` 直接驱动 OUT2”调整为“timing-safe P-only Shadow Control”。原因是：手动 Vivado Implementation 已显示完整 PI 直接进入 125 MHz 主路径会严重 timing fail，约 `WNS=-10.995 ns`、`TNS=-5029 ns`，最差路径在 `i_laser_lock_core/i_pi_controller` 内部，穿过 DSP、CARRY、integrator、anti-windup 和 limiter。

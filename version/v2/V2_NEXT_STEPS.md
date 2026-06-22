@@ -1,5 +1,22 @@
 # V2_NEXT_STEPS
 
+## 2026-06-22 当前下一步：进入 v2B2 / v2B3，不再重复证明 OUT2 是否存在
+
+v2B1 已完成 timing 通过后的上板示波器验证：`WNS=+0.361 ns`、`TNS=0.000 ns`、`Failing Endpoints=0`；OUT2/OUT1 实测比例为 `0.515`（mixer.csv）和 `0.555`（no-mixer.csv），符合当前 `protected_error >>> 1` 的半幅 P-only 预期。
+
+下一步不是继续证明 OUT2 是否存在，因为 OUT2 已经通过示波器验证。下一步进入：
+
+```text
+v2B2：设计 timing-clean pipelined PI controller。
+v2B3：将流水线 PI 重新接入 OUT2。
+v2D/v2E：继续进行 OUT2 示波器开环观察。
+v2F：在安全条件满足后，才进行低增益闭环替代 D2-125。
+```
+
+进入 v2B2 前必须保存本次 `mixer.csv`、`no-mixer.csv` 和示波器截图，作为 v2B1 baseline。当前 P-only 版本不再扩大功能范围，不重复修改来证明已经完成的 OUT2 输出通道。
+
+仍然禁止：OUT2 接激光器、D2-125 Servo Output 或 Scan；D2-125 DC Error 接 Red Pitaya IN1；宣称当前版本已锁定激光或已替代 D2-125。
+
 ## 2026-06-16 当前下一步：用户手动 Vivado timing 复查，不直接上板
 
 v2B1 已改为默认 `USE_FULL_PI_CONTROLLER=0` 的 timing-safe P-only Shadow Control。完整 `pi_controller.sv` 没有删除、没有改坏，但当前不作为默认 OUT2 板级路径；后续需要 v2B2/v2B3 做流水线 PI 后再重新接回。

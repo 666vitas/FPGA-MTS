@@ -1,5 +1,65 @@
 # STATUS
 
+## 2026-06-22 v2B1 timing-safe P-only Shadow Control 上板示波器测试完成
+
+本次由用户完成 Vivado 重新综合、实现、bitstream 生成和 Red Pitaya 烧录；记录的 timing 结果为：
+
+```text
+WNS = +0.361 ns
+TNS = 0.000 ns
+Failing Endpoints = 0
+```
+
+本轮接线仅为 `OUT1 -> 示波器`、`OUT2 -> 示波器`。OUT2 没有接激光器、D2-125、Scan 或 Servo Output。
+
+### 上板数据
+
+| 数据文件 | OUT2 shadow control | Board OUT1 error | OUT2 / OUT1 | 其他同步观察 |
+|---|---:|---:|---:|---|
+| `mixer.csv` | Vpp `0.01771 V`，RMS `0.007694 V` | Vpp `0.03439 V`，RMS `0.003643 V` | `0.515` | Saturated absorption peak：Vpp `0.1893 V`，RMS `0.8157 V`；D2-125 error：Vpp `1.829 V`，RMS `0.3469 V` |
+| `no-mixer.csv` | Vpp `0.02644 V`，RMS `0.006752 V` | Vpp `0.04768 V`，RMS `0.004388 V` | `0.555` | Saturated absorption peak：Vpp `0.1793 V`，RMS `0.8147 V`；D2-125 error：Vpp `0.0402 V`，RMS `0.2935 V` |
+
+比例计算：
+
+```text
+mixer.csv:    0.01771 / 0.03439 = 0.515
+no-mixer.csv: 0.02644 / 0.04768 = 0.555
+```
+
+### 实验结论
+
+```text
+2026-06-22 v2B1 timing-safe P-only Shadow Control 上板示波器测试完成。
+
+1. OUT1 能输出 FPGA mixer+LPF 后的 error signal，幅度为几十 mVpp。
+2. OUT2 能输出由 OUT1 派生的 P-only shadow control。
+3. OUT2 / OUT1 比例约为 0.5。
+4. OUT2 没有打到 +/-1 V。
+5. OUT2 没有出现明显失控、饱和或积分爬升。
+6. 该现象与 RTL 中 protected_error >>> 1 的 timing-safe P-only 设计一致。
+
+阶段结论：v2B1 的 OUT2 控制输出通道已经打通。
+当前版本可作为“OUT2 安全输出验证通过”的实验记录。
+```
+
+### 小白解释：为什么 OUT1 / OUT2 只有几十 mV
+
+这是安全测试版本的正常现象，不是失败。OUT2 当前不是完整 PI/PID 的大范围控制量，而是将 `protected_error` 做 `>>> 1` 后的半幅 P-only 输出；同时没有数字增益放大、没有积分累积，因此 OUT1 和 OUT2 都保持在较小幅度，便于先验证 OUT2 输出通道是否安全、方向是否合理。
+
+### 仍然有效的限制
+
+```text
+当前版本不是完整 PI。
+当前版本不是 PID。
+当前版本不能锁定激光。
+当前版本不能声称替代 D2-125。
+OUT2 仍然只能接示波器。
+OUT2 禁止接激光器。
+OUT2 禁止接 D2-125 Servo Output。
+OUT2 禁止接 Scan。
+D2-125 DC Error 禁止接 Red Pitaya IN1。
+```
+
 ## 2026-06-16 当前主线：v2B1 timing-safe P-only Shadow Control（当前有效）
 
 手动 Vivado Implementation 已暴露一个关键 timing 问题：完整 `pi_controller.sv` 直接放进 v2B1 主工程路径时，125 MHz 下未通过时序，记录现象约为 `WNS=-10.995 ns`、`TNS=-5029 ns`。最差路径位于：
