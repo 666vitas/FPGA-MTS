@@ -130,10 +130,10 @@ localparam int unsigned GDW = DWE;
 
 // Laser lock debug integration switch.
 // USE_LASER_LOCK_CORE = 0 keeps the official ASG + PID DAC path.
-// USE_LASER_LOCK_CORE = 1 is the current v2B1 Shadow PI integration mode:
+// USE_LASER_LOCK_CORE = 1 enables the current v2B3 sequential-PI candidate:
 //   ADC IN1 + ADC IN2 are processed by laser_lock_core.
 //   DAC A / OUT1 becomes the FPGA error observation output.
-//   DAC B / OUT2 becomes the small P-only Shadow PI control output.
+//   DAC B / OUT2 becomes the selected Shadow Control or sequential-PI output.
 // This switch does not change ADC IO, PLL, ODDR, PS, AXI, DDR, or constraints.
 // LASER_LOCK_OUTPUT_MODE:
 // 0 = IN1/pd_i -> OUT1
@@ -142,9 +142,13 @@ localparam int unsigned GDW = DWE;
 // 3 = mixer + post-mixer LPF -> OUT1
 // Current board expectation for OUTPUT_MODE=3:
 //   OUT1/CH2: FPGA mixer+LPF error, about 0.12 to 0.15 V in the current setup.
-//   OUT2/CH4: Shadow PI control derived from OUT1, not a real laser drive.
+//   OUT2/CH4: sequential PI candidate output derived from the same error.
+// LASER_LOCK_CONTROL_PATH_MODE=1 only prepares the sequential-PI board
+// candidate. It does not authorize a laser closed loop: OUT2 remains
+// oscilloscope-only, and a timing failure must not produce a board bitstream.
 localparam logic USE_LASER_LOCK_CORE = 1'b1;
 localparam int   LASER_LOCK_OUTPUT_MODE = 3;
+localparam int   LASER_LOCK_CONTROL_PATH_MODE = 1;
 
 logic [4-1:0] fclk ; //[0]-125MHz, [1]-250MHz, [2]-50MHz, [3]-200MHz
 logic [4-1:0] frstn;
@@ -443,7 +447,8 @@ end
 ////////////////////////////////////////////////////////////////////////////////
 
 laser_lock_core #(
-  .OUTPUT_MODE(LASER_LOCK_OUTPUT_MODE)
+  .OUTPUT_MODE      (LASER_LOCK_OUTPUT_MODE),
+  .CONTROL_PATH_MODE(LASER_LOCK_CONTROL_PATH_MODE)
 ) i_laser_lock_core (
   .clk_i     (adc_clk      ),
   .rstn_i    (adc_rstn     ),
@@ -472,7 +477,8 @@ assign dac_b_sum_laser    = {laser_control[13], laser_control};
 //   DAC B / OUT2 shows laser_control.
 // Scope meaning after bitstream is manually generated and loaded:
 //   OUT1 should keep the v1/v2 error-observation role.
-//   OUT2 should be a small, limited Shadow PI waveform.
+//   OUT2 is selected by LASER_LOCK_CONTROL_PATH_MODE. Mode 1 is the v2B3
+//   sequential-PI candidate; it still must only be observed on a scope.
 //   OUT2 must not be used as proof that FPGA has locked the laser.
 assign dac_a_sum = USE_LASER_LOCK_CORE ? dac_a_sum_laser : dac_a_sum_official;
 assign dac_b_sum = USE_LASER_LOCK_CORE ? dac_b_sum_laser : dac_b_sum_official;

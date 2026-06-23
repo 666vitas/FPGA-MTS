@@ -1,5 +1,18 @@
 # V2_DEVELOPMENT_ROADMAP
 
+## 2026-06-23 v2B3 上板候选选择状态
+
+`pi_controller_seq.sv` 已通过独立 XSim，mode=1 集成路径已通过 XSim。顶层 `red_pitaya_top.sv` 现显式使用：
+
+```text
+LASER_LOCK_CONTROL_PATH_MODE = 1
+-> laser_lock_core CONTROL_PATH_MODE = 1
+-> pi_controller_seq
+-> OUT2 候选输出
+```
+
+这一步仅把 v2B3 设为下一次用户手动 Vivado 的候选路径；不等于 timing 已通过，不等于可锁激光。v2B1 P-only 上板证据仍作为 mode=0 回退基线保留：OUT2/OUT1 为 `0.515`（mixer.csv）与 `0.555`（no-mixer.csv）。
+
 ## 2026-06-22 v2B2/v2B3 状态：RTL/SIM 通过，板级 timing 验证待用户执行
 
 | 子阶段 | 当前状态 | 已完成 | 尚未完成 |

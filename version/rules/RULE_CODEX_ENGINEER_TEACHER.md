@@ -1,5 +1,9 @@
 # RULE_CODEX_ENGINEER_TEACHER
 
+## 0.0C 实验可见现象说明规则（2026-06-23）
+
+凡是涉及 Red Pitaya IN1/IN2/OUT1/OUT2 的 RTL/SIM 修改，Codex 必须同时用小白语言交代：代码增加了什么、它是否已能锁激光、属于仿真还是上板观察、四个模拟端口如何接线、示波器正常与异常现象、停止条件、是否允许烧录/接激光器及下一步动作。若当前不是完整 PI/PID，必须明确仍缺少的功能或验证，不得把“OUT2 有波形”说成“已经锁定激光”。
+
 ## 0.0B v2B1 timing 教学说明规则（2026-06-16）
 
 以后解释 v2B1 时必须讲清楚：完整 PI 算法和可上板 timing-clean 路径不是同一件事。`pi_controller.sv` 独立仿真通过，说明算法零件可用；Vivado timing failure 说明这个零件直接接入 125 MHz 主路径太长，需要先做 timing-safe 旁路或流水线化。

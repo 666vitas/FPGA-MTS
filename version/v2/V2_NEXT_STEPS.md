@@ -1,5 +1,21 @@
 # V2_NEXT_STEPS
 
+## 2026-06-23 当前下一步：v2B3 sequential PI mode=1 上板候选
+
+v2B1 P-only 验证已经完成，不再重复证明 OUT2 是否存在。`red_pitaya_top.sv` 已显式设置 `LASER_LOCK_CONTROL_PATH_MODE=1`，使 `laser_lock_core` 选择 `CONTROL_PATH_MODE=1` 的 sequential PI；OUT1/OUT2 的 DAC A/DAC B 路由未改变。
+
+下一步是用户手动验证 mode=1，而不是重复 P-only 上板测试：
+
+```text
+1. 确认 pi_controller_seq.sv 在 Design Sources，tb_*.sv 不在 Design Sources。
+2. 确认 red_pitaya_top 是 Design Top，LASER_LOCK_CONTROL_PATH_MODE=1。
+3. Run Synthesis、Run Implementation，检查 WNS >= 0、TNS = 0。
+4. timing 通过后才 Generate Bitstream；失败则不得生成可上板 bit。
+5. 烧录后 OUT1 -> CH2，OUT2 -> CH4；OUT2 仍不得接激光器。
+```
+
+顺序 PI 的短时 OUT2 可能很像 P-only；当同号 error 长时间存在时，小 Ki 可能带来缓慢基线移动。正常情况下 OUT2 仍受 limit 约束，不应接近 `+/-1 V`、随机跳变、快速爬升或快速饱和。
+
 ## 2026-06-22 当前下一步：用户手动验证 v2B2/v2B3 sequential PI timing
 
 v2B1 P-only OUT2 安全输出验证已经关闭。v2B2 的 `pi_controller_seq.sv` 与 v2B3 的 `CONTROL_PATH_MODE=1` 集成 XSim 已通过，但默认仍是 `CONTROL_PATH_MODE=0` 的 timing-safe P-only 回退路径。

@@ -1,5 +1,9 @@
 # 03_FPGA_CODE_REVIEW_RULES
 
+## 0.0C v2B3 mode=1 候选路径审查规则（2026-06-23）
+
+当顶层显式选择 `LASER_LOCK_CONTROL_PATH_MODE=1` 时，审查结论必须区分“已选择 sequential PI 候选路径”和“已通过板级验证”。只有独立/集成 XSim、用户手动 Vivado timing、OUT2 示波器观察均通过后，mode=1 才可视为 OUT2 开环验证通过；在此之前，OUT2 仍只能接示波器，不能接激光器、D2-125 Servo Output 或 Scan。timing failed 不得生成或烧录可上板 bitstream。
+
 ## 0.0B v2B1 timing 审查硬规则（2026-06-16）
 
 v2B1 已经出现过完整 `pi_controller.sv` 直接放入主工程后的 Vivado implementation timing failure，记录约为 `WNS=-10.995 ns`、`TNS=-5029 ns`。最差路径在 `i_laser_lock_core/i_pi_controller`，经过 DSP48E1、CARRY4、integrator、anti-windup 和 limiter。

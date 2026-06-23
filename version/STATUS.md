@@ -1,5 +1,20 @@
 # STATUS
 
+## 2026-06-23 v2B3 mode=1 上板候选已准备，等待用户手动 timing 验证
+
+当前实际实验接线记录：
+
+```text
+PD -> v1 既有带通/放大链路 -> Red Pitaya IN1
+同路解调 REF -> Red Pitaya IN2
+OUT1 -> 板内 mixer + LPF 后的 FPGA demodulated error -> 示波器 CH2
+OUT2 -> 当前代码产生的 shadow/sequential control -> 示波器 CH4
+```
+
+v2B1 timing-safe P-only Shadow Control 上板验证已完成：`mixer.csv` 的 OUT2/OUT1 Vpp 为 `0.515`，`no-mixer.csv` 为 `0.555`；OUT2 没有打到 `+/-1 V`，证明 OUT2 安全输出通道已打通，但这不是激光锁定实验，也不能声称替代 D2-125。
+
+本轮顶层已新增 `LASER_LOCK_CONTROL_PATH_MODE=1` 并显式传给 `laser_lock_core`。这使下一次用户手动生成的候选工程选择 v2B3 sequential PI；OUT1/OUT2 顶层 DAC 路由保持不变。该候选尚未完成新的 Vivado timing 或示波器验证，因此 OUT2 仍只能接示波器。
+
 ## 2026-06-22 v2B2/v2B3 sequential PI RTL/SIM 完成，等待 Vivado timing
 
 v2B1 已关闭：OUT2 timing-safe P-only 安全输出已完成上板示波器验证，记录的 implementation 为 `WNS=+0.361 ns`、`TNS=0.000 ns`、`Failing Endpoints=0`，且 OUT2/OUT1 实测约为 `0.515` 与 `0.555`。

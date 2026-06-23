@@ -1,5 +1,42 @@
 # V2_EXPERIMENT_SOP
 
+## 2026-06-23 v2B3 sequential PI mode=1 上板示波器预期现象
+
+### 接线和绝对边界
+
+```text
+IN1 <- PD 经 v1 既有带通/放大链路后的信号，确认在 +/-1 V 内。
+IN2 <- 同路解调 REF，确认在 +/-1 V 内。
+OUT1 -> 示波器 CH2。
+OUT2 -> 示波器 CH4。
+
+禁止：OUT2 -> 激光器；OUT2 -> D2-125 Servo Output；
+OUT2 -> D2-125 Scan/Aux/Current/PZT；D2-125 DC Error -> IN1；
+以及任何超过 +/-1 V 的 IN1/IN2 输入。
+```
+
+### mode=1 正常现象
+
+```text
+OUT1/CH2：仍应看到板内 mixer + LPF 后的 FPGA 解调 error。
+若 OUT1 消失，立即停止；说明主 error 链路可能被破坏。
+
+OUT2/CH4：是 sequential PI 输出，不再要求严格等于 OUT1 的一半。
+短时间内它可能仍很像 P-only；若同号 error 长时间存在，小 Ki 可造成缓慢基线移动。
+OUT2 仍应受 output_limit 限制，不应接近 +/-1 V、随机跳变、快速爬升或快速饱和。
+```
+
+### mode=1 异常和停止条件
+
+```text
+OUT1 消失：停止，检查 OUTPUT_MODE、mixer_core、lpf_core、output_protect。
+OUT2 一直为 0：停止，检查 LASER_LOCK_CONTROL_PATH_MODE=1 和 pi_controller_seq.sv 是否在 Design Sources。
+OUT2 严格等于 OUT1 的一半：可能仍在 mode=0 P-only fallback，停止并检查顶层参数。
+OUT2 快速爬升：停止，Ki、极性或积分器逻辑可能异常。
+OUT2 接近 +/-1 V：立即停止，不进入任何闭环测试。
+Vivado timing failed：不得生成可上板 bitstream，也不得烧录。
+```
+
 ## 2026-06-22 v2B2/v2B3 sequential PI 上板前 SOP（当前有效）
 
 新的 `pi_controller_seq.sv` 已通过独立 XSim，`laser_lock_core.sv` 的 `CONTROL_PATH_MODE=1` 也已通过集成 XSim；这只证明 RTL/SIM 行为，尚不代表板级 timing 或硬件输出已通过。
