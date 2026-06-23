@@ -1,5 +1,30 @@
 # V2_EXPERIMENT_SOP
 
+## 2026-06-22 v2B2/v2B3 sequential PI 上板前 SOP（当前有效）
+
+新的 `pi_controller_seq.sv` 已通过独立 XSim，`laser_lock_core.sv` 的 `CONTROL_PATH_MODE=1` 也已通过集成 XSim；这只证明 RTL/SIM 行为，尚不代表板级 timing 或硬件输出已通过。
+
+上板前由用户手动确认：
+
+```text
+1. pi_controller_seq.sv 已加入 Vivado Design Sources。
+2. CONTROL_PATH_MODE 默认仍为 0；不要仅为上板而提前改成 1。
+3. Synthesis/Implementation 完成后，WNS >= 0、TNS = 0。
+4. 确认最差路径不在 pi_controller_seq 内部。
+5. timing 通过后才允许为 mode 1 生成 bitstream。
+```
+
+首次 mode 1 示波器验证只允许：
+
+```text
+OUT1 -> CH2，继续观察 FPGA mixer+LPF error。
+OUT2 -> CH4，观察 sequential PI 的 P-only 和小 Ki 行为。
+OUT2 禁止接激光器、D2-125 Servo Output、Scan、PZT 或 current 执行器。
+D2-125 DC Error 禁止接 Red Pitaya IN1。
+```
+
+通过条件是 OUT1 不被破坏、OUT2 对 error 的方向和限幅可解释、无异常跳变或不可解释积分爬升。即使通过，也仍是 OUT2 开环示波器验证，不是激光锁定或 D2-125 替代。
+
 ## 2026-06-22 v2B1 timing-safe P-only Shadow Control 上板示波器记录（当前有效）
 
 本次用户已完成 Vivado 重新综合、实现、bitstream 生成和 Red Pitaya 烧录。记录的 implementation timing 为 `WNS=+0.361 ns`、`TNS=0.000 ns`、`Failing Endpoints=0`，因此本次烧录对应 timing 通过的设计。

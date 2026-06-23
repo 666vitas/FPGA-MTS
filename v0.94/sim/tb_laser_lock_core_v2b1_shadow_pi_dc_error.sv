@@ -44,6 +44,17 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
     logic signed [13:0] error_mode3;
     logic signed [13:0] control_mode3;
 
+    logic signed [13:0] error_seq;
+    logic signed [13:0] control_seq;
+    logic signed [13:0] pd_seq_i;
+    logic signed [13:0] control_seq_i;
+    logic signed [13:0] control_seq_limit;
+    logic signed [13:0] control_seq_reverse;
+    logic signed [13:0] error_seq_mode3;
+    logic signed [13:0] control_seq_mode3;
+    logic signed [13:0] pd_seq_mode3;
+    logic signed [13:0] ref_seq_mode3;
+
     int tests;
     int pass_count;
     int fail_count;
@@ -74,7 +85,7 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
     // settling.
     laser_lock_core #(
         .OUTPUT_MODE(0),
-        .USE_FULL_PI_CONTROLLER(1'b0),
+        .CONTROL_PATH_MODE(0),
         .CLK_HZ(8),
         .PID_UPDATE_HZ(2),
         .PID_KP_DEFAULT(16'sd2048),
@@ -93,7 +104,7 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
     // keeps the control signal small before any board experiment.
     laser_lock_core #(
         .OUTPUT_MODE(0),
-        .USE_FULL_PI_CONTROLLER(1'b0),
+        .CONTROL_PATH_MODE(0),
         .CLK_HZ(1),
         .PID_UPDATE_HZ(1),
         .PID_KP_DEFAULT(16'sd2048),
@@ -112,7 +123,7 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
     // observed to move opposite to the intended control direction.
     laser_lock_core #(
         .OUTPUT_MODE(0),
-        .USE_FULL_PI_CONTROLLER(1'b0),
+        .CONTROL_PATH_MODE(0),
         .CLK_HZ(1),
         .PID_UPDATE_HZ(1),
         .PID_POLARITY_DEFAULT(1'b1),
@@ -133,7 +144,7 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
     // the timing-safe P-only Shadow Control path.
     laser_lock_core #(
         .OUTPUT_MODE(3),
-        .USE_FULL_PI_CONTROLLER(1'b0),
+        .CONTROL_PATH_MODE(0),
         .CLK_HZ(1),
         .PID_UPDATE_HZ(1),
         .PID_KP_DEFAULT(16'sd2048),
@@ -148,12 +159,103 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
         .control_o(control_mode3)
     );
 
+    // v2B3 sequential PI path. This is an integration test only; mode 0
+    // above remains the v2B1 timing-safe fallback path.
+    laser_lock_core #(
+        .OUTPUT_MODE(0),
+        .CONTROL_PATH_MODE(1),
+        .CLK_HZ(1),
+        .PID_UPDATE_HZ(1),
+        .PID_KP_DEFAULT(16'sd2048),
+        .PID_KI_DEFAULT(16'sd0),
+        .PID_OUTPUT_LIMIT_DEFAULT(14'd1500)
+    ) dut_seq (
+        .clk_i(clk),
+        .rstn_i(rstn),
+        .pd_i(pd_direct),
+        .ref_i(ref_direct),
+        .error_o(error_seq),
+        .control_o(control_seq)
+    );
+
+    laser_lock_core #(
+        .OUTPUT_MODE(0),
+        .CONTROL_PATH_MODE(1),
+        .CLK_HZ(1),
+        .PID_UPDATE_HZ(1),
+        .PID_KP_DEFAULT(16'sd0),
+        .PID_KI_DEFAULT(16'sd16),
+        .PID_OUTPUT_LIMIT_DEFAULT(14'd100)
+    ) dut_seq_i (
+        .clk_i(clk),
+        .rstn_i(rstn),
+        .pd_i(pd_seq_i),
+        .ref_i(14'sd0),
+        .error_o(),
+        .control_o(control_seq_i)
+    );
+
+    laser_lock_core #(
+        .OUTPUT_MODE(0),
+        .CONTROL_PATH_MODE(1),
+        .CLK_HZ(1),
+        .PID_UPDATE_HZ(1),
+        .PID_KP_DEFAULT(16'sd2048),
+        .PID_KI_DEFAULT(16'sd0),
+        .PID_OUTPUT_LIMIT_DEFAULT(14'd100)
+    ) dut_seq_limit (
+        .clk_i(clk),
+        .rstn_i(rstn),
+        .pd_i(14'sd4000),
+        .ref_i(14'sd0),
+        .error_o(),
+        .control_o(control_seq_limit)
+    );
+
+    laser_lock_core #(
+        .OUTPUT_MODE(0),
+        .CONTROL_PATH_MODE(1),
+        .CLK_HZ(1),
+        .PID_UPDATE_HZ(1),
+        .PID_POLARITY_DEFAULT(1'b1),
+        .PID_KP_DEFAULT(16'sd2048),
+        .PID_KI_DEFAULT(16'sd0),
+        .PID_OUTPUT_LIMIT_DEFAULT(14'd1500)
+    ) dut_seq_reverse (
+        .clk_i(clk),
+        .rstn_i(rstn),
+        .pd_i(14'sd400),
+        .ref_i(14'sd0),
+        .error_o(),
+        .control_o(control_seq_reverse)
+    );
+
+    laser_lock_core #(
+        .OUTPUT_MODE(3),
+        .CONTROL_PATH_MODE(1),
+        .CLK_HZ(1),
+        .PID_UPDATE_HZ(1),
+        .PID_KP_DEFAULT(16'sd2048),
+        .PID_KI_DEFAULT(16'sd0),
+        .PID_OUTPUT_LIMIT_DEFAULT(14'd1500)
+    ) dut_seq_mode3 (
+        .clk_i(clk),
+        .rstn_i(rstn),
+        .pd_i(pd_seq_mode3),
+        .ref_i(ref_seq_mode3),
+        .error_o(error_seq_mode3),
+        .control_o(control_seq_mode3)
+    );
+
     initial begin
         rstn = 1'b0;
         pd_direct = 14'sd0;
         ref_direct = 14'sd0;
         pd_mode3 = 14'sd0;
         ref_mode3 = 14'sd0;
+        pd_seq_i = 14'sd0;
+        pd_seq_mode3 = 14'sd0;
+        ref_seq_mode3 = 14'sd0;
 
         wait_cycles(4);
         // Reset safety corresponds to the first board check after programming:
@@ -173,8 +275,13 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
         // about one half of OUT1/CH2, before any real actuator is connected.
         // In the default v2B1 timing-safe branch this is implemented as >>> 1,
         // not by instantiating the complete PI multiplier/integrator path.
-        check("default timing-safe path is selected", dut_direct.USE_FULL_PI_CONTROLLER == 1'b0);
+        check("default timing-safe path is selected", dut_direct.CONTROL_PATH_MODE == 0);
         check("timing-safe P-only makes control_o half of positive error_o", control_direct == 14'sd200);
+        check("sequential PI path is selected", dut_seq.CONTROL_PATH_MODE == 1);
+        check("sequential PI keeps OUT1 error observation", error_seq == 14'sd400);
+        check("sequential PI Ki=0 matches P-only half scale", control_seq == 14'sd200);
+        check("sequential PI output_limit protects OUT2", control_seq_limit == 14'sd100);
+        check("sequential PI polarity reverses OUT2", control_seq_reverse == -14'sd200);
 
         pd_direct = 14'sd600;
         wait_cycles(1);
@@ -215,14 +322,25 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
         check("OUTPUT_MODE=3 drives Shadow Control from error source", control_mode3 > 14'sd0);
         check("mode3 P-only control is approximately half the visible error", abs_int(control_mode3 - (error_mode3 >>> 1)) <= 2);
         check("default v2B1 limit keeps OUT2 below 1500 counts", abs_int(control_mode3) <= 1500);
-        check("mode3 also uses timing-safe default path", dut_mode3.USE_FULL_PI_CONTROLLER == 1'b0);
+        check("mode3 also uses timing-safe default path", dut_mode3.CONTROL_PATH_MODE == 0);
+
+        pd_seq_i = 14'sd256;
+        wait_cycles(128);
+        check("sequential PI Ki positive accumulates control", control_seq_i > 14'sd0);
+        check("sequential PI Ki positive remains limited", control_seq_i <= 14'sd100);
+
+        pd_seq_mode3 = 14'sd4096;
+        ref_seq_mode3 = 14'sd4096;
+        wait_cycles(128);
+        check("sequential PI mode3 keeps OUT1 error", error_seq_mode3 > 14'sd0);
+        check("sequential PI mode3 drives OUT2", control_seq_mode3 > 14'sd0);
 
         $display("SUMMARY tests=%0d pass=%0d fail=%0d", tests, pass_count, fail_count);
         if (fail_count == 0) begin
-            $display("V2B1_TIMING_SAFE_SHADOW_CONTROL_SIM PASS");
+            $display("V2B1_V2B3_CONTROL_PATH_SIM PASS");
             $finish;
         end else begin
-            $display("V2B1_TIMING_SAFE_SHADOW_CONTROL_SIM FAIL");
+            $display("V2B1_V2B3_CONTROL_PATH_SIM FAIL");
             $fatal(1);
         end
     end

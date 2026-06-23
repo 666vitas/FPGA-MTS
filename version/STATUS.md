@@ -1,5 +1,28 @@
 # STATUS
 
+## 2026-06-22 v2B2/v2B3 sequential PI RTL/SIM 完成，等待 Vivado timing
+
+v2B1 已关闭：OUT2 timing-safe P-only 安全输出已完成上板示波器验证，记录的 implementation 为 `WNS=+0.361 ns`、`TNS=0.000 ns`、`Failing Endpoints=0`，且 OUT2/OUT1 实测约为 `0.515` 与 `0.555`。
+
+本轮新增 `pi_controller_seq.sv`，使用七状态顺序更新：`IDLE -> CAPTURE -> P_CALC -> I_CALC -> I_UPDATE -> SUM -> LIMIT`。完整 PI 算法保持 P、I、offset、对称限幅和 anti-windup 语义，但乘法、积分更新、求和、限幅分拍寄存，避免旧完整 PI 的单条长组合路径。
+
+`laser_lock_core.sv` 现在使用：
+
+```text
+CONTROL_PATH_MODE=0：timing-safe P-only Shadow Control，当前默认回退路径。
+CONTROL_PATH_MODE=1：新的 pi_controller_seq sequential PI，v2B3 目标路径。
+CONTROL_PATH_MODE=2：旧 pi_controller，仅参考/仿真，不作默认板级路径。
+```
+
+本轮 XSim：
+
+```text
+tb_pi_controller_seq: tests=35 pass=35 fail=0
+tb_laser_lock_core_v2b1_shadow_pi_dc_error: tests=27 pass=27 fail=0
+```
+
+当前仍不能声称 sequential PI 已 timing-clean 上板，也不能将 OUT2 接激光器、D2-125 Servo Output 或 Scan。下一步由用户手动把 `pi_controller_seq.sv` 加入 Vivado Design Sources 后检查 timing；只有 XSim、Vivado timing、OUT2 示波器都通过，才讨论低增益闭环。
+
 ## 2026-06-22 v2B1 timing-safe P-only Shadow Control 上板示波器测试完成
 
 本次由用户完成 Vivado 重新综合、实现、bitstream 生成和 Red Pitaya 烧录；记录的 timing 结果为：

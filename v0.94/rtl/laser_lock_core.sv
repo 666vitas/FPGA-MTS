@@ -44,13 +44,15 @@ module laser_lock_core #(
     // the FPGA-generated error, about 0.12 to 0.15 V in the user's present
     // observation. OUT2/CH4 should show the P-only control derived from it.
     parameter int OUTPUT_MODE = 0,
-    // USE_FULL_PI_CONTROLLER selects which OUT2 control path is elaborated.
-    // 0: timing-safe P-only Shadow Control. This is the current v2B1 default.
-    //    It is only for OUT2 oscilloscope observation.
-    // 1: instantiate the complete v2A pi_controller. This is preserved for
-    //    future pipeline work; direct use in the 125 MHz main project has
-    //    already shown timing failure and is not the default board path.
-    parameter bit USE_FULL_PI_CONTROLLER = 1'b0,
+    // CONTROL_PATH_MODE selects which OUT2 control path is elaborated.
+    // 0: timing-safe P-only Shadow Control (v2B1 fallback and board default).
+    // 1: v2B3 sequential PI controller. It is simulation-integrated here but
+    //    must still pass separate Vivado timing and OUT2 scope checks before
+    //    becoming the board default.
+    // 2: legacy complete v2A pi_controller, reference/simulation only. Direct
+    //    125 MHz integration previously failed timing and is never the default.
+    // Any invalid value falls back to mode 0 for safe OUT2 behavior.
+    parameter int CONTROL_PATH_MODE = 0,
     // CLK_HZ is the input clock rate. In the real Red Pitaya top level this is
     // the ADC clock domain, about 125 MHz. The PI path must stay in this clock
     // domain; do not create a separate PI clock.
@@ -69,9 +71,9 @@ module laser_lock_core #(
     // If OUT1 error is about 0.12 to 0.15 V, the expected OUT2 control is about
     // 0.06 to 0.075 V.
     parameter logic signed [15:0] PID_KP_DEFAULT = 16'sd2048,
-    // Ki=0 makes this first Shadow PI integration a P-only board observation.
-    // This avoids a slow integrator climb while the output is only being viewed.
-    parameter logic signed [15:0] PID_KI_DEFAULT = 16'sd0,
+    // Mode 0 has no integrator. Mode 1 starts with a deliberately small Ki so
+    // the later sequential-PI scope test accumulates only slowly.
+    parameter logic signed [15:0] PID_KI_DEFAULT = 16'sd16,
     parameter logic signed [13:0] PID_OFFSET_DEFAULT = 14'sd0,
     // 1500 counts is roughly +/-0.18 V on the Red Pitaya output scale. It keeps
     // OUT2 far below the +/-1 V full-scale range during the oscilloscope test.
@@ -204,7 +206,36 @@ module laser_lock_core #(
     end
 
     generate
-        if (USE_FULL_PI_CONTROLLER) begin : g_full_pi_controller
+        if (CONTROL_PATH_MODE == 1) begin : g_seq_pi_controller
+            // v2B3 sequential PI path. pi_controller_seq registers every long
+            // arithmetic stage, so the legacy P+I+anti-windup chain is not one
+            // 125 MHz combinational path. OUT2 remains oscilloscope-only.
+            pi_controller_seq #(
+                .ERROR_WIDTH(14),
+                .GAIN_WIDTH (16),
+                .OUT_WIDTH  (14),
+                .ACC_WIDTH  (48),
+                .KP_SHIFT   (12),
+                .KI_SHIFT   (12)
+            ) i_pi_controller_seq (
+                .clk_i             (clk_i),
+                .rstn_i            (rstn_i),
+                .pid_ce_i          (pid_ce_q),
+                .enable_i          (PID_ENABLE_DEFAULT),
+                .hold_i            (PID_HOLD_DEFAULT),
+                .reset_integrator_i(PID_RESET_INTEGRATOR_DEFAULT),
+                .polarity_i        (PID_POLARITY_DEFAULT),
+                .error_i           (protected_error),
+                .kp_i              (PID_KP_DEFAULT),
+                .ki_i              (PID_KI_DEFAULT),
+                .offset_i          (PID_OFFSET_DEFAULT),
+                .output_limit_i    (PID_OUTPUT_LIMIT_DEFAULT),
+                .control_o         (control_o),
+                .p_term_o          (p_term_unused),
+                .i_term_o          (i_term_unused),
+                .sat_o             (sat_unused)
+            );
+        end else if (CONTROL_PATH_MODE == 2) begin : g_full_pi_controller
             // Complete PI path, preserved but not used by the default v2B1
             // board build.
             //

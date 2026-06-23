@@ -1,5 +1,24 @@
 # V2_NEXT_STEPS
 
+## 2026-06-22 当前下一步：用户手动验证 v2B2/v2B3 sequential PI timing
+
+v2B1 P-only OUT2 安全输出验证已经关闭。v2B2 的 `pi_controller_seq.sv` 与 v2B3 的 `CONTROL_PATH_MODE=1` 集成 XSim 已通过，但默认仍是 `CONTROL_PATH_MODE=0` 的 timing-safe P-only 回退路径。
+
+用户手动下一步：
+
+```text
+1. 打开 v0.94/project/redpitaya.xpr。
+2. 将 v0.94/rtl/pi_controller_seq.sv 加入 Design Sources。
+3. 确认 laser_lock_core.sv 来自 v0.94/rtl，red_pitaya_top 仍是 Design Top。
+4. 确认所有 tb_*.sv 不在 Design Sources。
+5. 手动 Run Synthesis 和 Run Implementation。
+6. 检查 WNS >= 0、TNS = 0，并检查最差路径不在 pi_controller_seq 内部。
+7. timing 通过后才 Generate Bitstream。
+8. 烧录后只接示波器：OUT1 -> CH2，OUT2 -> CH4。
+```
+
+在 sequential PI 完成 XSim、Vivado timing 和 OUT2 示波器验证前，`CONTROL_PATH_MODE` 默认不得从 `0` 改为 `1`。OUT2 仍禁止接激光器、D2-125 Servo Output 或 Scan。
+
 ## 2026-06-22 当前下一步：进入 v2B2 / v2B3，不再重复证明 OUT2 是否存在
 
 v2B1 已完成 timing 通过后的上板示波器验证：`WNS=+0.361 ns`、`TNS=0.000 ns`、`Failing Endpoints=0`；OUT2/OUT1 实测比例为 `0.515`（mixer.csv）和 `0.555`（no-mixer.csv），符合当前 `protected_error >>> 1` 的半幅 P-only 预期。

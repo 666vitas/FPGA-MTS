@@ -1,5 +1,23 @@
 # V2_DEVELOPMENT_ROADMAP
 
+## 2026-06-22 v2B2/v2B3 状态：RTL/SIM 通过，板级 timing 验证待用户执行
+
+| 子阶段 | 当前状态 | 已完成 | 尚未完成 |
+|---|---|---|---|
+| v2B1 | CLOSED | timing-safe P-only OUT2 上板示波器验证；WNS `+0.361 ns` | 不扩大 P-only 功能 |
+| v2B2 | RTL/SIM PASS | `pi_controller_seq.sv`；35/35 PASS | Vivado synthesis/implementation/timing |
+| v2B3 | RTL/SIM PASS | `CONTROL_PATH_MODE=1` 集成；27/27 PASS | mode 1 的 timing 与 OUT2 示波器验证 |
+
+控制路径规则：
+
+```text
+mode 0：默认 timing-safe P-only 回退路径。
+mode 1：sequential PI，等待用户手动 Vivado timing 和示波器验证。
+mode 2：旧完整 PI，仅参考/仿真，不作为板级默认。
+```
+
+只有 sequential PI 的 XSim、Vivado timing、OUT2 示波器三项都通过，才进入 v2D/v2E 的进一步开环观察；之后才讨论 v2F 低增益闭环。当前 OUT2 仍只接示波器。
+
 ## 2026-06-22 v2B1 上板验证完成：OUT2 安全输出验证通过
 
 v2B1 timing-safe P-only Shadow Control 已完成 timing-clean 上板示波器测试。用户记录的 implementation 结果：`WNS=+0.361 ns`、`TNS=0.000 ns`、`Failing Endpoints=0`。烧录后 OUT1 输出 FPGA mixer+LPF error，OUT2 输出 P-only shadow control。
