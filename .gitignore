@@ -5,6 +5,8 @@
 **/.cache/**
 **/.hw/**
 **/.Xil/**
+**/redpitaya.cache/
+**/.jobs/
 **/ip_user_files/**
 **/ipshared/**
 **/xsim.dir/**
