@@ -5,8 +5,6 @@
 **/.cache/**
 **/.hw/**
 **/.Xil/**
-**/redpitaya.cache/
-**/.jobs/
 **/ip_user_files/**
 **/ipshared/**
 **/xsim.dir/**
@@ -26,6 +24,10 @@
 *.ltx
 *.mcs
 *.pb
+
+# Vivado generated cache/job state
+**/redpitaya.cache/
+**/.jobs/
 
 # Large/binary/archive files
 *.exe
@@ -49,16 +51,27 @@
 *.csv
 
 # Cache/temp
-__pycache__/
-*.pyc
-.venv/
-venv/
 *.tmp
 *.bak
 *.old
 ~$*
 .DS_Store
 Thumbs.db
+
+# Python virtual environments and cache
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Host app exported data
+software/redpitaya_lock_host/exports/
+software/redpitaya_lock_host/data/
+software/redpitaya_lock_host/*.csv
+software/redpitaya_lock_host/*.png
+software/redpitaya_lock_host/*.jpg
+software/redpitaya_lock_host/*.log
 
 # Secrets
 .env

@@ -1,0 +1,16 @@
+red_pitaya:
+  host: rp-f0cb13.local
+  scpi_port: 5000
+  timeout_s: 3.0
+
+scan:
+  frequency_hz: 50.0
+  amplitude_v: 0.2
+  offset_v: 0.0
+
+acquisition:
+  decimation: 1024
+
+gui:
+  refresh_ms: 100
+  sample_count: 2048
