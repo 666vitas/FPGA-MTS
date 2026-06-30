@@ -37,6 +37,11 @@ DEFAULT_CONFIG = {
         "refresh_ms": 100,
         "sample_count": 2048,
     },
+    "preview": {
+        "cycles": 2,
+        "min_points": 1024,
+        "max_points": 5000,
+    },
 }
 
 

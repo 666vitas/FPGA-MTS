@@ -2,6 +2,12 @@
 
 Follow this order. Do not connect PD or laser scan / PZT until the earlier checks pass.
 
+Current host-app development directory:
+
+```text
+E:\new\fpga_lock\v94\software\redpitaya_lock_host
+```
+
 ## 1. Probe Only
 
 1. Do not connect any experiment signal.
@@ -65,6 +71,8 @@ Use Official SCPI Mode for this test.
 6. Enable OUT2 and click `Apply`.
 7. Confirm the oscilloscope waveform is safe.
 
+Note: CH4 is a generated preview, not a measured OUT2 signal. A 50 Hz triangle wave has a 20 ms period; the GUI preview now uses an independent time axis and defaults to at least two complete cycles. The oscilloscope remains the authority for real OUT2.
+
 ## 6. OUT1 Oscilloscope Test
 
 Use Official SCPI Mode for this test.
@@ -119,4 +127,6 @@ When the custom bitstream is loaded, the current RTL routes:
 - OUT1 = `laser_error`
 - OUT2 = `laser_control`
 
-In Custom FPGA Mode, OUT2 remains oscilloscope-only. Do not connect it to laser scan/PZT or D2-125. The V2 host does not currently control custom FPGA parameters; future control requires RTL registers or a debug buffer.
+In Custom FPGA Mode, OUT2 remains oscilloscope-only. Do not connect it to laser scan/PZT, D2-125, or Scan/PZT. The V2 host does not currently control custom FPGA parameters; future control requires RTL `register_bank`, `debug_buffer`, or AXI registers.
+
+Use Custom FPGA Observe Mode to enter manual scope readings for OUT1/OUT2 and check the OUT2/OUT1 ratio. If OUT2 approaches +/-0.8 V, if OUT2 Vpp is too large, or if OUT2 rapidly climbs/jumps, stop the experiment.

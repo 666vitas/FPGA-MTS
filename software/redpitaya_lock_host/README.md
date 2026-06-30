@@ -1,45 +1,95 @@
 # Red Pitaya Laser Lock Host V2
 
-This is the Red Pitaya Laser Lock Host V2 upper-computer software for the FPGA laser frequency locking project.
+Red Pitaya Laser Lock Host V2 is the upper-computer software for the Red Pitaya laser frequency locking project.
 
-It belongs to the main project:
+Its core goal is to support the step-by-step replacement of the D2-125 workflow with Red Pitaya FPGA logic and host-side experiment management: scan, error-signal observation, control-output observation, lock readiness checks, and later lock/relock workflows.
+
+## Canonical Development Directory
+
+All Red Pitaya host-app development is now done in:
 
 ```text
-E:\new\fpga_lock\v94
+E:\new\fpga_lock\v94\software\redpitaya_lock_host
+```
+
+Do not use the old standalone development directory. The canonical host-app path is the `software/redpitaya_lock_host` directory shown above.
+
+Markdown documentation, SOPs, and stage notes belong in `docs/`. Stage records are kept in `docs/DEVELOPMENT_LOG.md`. Usage instructions are kept in this README and `docs/USAGE.md`. SCPI notes are kept in `docs/SCPI_MODE_NOTES.md`. If a temporary stage report is needed, place it under `docs/reports/`, not in the software root.
+
+## Directory Structure
+
+```text
+redpitaya_lock_host/
+├── .venv/                  # Local Python virtual environment, not tracked by Git
+├── docs/                   # Software documentation
+├── redpitaya_lock_host/    # Python source code
+├── tests/                  # Host-app tests
+├── config.yaml             # Default configuration
+├── requirements.txt        # Python dependencies
+├── run.bat                 # Normal-mode startup script
+├── run_mock.bat            # Mock-mode startup script
+└── README.md
+```
+
+## Relationship To The FPGA Project
+
+This host application is located at:
+
+```text
+E:\new\fpga_lock\v94\software\redpitaya_lock_host
 ```
 
 The FPGA / RTL / Vivado project is located at:
 
 ```text
-..\..\v0.94
+E:\new\fpga_lock\v94\v0.94
 ```
 
-## Modes
+This documentation update does not modify the FPGA project, RTL files, Vivado project files, or bitstreams.
 
-### Official SCPI Mode
+## Python Environment
 
-The host application defaults to `Official SCPI Mode`.
+Recommended:
 
-In `Official SCPI Mode`, the host can use `redpitaya_scpi` to control OUT1/OUT2 waveform output and acquire IN1/IN2 data.
+```text
+Official Python 3.11 + project-local .venv
+```
 
-Starting `redpitaya_scpi` may load the official v0.94 overlay and may overwrite the currently loaded custom FPGA bitstream. Use this mode for official SCPI bring-up and hardware signal-chain checks.
+Not recommended:
 
-### Custom FPGA Mode
+```text
+Anaconda base environment
+```
 
-In `Custom FPGA Mode`, OUT1/OUT2 come from the custom RTL signals `laser_error / laser_control`, and are not controlled by the SCPI ASG waveform generator.
+Anaconda base may contain Qt / PySide6 / DLL conflicts, which can cause:
 
-If the GUI needs to display the FPGA internal `error_internal` signal, a later RTL debug buffer or register interface is required.
+```text
+ImportError: DLL load failed while importing QtWidgets
+```
 
-## Setup And Run
+## First-Time Installation
 
-Use PowerShell from the host-app directory:
+Use PowerShell:
 
 ```powershell
 Set-Location E:\new\fpga_lock\v94\software\redpitaya_lock_host
-python -m venv .venv
+
+py -3.11 -m venv .venv
+
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r .\requirements.txt
-.\run.bat
 ```
+
+If the `py` command does not exist, the official Python Launcher is not installed. Install official Python 3.11, then reopen PowerShell.
+
+## Environment Tests
+
+```powershell
+.\.venv\Scripts\python.exe -c "from PySide6.QtWidgets import QApplication; print('PySide6 OK')"
+.\.venv\Scripts\python.exe -c "import yaml; print('PyYAML OK')"
+```
+
+## Startup
 
 Mock mode:
 
@@ -47,4 +97,82 @@ Mock mode:
 .\run_mock.bat
 ```
 
-In PowerShell, do not type `run.bat` directly. Use `.\run.bat`.
+Real connection mode:
+
+```powershell
+.\run.bat
+```
+
+Backup startup commands:
+
+```powershell
+.\.venv\Scripts\python.exe -m redpitaya_lock_host.main --mock
+.\.venv\Scripts\python.exe -m redpitaya_lock_host.main
+```
+
+In PowerShell, do not type:
+
+```powershell
+run.bat
+```
+
+Use:
+
+```powershell
+.\run.bat
+```
+
+## Red Pitaya Connection Flow
+
+1. Probe.
+2. If SCPI is False, click Start SCPI Server.
+3. Probe again.
+4. When SCPI is True, click Connect SCPI.
+5. Connect OUT2 to the oscilloscope.
+6. Set OUT2 to `triangle / 50 Hz / 0.05 V / offset 0`.
+7. Apply.
+8. After confirming the waveform on the oscilloscope, consider connecting the laser scan/PZT input.
+
+## GUI Modes
+
+- Hardware Bring-up / SCPI Mode: Probe, Start SCPI Server, Connect SCPI, OUT2 Safe Scan, IN1/IN2 acquisition, and Stop/Disable outputs.
+- Custom FPGA Observe Mode: manual oscilloscope readings for real wiring: IN1 PD/MTS, IN2 REF, OUT1 laser_error, and OUT2 laser_control. OUT2 is scope-only at the current stage.
+- Lock Workflow Mode: step-by-step D2-125 replacement workflow management. It does not pretend to lock automatically.
+- Data & Experiment Log: exports Markdown experiment logs to `docs/experiment_logs/`.
+
+Custom FPGA register writes, debug-buffer reads, AXI registers, lock FSM control, and relock are future work. They require FPGA-side `register_bank`, `debug_buffer`, or AXI readout support.
+
+## OUT1/OUT2 Preview Notes
+
+CH3 and CH4 are generated previews, not measured ADC data.
+
+A 50 Hz triangle wave has a 20 ms period. The IN1/IN2 acquisition window can be shorter than that when `sample_count=2048` and `decimation=1024`, so OUT1/OUT2 previews use a separate generated preview time axis instead of the acquisition time axis.
+
+Preview display is configured in `config.yaml`:
+
+```yaml
+preview:
+  cycles: 2
+  min_points: 1024
+  max_points: 5000
+```
+
+Real OUT2 must still be verified on an oscilloscope, or by a safe physical loopback such as OUT2 -> IN1 with IN1 kept within ±1 V.
+
+## Official SCPI Mode And Custom FPGA Mode
+
+Official SCPI Mode:
+
+- Controls OUT1/OUT2 waveforms through `redpitaya_scpi`.
+- Can acquire IN1/IN2.
+- Starting `redpitaya_scpi` may load the official v0.94 overlay.
+- Starting `redpitaya_scpi` may overwrite the currently loaded custom FPGA bitstream.
+
+Custom FPGA Mode:
+
+- OUT1/OUT2 are driven by custom FPGA RTL outputs.
+- OUT1 usually corresponds to `laser_error`.
+- OUT2 usually corresponds to `laser_control`.
+- OUT1/OUT2 are not controlled by the official SCPI ASG in this mode.
+- Reading the FPGA internal `error_internal` signal requires a later RTL debug buffer, register interface, or AXI readout path.
+- The host app currently cannot set FPGA PI parameters or read internal mixer/LPF/error snapshots.

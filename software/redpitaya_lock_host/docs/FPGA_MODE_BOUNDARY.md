@@ -58,6 +58,8 @@ In this mode:
 - OUT2 is the FPGA `laser_control`, not SCPI ASG OUT2.
 - The V2 host app does not currently change custom FPGA parameters.
 - Future host control requires RTL support such as `register_bank`, `debug_buffer`, or AXI registers.
+- Custom FPGA Observe Mode only records manual oscilloscope readings and safety judgments. It does not read internal FPGA mixer/LPF/error snapshots.
+- Lock Workflow Mode is a process checklist for the D2-125 replacement path, not an implemented lock controller.
 
 ## Future Integration
 

@@ -1,5 +1,69 @@
 # Development Log
 
+## 2026-06-30 - Four-mode GUI workflow structure
+
+- Reorganized the host GUI around four mode pages:
+  Hardware Bring-up, Custom FPGA Observe, Lock Workflow, and Data Log.
+- Kept Official SCPI Mode for Probe, Start SCPI Server, Connect SCPI, safe OUT2 scan, IN1/IN2 acquisition, and output disable.
+- Added Custom FPGA Observe manual oscilloscope inputs for OUT1 laser_error, OUT2 laser_control, PD/absorption, REF, and notes.
+- Added automatic OUT2/OUT1 Vpp ratio and safety judgment for manual scope readings.
+- Added Lock Workflow Mode as a D2-125 replacement checklist without pretending automatic lock control is implemented.
+- Added Markdown experiment log export to `docs/experiment_logs/`.
+- Added `custom_fpga_backend.py` as a future interface stub; all hardware methods raise `NotImplementedError`.
+- No FPGA internal data is faked.
+- No FPGA RTL was modified.
+- No Vivado project was modified.
+- No bitstream was generated.
+
+## 2026-06-30 - Canonical host-app development directory
+
+- Confirmed all future Red Pitaya host-app development uses:
+  `E:\new\fpga_lock\v94\software\redpitaya_lock_host`
+- Confirmed the old standalone host-app directory is no longer used; the canonical directory is:
+  `E:\new\fpga_lock\v94\software\redpitaya_lock_host`
+- Documented the current directory rules:
+  Python source in `redpitaya_lock_host/`, tests in `tests/`, Markdown docs/SOPs/stage notes in `docs/`, and stage records in `docs/DEVELOPMENT_LOG.md`.
+- Confirmed usage instructions belong in `README.md` and `docs/USAGE.md`.
+- Confirmed SCPI notes belong in `docs/SCPI_MODE_NOTES.md`.
+- Confirmed `.venv/` is local only and must not be added to Git.
+- Replaced remaining old standalone-directory references in active Markdown docs with the canonical host-app directory.
+- Renamed the preview helper module to `waveform_preview.py` and the offline test to `tests/test_waveform_preview.py`.
+- Confirmed root-level Word report cleanup was attempted, but the `.docx` file was locked by another process and was not moved.
+- No FPGA RTL was modified.
+- No Vivado project was modified.
+- No bitstream was generated.
+
+## 2026-06-29 - OUT1/OUT2 preview time-axis fix
+
+- Fixed CH3/CH4 generated previews so they no longer reuse the IN1/IN2 acquisition time axis.
+- Added `preview.cycles`, `preview.min_points`, and `preview.max_points` configuration.
+- Documented that a 50 Hz triangle wave has a 20 ms period.
+- Root cause: default `sample_count=2048` and `decimation=1024` gives about 16.78 ms of acquisition data, shorter than one 50 Hz period.
+- CH3/CH4 now use an independent generated preview time axis and default to two cycles.
+- CH4 remains a generated preview, not a measured OUT2 waveform.
+- Real OUT2 must still be checked on an oscilloscope, or by safe OUT2 -> IN1 loopback with IN1 kept within ±1 V.
+- Confirmed V2 SCPI apply uses `SOURn:TRig:INT`.
+- Updated the legacy `rp_client.py` compatibility path to avoid the old `SOUR2:TRIG:IMM` command.
+- Added offline preview waveform tests that do not require Red Pitaya.
+- No FPGA RTL was modified.
+- No Vivado project was modified.
+- No bitstream was generated.
+
+## 2026-06-29 - Windows environment and host-app documentation update
+
+- Confirmed host app location:
+  `E:\new\fpga_lock\v94\software\redpitaya_lock_host`
+- Confirmed project-local `.venv` exists.
+- Documented recommended environment:
+  Official Python 3.11 + project-local `.venv`.
+- Documented that Anaconda base is not recommended for this PySide6 GUI because of possible Qt/DLL conflicts.
+- Added Windows setup instructions.
+- Added usage instructions for `run.bat` and `run_mock.bat`.
+- Added SCPI mode notes and hardware safety checklist.
+- No FPGA RTL was modified.
+- No Vivado project was modified.
+- No bitstream was generated.
+
 ## 2026-06-26
 
 ### Python environment fix
@@ -168,7 +232,7 @@ Confirmed scope:
 
 ### V1 initial implementation
 
-Created Red Pitaya laser lock host V1 in `E:\new\fpga_lock\raunjian`.
+Created Red Pitaya laser lock host V1; current development now lives in `E:\new\fpga_lock\v94\software\redpitaya_lock_host`.
 
 Added:
 
