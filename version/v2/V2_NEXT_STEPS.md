@@ -1,8 +1,8 @@
 # V2_NEXT_STEPS
 
-## 2026-06-30 Next Step After v2B3 Timing Clean
+## 2026-06-30 v2B3 timing clean 后的下一步
 
-Recorded user manual Vivado Implementation result:
+已记录用户手动 Vivado Implementation 结果：
 
 ```text
 WNS = +0.107 ns
@@ -10,22 +10,22 @@ TNS = 0.000 ns
 Failing Endpoints = 0
 WHS = 0.054 ns
 THS = 0
-Conclusion: mode=1 sequential PI candidate is timing clean.
+结论：mode=1 sequential PI 候选版本 timing clean。
 ```
 
-This closes the timing-risk question for the current mode=1 sequential PI
-candidate, but it does not close the laser-lock question.
+这说明当前 `mode=1 sequential PI` 候选版本的时序风险已经关闭，
+但这不等于已经完成激光锁定，也不等于已经可以替代 D2-125。
 
-Immediate next step:
+当前立即下一步：
 
 ```text
-OUT1 -> oscilloscope: verify laser_error remains visible and sane.
-OUT2 -> oscilloscope: verify laser_control is bounded and sane.
-OUT2 must still not connect to laser, D2-125 Servo Output, D2-125 Aux/Scan,
-or any real actuator path.
+OUT1 -> 示波器：确认 laser_error 仍然可见、幅度合理、没有异常消失。
+OUT2 -> 示波器：确认 laser_control 有限幅、方向和幅度合理。
+OUT2 仍然禁止连接激光器、D2-125 Servo Output、D2-125 Aux/Scan，
+也禁止连接任何真实执行器通道。
 ```
 
-New stage split:
+新的阶段拆分：
 
 ```text
 v2B3-close
@@ -36,7 +36,7 @@ v2PZT-RTL-PILOCK
 v2HOST-REG
 ```
 
-Planning reference:
+规划文档：
 
 ```text
 version/v2/V2_CUSTOM_REGISTER_INTERFACE_AND_OUT2_PLAN.md

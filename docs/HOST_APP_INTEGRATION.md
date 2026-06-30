@@ -1,21 +1,20 @@
 # Host App Integration
 
-## Why Integrate The Host App
+## 为什么集成上位机软件
 
-The Red Pitaya Laser Lock Host V2 is now developed only in:
+Red Pitaya Laser Lock Host V2 当前只在下面目录开发：
 
 ```text
 E:\new\fpga_lock\v94\software\redpitaya_lock_host
 ```
 
-The old standalone directory is not the development source anymore. The
-canonical host-app path inside this project is:
+旧的独立开发目录不再作为上位机软件主开发目录。当前项目内唯一的上位机主目录是：
 
 ```text
 v94\software\redpitaya_lock_host
 ```
 
-This keeps the FPGA project, host software, and project documentation in one repository while preserving a clear boundary between the software and FPGA/Vivado work.
+这样可以把 FPGA 工程、上位机软件和项目文档放在同一个仓库中，同时继续保持上位机软件与 FPGA/Vivado 工作之间的清晰边界。
 
 ## Directory Structure
 

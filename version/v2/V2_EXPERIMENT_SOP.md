@@ -1,8 +1,8 @@
 # V2_EXPERIMENT_SOP
 
-## 2026-06-30 v2B3 Timing Clean And First Scan/Lock SOP Boundary
+## 2026-06-30 v2B3 timing clean 与首次 scan/lock SOP 边界
 
-Timing record from user manual Vivado Implementation:
+用户手动 Vivado Implementation 时序记录：
 
 ```text
 WNS = +0.107 ns
@@ -10,46 +10,46 @@ TNS = 0.000 ns
 Failing Endpoints = 0
 WHS = 0.054 ns
 THS = 0
-Conclusion: mode=1 sequential PI candidate is timing clean.
+结论：mode=1 sequential PI 候选版本 timing clean。
 ```
 
-This result means the current mode=1 sequential PI candidate passed timing. It
-does not mean the laser is locked, and it does not authorize connecting OUT2 to
-the laser, D2-125 Servo Output, D2-125 Aux/Scan, or any real actuator.
+这个结果只说明当前 `mode=1 sequential PI` 候选版本通过了时序。
+它不代表激光已经锁定，也不代表允许把 OUT2 接到激光器、D2-125 Servo Output、
+D2-125 Aux/Scan 或任何真实执行器。
 
-Current valid check:
+当前允许的检查：
 
 ```text
-OUT1 -> oscilloscope: FPGA laser_error / error observation.
-OUT2 -> oscilloscope: FPGA laser_control / sequential PI candidate.
+OUT1 -> 示波器：观察 FPGA laser_error / error observation。
+OUT2 -> 示波器：观察 FPGA laser_control / sequential PI 候选输出。
 ```
 
-Future first scan/lock experiment SOP, after register/mode RTL exists and after
-separate approval:
+未来首次 scan/lock 实验 SOP。注意：只有在 register/mode RTL 已实现、
+并且另行确认可以进入该阶段后，才执行下面步骤：
 
 ```text
-1. IN1 <- PD BPF/amp signal, verified within +/-1 V.
-2. IN2 <- REF signal, verified within +/-1 V.
-3. OUT1 -> oscilloscope CH2: FPGA error.
-4. OUT2 -> oscilloscope CH4: do not connect to laser yet.
-5. SAFE: confirm OUT2 = 0.
-6. SCAN: confirm small triangle on OUT2.
-7. Disconnect D2-125 Aux Servo Output from laser Scan.
-8. Only after step 7, connect RP OUT2 to laser power Scan/PZT.
-9. Confirm spectrum sweep.
-10. Near a zero crossing, Capture Vlock.
-11. HOLD.
-12. Later, after review, P_LOCK then PI_LOCK.
+1. IN1 <- PD BPF/amp 信号，确认不超过 +/-1 V。
+2. IN2 <- REF 信号，确认不超过 +/-1 V。
+3. OUT1 -> 示波器 CH2：观察 FPGA error。
+4. OUT2 -> 示波器 CH4：此时仍然不要接激光器。
+5. SAFE：确认 OUT2 = 0。
+6. SCAN：确认 OUT2 上有小幅三角波。
+7. 断开 D2-125 Aux Servo Output 到激光器 Scan 的连接。
+8. 只有完成第 7 步后，才允许考虑 RP OUT2 -> laser power Scan/PZT。
+9. 确认能看到光谱扫描。
+10. 在接近过零点的位置执行 Capture Vlock。
+11. HOLD。
+12. 后续经过复核后，再进入 P_LOCK，然后才是 PI_LOCK。
 ```
 
-Stop immediately if:
+出现以下情况立即停止：
 
 ```text
-IN1/IN2 exceeds +/-1 V.
-OUT1 disappears or saturates unexpectedly.
-OUT2 exceeds output_limit or approaches +/-1 V.
-OUT2 jumps randomly, ramps unexpectedly, or direction is unknown.
-D2-125 Aux/Scan is still connected while RP OUT2 is being considered.
+IN1/IN2 超过 +/-1 V。
+OUT1 异常消失或异常饱和。
+OUT2 超过 output_limit，或接近 +/-1 V。
+OUT2 随机跳变、异常爬升，或控制方向不明确。
+考虑连接 RP OUT2 时，D2-125 Aux/Scan 仍然连接在激光器上。
 ```
 
 ## 2026-06-23 v2B3 sequential PI mode=1 上板示波器预期现象

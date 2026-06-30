@@ -1,16 +1,16 @@
-# V2 Custom Register Interface And OUT2 Scan/Lock Plan
+# V2 Custom Register Interface 与 OUT2 Scan/Lock 规划
 
-## Current Boundary
+## 当前边界
 
-This is a planning document only.
+本文档只做规划，不代表已经实现。
 
 ```text
-Codex did not modify RTL.
-Codex did not operate Vivado.
-Codex did not synthesize, implement, generate bit/bin, or program Red Pitaya.
+Codex 本次没有修改 RTL。
+Codex 本次没有操作 Vivado。
+Codex 本次没有综合、实现、生成 bit/bin，也没有烧录 Red Pitaya。
 ```
 
-Current top-level review:
+当前 `red_pitaya_top.sv` 顶层审查结果：
 
 ```text
 USE_LASER_LOCK_CORE = 1'b1
@@ -20,7 +20,7 @@ OUT1 / DAC A = laser_error
 OUT2 / DAC B = laser_control
 ```
 
-`sys_bus_interconnect` has 8 regions. The reviewed top-level uses:
+`sys_bus_interconnect` 一共有 8 个区域。当前顶层使用情况如下：
 
 ```text
 sys[0] red_pitaya_hk / housekeeper
@@ -33,47 +33,46 @@ sys[6] sys_bus_stub
 sys[7] sys_bus_stub
 ```
 
-Planning judgement: `sys[6]` is the preferred future slot for
-`laser_lock_register_bank` because it is currently stubbed and does not
-displace scope, ASG, PID, AMS, housekeeper, or daisy logic. `sys[7]` should
-remain as a spare slot unless `sys[6]` later proves unavailable.
+规划判断：未来 `laser_lock_register_bank` 优先挂到 `sys[6]`。原因是
+`sys[6]` 当前是 stub，不会挤占 scope、ASG、PID、AMS、housekeeper 或 daisy
+这些已有官方功能。`sys[7]` 建议暂时保留为备用区域。
 
-## Host Mode Boundary
+## 上位机模式边界
 
-Official SCPI Mode:
-
-```text
-Uses redpitaya_scpi on port 5000.
-Can control official ASG OUT1/OUT2.
-Can acquire IN1/IN2 through official ACQ.
-Starting redpitaya_scpi may load the official overlay and overwrite the custom bitstream.
-```
-
-Custom FPGA Mode:
+Official SCPI Mode：
 
 ```text
-Assumes the custom bitstream is already loaded.
-OUT1 is FPGA laser_error.
-OUT2 is FPGA laser_control.
-Official SCPI ASG commands are not the custom FPGA OUT1/OUT2 control path.
-Future parameter control needs a register/debug/AXI interface.
+通过 redpitaya_scpi / 5000 端口工作。
+可以控制官方 ASG OUT1/OUT2。
+可以通过官方 ACQ 采集 IN1/IN2。
+启动 redpitaya_scpi 可能加载官方 overlay，从而覆盖当前 custom bitstream。
 ```
 
-## Proposed Register Bank
+Custom FPGA Mode：
 
-Future RTL file:
+```text
+默认 custom bitstream 已经由用户手动加载。
+OUT1 是 FPGA laser_error。
+OUT2 是 FPGA laser_control。
+官方 SCPI ASG 命令不是 Custom FPGA OUT1/OUT2 的控制路径。
+未来要调 FPGA 内部参数，需要 register/debug/AXI 接口。
+```
+
+## 规划中的寄存器接口
+
+未来 RTL 文件：
 
 ```text
 v0.94/rtl/laser_lock_register_bank.sv
 ```
 
-Future top-level attachment:
+未来顶层接入位置：
 
 ```text
-red_pitaya_top.sv sys[6]
+red_pitaya_top.sv 的 sys[6]
 ```
 
-Register map:
+寄存器表规划：
 
 ```text
 0x00 REG_MAGIC_VERSION
@@ -97,20 +96,20 @@ Register map:
 0x48 REG_CONTROL_ABS_PEAK
 ```
 
-DAC signed 14-bit planning scale:
+DAC 14-bit signed counts 与电压的规划换算：
 
 ```text
-+8191 ~= +1 V
-0 ~= 0 V
--8192 ~= -1 V
-0.05 V ~= 410 counts
-0.10 V ~= 819 counts
-0.20 V ~= 1638 counts
++8191 约等于 +1 V
+0     约等于  0 V
+-8192 约等于 -1 V
+0.05 V 约等于 410 counts
+0.10 V 约等于 819 counts
+0.20 V 约等于 1638 counts
 ```
 
-## Proposed RTL Blocks
+## 规划中的 RTL 模块
 
-Future files:
+未来文件：
 
 ```text
 triangle_scan_gen.sv
@@ -119,23 +118,23 @@ out2_output_mux.sv
 debug_status_sampler.sv
 ```
 
-Responsibilities:
+模块职责：
 
 ```text
 triangle_scan_gen:
-  Generate bounded triangle scan in signed 14-bit DAC counts.
+  产生有幅度限制的三角波 scan，输出为 signed 14-bit DAC counts。
 
 scan_lock_control:
-  Own OUT2 mode transitions, capture Vlock, reset integrator, and expose flags.
+  管理 OUT2 模式切换、Vlock 捕获、积分器复位和状态标志。
 
 out2_output_mux:
-  Select SAFE / SCAN / HOLD / P_LOCK / PI_LOCK output into DAC B path.
+  在 SAFE / SCAN / HOLD / P_LOCK / PI_LOCK 之间选择 OUT2 输出。
 
 debug_status_sampler:
-  Sample error, control, integrator, peaks, saturation, clip, and lock flags.
+  采样 error、control、integrator、峰值、饱和、ADC clip 和 lock flag。
 ```
 
-OUT2 mode plan:
+OUT2 模式规划：
 
 ```text
 0 SAFE:   OUT2 = 0
@@ -146,17 +145,17 @@ OUT2 mode plan:
 5 RESCAN: reset integrator, clear lock flag, return to SCAN
 ```
 
-Important meaning:
+关键含义：
 
 ```text
-scan OUT2 is triangle.
-lock OUT2 is not triangle.
-lock OUT2 = Vlock + P/PI(error).
+scan 阶段的 OUT2 是三角波。
+lock 阶段的 OUT2 不是三角波。
+lock 阶段的 OUT2 = Vlock + P/PI(error)。
 ```
 
-## Future Host Custom FPGA Control Panel
+## 未来上位机 Custom FPGA Control Panel
 
-Future controls, not implemented now:
+未来按钮规划，当前不实现：
 
 ```text
 SAFE
@@ -169,7 +168,7 @@ Reverse Polarity
 Rescan
 ```
 
-Future parameters:
+未来参数规划：
 
 ```text
 scan_amp_v
@@ -182,7 +181,7 @@ pid_offset_v
 polarity
 ```
 
-Future status display:
+未来状态显示规划：
 
 ```text
 current_mode
@@ -195,66 +194,66 @@ lock_flag
 integrator_sample
 ```
 
-Host safety rules:
+上位机安全规则规划：
 
 ```text
-output_limit_v > 0.2 V: require explicit confirmation
-output_limit_v > 0.5 V: forbidden or require a very strong interlock
-No captured Vlock: P_LOCK and PI_LOCK disabled
-No successful P_LOCK: PI_LOCK disabled
-D2-125 Aux Servo Output still connected to laser Scan: do not suggest connecting RP OUT2 to Scan/PZT
+output_limit_v > 0.2 V：必须明确确认。
+output_limit_v > 0.5 V：禁止，或必须有非常强的二次确认/互锁。
+没有 captured Vlock：禁止进入 P_LOCK 和 PI_LOCK。
+没有先完成 P_LOCK：禁止直接进入 PI_LOCK。
+如果 D2-125 Aux Servo Output 仍然接在激光器 Scan 上，不建议连接 RP OUT2 到 Scan/PZT。
 ```
 
-## Stage Split
+## 阶段拆分
 
 ```text
 v2B3-close:
-  Record timing clean and close the sequential PI timing candidate.
+  记录 timing clean，关闭 sequential PI 时序候选问题。
 
 v2PZT-DOC:
-  Finish register map, safety rules, and first experiment SOP before RTL edits.
+  先完成寄存器表、安全规则和首次实验 SOP，再考虑 RTL 修改。
 
 v2PZT-RTL-SAFE-SCAN-HOLD:
-  Add register bank, SAFE/SCAN/HOLD, triangle scan, Vlock capture, and status sampler.
+  增加 register bank、SAFE/SCAN/HOLD、三角波 scan、Vlock 捕获和状态采样。
 
 v2PZT-RTL-PLOCK:
-  Add bounded P lock around captured Vlock.
+  在 captured Vlock 附近增加有限幅 P lock。
 
 v2PZT-RTL-PILOCK:
-  Add bounded PI lock with resettable integrator and anti-windup.
+  增加有限幅 PI lock，带可复位积分器和 anti-windup。
 
 v2HOST-REG:
-  Add host Custom FPGA Control Panel using the register interface.
+  上位机通过 register interface 增加 Custom FPGA Control Panel。
 ```
 
-## First Experiment SOP
+## 首次实验 SOP
 
-Scope-only and low-risk first:
+第一轮必须先低风险、只看示波器：
 
 ```text
-1. IN1 <- PD BPF/amp signal, verified within +/-1 V.
-2. IN2 <- REF signal, verified within +/-1 V.
-3. OUT1 -> oscilloscope CH2: FPGA error.
-4. OUT2 -> oscilloscope CH4: do not connect to laser yet.
-5. SAFE: confirm OUT2 = 0.
-6. SCAN: confirm small triangle on OUT2.
-7. Disconnect D2-125 Aux Servo Output from laser Scan.
-8. Only after step 7, connect RP OUT2 to laser power Scan/PZT.
-9. Confirm spectrum sweep.
-10. Near a zero crossing, Capture Vlock.
-11. HOLD.
-12. Later, after review, P_LOCK then PI_LOCK.
+1. IN1 <- PD BPF/amp 信号，确认在 +/-1 V 内。
+2. IN2 <- REF 信号，确认在 +/-1 V 内。
+3. OUT1 -> 示波器 CH2：观察 FPGA error。
+4. OUT2 -> 示波器 CH4：此时不要接激光器。
+5. SAFE：确认 OUT2 = 0。
+6. SCAN：确认 OUT2 上有小幅三角波。
+7. 断开 D2-125 Aux Servo Output 到激光器 Scan 的连接。
+8. 只有完成第 7 步后，才允许考虑 RP OUT2 -> laser power Scan/PZT。
+9. 确认能看到光谱扫描。
+10. 在接近过零点的位置 Capture Vlock。
+11. HOLD。
+12. 后续经过复核后，再进入 P_LOCK，然后才是 PI_LOCK。
 ```
 
-Stop conditions:
+停止条件：
 
 ```text
-IN1 or IN2 exceeds +/-1 V.
-OUT1 error disappears or saturates unexpectedly.
-OUT2 exceeds the planned output limit.
-OUT2 approaches +/-1 V.
-OUT2 jumps randomly or ramps without explanation.
-Spectrum sweep direction is unknown.
-D2-125 Aux/Scan path is still connected while RP OUT2 is being considered.
-Any operator is unsure which device owns laser Scan/PZT.
+IN1 或 IN2 超过 +/-1 V。
+OUT1 error 异常消失或异常饱和。
+OUT2 超过规划的 output_limit。
+OUT2 接近 +/-1 V。
+OUT2 随机跳变或无解释地爬升。
+光谱扫描方向不明确。
+D2-125 Aux/Scan 仍然连接在激光器上。
+操作者不确定当前到底是哪台设备在控制 laser Scan/PZT。
 ```

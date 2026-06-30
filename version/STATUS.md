@@ -1,36 +1,35 @@
 # STATUS
 
-## 2026-06-30 v2B3 mode=1 sequential PI timing clean record
+## 2026-06-30 v2B3 mode=1 sequential PI 时序通过记录
 
-User manual Vivado Implementation result, recorded here only as project
-status. Codex did not run Vivado, synthesis, implementation, bitstream
-generation, or board programming.
+这里记录的是用户手动运行 Vivado Implementation 后给出的结果，只作为项目状态记录。
+Codex 本次没有运行 Vivado，没有综合、实现、生成 bitstream，也没有烧录 Red Pitaya。
 
 ```text
-2026-06-xx user manual Vivado Implementation:
+2026-06-xx 用户手动 Vivado Implementation:
 WNS = +0.107 ns
 TNS = 0.000 ns
 Failing Endpoints = 0
 WHS = 0.054 ns
 THS = 0
-Conclusion: mode=1 sequential PI candidate is timing clean.
+结论：mode=1 sequential PI 候选版本 timing clean。
 ```
 
-Boundary:
+边界说明：
 
 ```text
-timing clean != laser locked
-timing clean != D2-125 replacement complete
-timing clean != permission to connect OUT2 to the laser
+timing clean != 已经锁定激光
+timing clean != 已经完成 D2-125 替代
+timing clean != 允许把 OUT2 接到激光器
 ```
 
-The next valid step is still oscilloscope verification only:
+下一步仍然只能做示波器验证：
 
 ```text
-OUT1 -> oscilloscope: verify FPGA laser_error / error observation
-OUT2 -> oscilloscope: verify FPGA laser_control / sequential PI candidate
-OUT2 must not connect to laser, D2-125 Servo Output, D2-125 Aux/Scan,
-or any real actuator path at this stage.
+OUT1 -> 示波器：确认 FPGA laser_error / error observation 正常
+OUT2 -> 示波器：确认 FPGA laser_control / sequential PI 候选输出正常
+当前阶段 OUT2 禁止连接激光器、D2-125 Servo Output、D2-125 Aux/Scan，
+也禁止连接任何真实执行器通道。
 ```
 
 ## 2026-06-23 v2B3 mode=1 上板候选已准备，等待用户手动 timing 验证
