@@ -1,5 +1,47 @@
 # V2_NEXT_STEPS
 
+## 2026-06-30 Next Step After v2B3 Timing Clean
+
+Recorded user manual Vivado Implementation result:
+
+```text
+WNS = +0.107 ns
+TNS = 0.000 ns
+Failing Endpoints = 0
+WHS = 0.054 ns
+THS = 0
+Conclusion: mode=1 sequential PI candidate is timing clean.
+```
+
+This closes the timing-risk question for the current mode=1 sequential PI
+candidate, but it does not close the laser-lock question.
+
+Immediate next step:
+
+```text
+OUT1 -> oscilloscope: verify laser_error remains visible and sane.
+OUT2 -> oscilloscope: verify laser_control is bounded and sane.
+OUT2 must still not connect to laser, D2-125 Servo Output, D2-125 Aux/Scan,
+or any real actuator path.
+```
+
+New stage split:
+
+```text
+v2B3-close
+v2PZT-DOC
+v2PZT-RTL-SAFE-SCAN-HOLD
+v2PZT-RTL-PLOCK
+v2PZT-RTL-PILOCK
+v2HOST-REG
+```
+
+Planning reference:
+
+```text
+version/v2/V2_CUSTOM_REGISTER_INTERFACE_AND_OUT2_PLAN.md
+```
+
 ## 2026-06-23 当前下一步：v2B3 sequential PI mode=1 上板候选
 
 v2B1 P-only 验证已经完成，不再重复证明 OUT2 是否存在。`red_pitaya_top.sv` 已显式设置 `LASER_LOCK_CONTROL_PATH_MODE=1`，使 `laser_lock_core` 选择 `CONTROL_PATH_MODE=1` 的 sequential PI；OUT1/OUT2 的 DAC A/DAC B 路由未改变。

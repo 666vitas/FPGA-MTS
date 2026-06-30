@@ -1,5 +1,38 @@
 # STATUS
 
+## 2026-06-30 v2B3 mode=1 sequential PI timing clean record
+
+User manual Vivado Implementation result, recorded here only as project
+status. Codex did not run Vivado, synthesis, implementation, bitstream
+generation, or board programming.
+
+```text
+2026-06-xx user manual Vivado Implementation:
+WNS = +0.107 ns
+TNS = 0.000 ns
+Failing Endpoints = 0
+WHS = 0.054 ns
+THS = 0
+Conclusion: mode=1 sequential PI candidate is timing clean.
+```
+
+Boundary:
+
+```text
+timing clean != laser locked
+timing clean != D2-125 replacement complete
+timing clean != permission to connect OUT2 to the laser
+```
+
+The next valid step is still oscilloscope verification only:
+
+```text
+OUT1 -> oscilloscope: verify FPGA laser_error / error observation
+OUT2 -> oscilloscope: verify FPGA laser_control / sequential PI candidate
+OUT2 must not connect to laser, D2-125 Servo Output, D2-125 Aux/Scan,
+or any real actuator path at this stage.
+```
+
 ## 2026-06-23 v2B3 mode=1 上板候选已准备，等待用户手动 timing 验证
 
 当前实际实验接线记录：

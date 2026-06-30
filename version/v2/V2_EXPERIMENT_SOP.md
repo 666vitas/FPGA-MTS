@@ -1,5 +1,57 @@
 # V2_EXPERIMENT_SOP
 
+## 2026-06-30 v2B3 Timing Clean And First Scan/Lock SOP Boundary
+
+Timing record from user manual Vivado Implementation:
+
+```text
+WNS = +0.107 ns
+TNS = 0.000 ns
+Failing Endpoints = 0
+WHS = 0.054 ns
+THS = 0
+Conclusion: mode=1 sequential PI candidate is timing clean.
+```
+
+This result means the current mode=1 sequential PI candidate passed timing. It
+does not mean the laser is locked, and it does not authorize connecting OUT2 to
+the laser, D2-125 Servo Output, D2-125 Aux/Scan, or any real actuator.
+
+Current valid check:
+
+```text
+OUT1 -> oscilloscope: FPGA laser_error / error observation.
+OUT2 -> oscilloscope: FPGA laser_control / sequential PI candidate.
+```
+
+Future first scan/lock experiment SOP, after register/mode RTL exists and after
+separate approval:
+
+```text
+1. IN1 <- PD BPF/amp signal, verified within +/-1 V.
+2. IN2 <- REF signal, verified within +/-1 V.
+3. OUT1 -> oscilloscope CH2: FPGA error.
+4. OUT2 -> oscilloscope CH4: do not connect to laser yet.
+5. SAFE: confirm OUT2 = 0.
+6. SCAN: confirm small triangle on OUT2.
+7. Disconnect D2-125 Aux Servo Output from laser Scan.
+8. Only after step 7, connect RP OUT2 to laser power Scan/PZT.
+9. Confirm spectrum sweep.
+10. Near a zero crossing, Capture Vlock.
+11. HOLD.
+12. Later, after review, P_LOCK then PI_LOCK.
+```
+
+Stop immediately if:
+
+```text
+IN1/IN2 exceeds +/-1 V.
+OUT1 disappears or saturates unexpectedly.
+OUT2 exceeds output_limit or approaches +/-1 V.
+OUT2 jumps randomly, ramps unexpectedly, or direction is unknown.
+D2-125 Aux/Scan is still connected while RP OUT2 is being considered.
+```
+
 ## 2026-06-23 v2B3 sequential PI mode=1 上板示波器预期现象
 
 ### 接线和绝对边界

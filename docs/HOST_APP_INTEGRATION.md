@@ -2,13 +2,14 @@
 
 ## Why Integrate The Host App
 
-The Red Pitaya Laser Lock Host V2 was developed first in:
+The Red Pitaya Laser Lock Host V2 is now developed only in:
 
 ```text
-E:\new\fpga_lock\raunjian
+E:\new\fpga_lock\v94\software\redpitaya_lock_host
 ```
 
-It is now copied into the GitHub project under:
+The old standalone directory is not the development source anymore. The
+canonical host-app path inside this project is:
 
 ```text
 v94\software\redpitaya_lock_host
