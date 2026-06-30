@@ -1,10 +1,10 @@
 `timescale 1ns/1ps
 
-// v2B2 tracer test: sequential PI must accept a pid_ce pulse and publish a
-// registered P-only result after a fixed number of clk_i cycles.
+// v2B3 tracer test: sequential PI must accept a pid_ce pulse and publish a
+// registered PI result after a fixed number of clk_i cycles.
 module tb_pi_controller_seq;
 
-    localparam int UPDATE_LATENCY_CYCLES = 7;
+    localparam int UPDATE_LATENCY_CYCLES = 15;
 
     logic clk = 1'b0;
     always #5 clk = ~clk;
@@ -282,10 +282,10 @@ module tb_pi_controller_seq;
 
         $display("SUMMARY tests=%0d pass=%0d fail=%0d", tests, pass_count, fail_count);
         if (fail_count == 0) begin
-            $display("V2B2_PI_CONTROLLER_SEQ_SIM PASS");
+            $display("V2B3_PI_CONTROLLER_SEQ_SIM PASS");
             $finish;
         end else begin
-            $display("V2B2_PI_CONTROLLER_SEQ_SIM FAIL");
+            $display("V2B3_PI_CONTROLLER_SEQ_SIM FAIL");
             $fatal(1);
         end
     end
