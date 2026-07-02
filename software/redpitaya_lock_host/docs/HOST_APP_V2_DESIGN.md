@@ -1,5 +1,44 @@
 # Host App V2 Design
 
+## 2026-07-01 Custom FPGA Lock Panel 规划边界
+
+根据最新 Aux/PZT 数据，未来上位机 Custom FPGA Lock Panel 的职责应是“写模式和参数、记录状态”，而不是在 PC 上做高速实时 PID。
+
+未来 FPGA 负责：
+
+```text
+实时 mixer
+LPF
+triangle scan
+HOLD
+P/PI control
+OUT2 limit
+polarity
+reset_integrator
+```
+
+未来上位机负责：
+
+```text
+切换 SAFE / SCAN / HOLD / P_LOCK / PI_LOCK / RESCAN
+写 scan_offset、scan_amp、Kp、Ki、polarity、output_limit
+记录 error/control/Vlock
+显示状态
+后续 AI 识峰和调参
+```
+
+当前 V2 上位机仍然不能在 Custom FPGA Mode 下写 FPGA 内部参数，因为 RTL 侧还没有 `register_bank`。Official SCPI Mode 可以单独测试 OUT2 三角波和采集 IN1/IN2，但不能控制 custom FPGA OUT2；Custom FPGA Mode 后续必须通过 `register_bank` 切换 `SCAN / HOLD / P_LOCK / PI_LOCK`。
+
+安全边界：
+
+```text
+Red Pitaya OUT2 不能和 D2-125 Aux Output 同时并联到 Scan/PZT。
+Red Pitaya OUT2 不能和 D2-125 Servo Output 并联。
+OUT2 初始必须先接示波器。
+上位机不做高速实时 PID。
+AI 不直接参与 125 MHz 实时控制。
+```
+
 ## Scope
 
 V2 is a stable Red Pitaya host app for experiment-room use. It does not modify FPGA RTL, does not generate bitstreams, and does not read internal FPGA `error_internal`.

@@ -1,5 +1,61 @@
 # V2_EXPERIMENT_SOP
 
+## 2026-07-01 Aux/PZT 后续实验 SOP 更新
+
+最新 Aux/PZT 数据确认：D2-125 Aux Output 在 Ramp 状态约为 `0.81 V DC 偏置 + 小三角波`，在 Lock 状态约为 `0.813 V DC 保持 + 小幅扰动`。因此 Red Pitaya OUT2 后续替代 Aux Output 时，不能只输出从 0 V 开始的三角波，而应实现 `scan_offset + triangle`，并支持 Capture Vlock 后 HOLD。
+
+### 当前禁止执行
+
+```text
+禁止把当前 OUT2 直接接 Scan/PZT。
+禁止把 Red Pitaya OUT2 和 D2-125 Aux Output 并联。
+禁止把 Red Pitaya OUT2 和 D2-125 Servo Output 并联。
+禁止把当前 sequential PI candidate 说成已经实现 PZT 锁定。
+```
+
+### v2PZT-1 首次目标
+
+只实现并验证：
+
+```text
+SAFE: OUT2 = 0
+SCAN: OUT2 = scan_offset + triangle
+HOLD: OUT2 = captured_vlock
+```
+
+第一轮示波器参数建议：
+
+```text
+scan_offset 约 0.81 V
+scan_amp 约 0.03 V
+scan_freq 约 52.7 Hz
+```
+
+### 后续真正接 Scan/PZT 前的顺序
+
+```text
+1. OUT2 先只接示波器，验证 SAFE = 0。
+2. OUT2 只接示波器，验证 SCAN = 0.81 V offset + 小三角波。
+3. OUT2 只接示波器，验证 HOLD = captured_vlock。
+4. 确认 OUT2 始终在 +/-1 V 内。
+5. 确认 D2-125 Aux Output 已从激光器 Scan/PZT 断开。
+6. 只允许 Red Pitaya OUT2 或 D2-125 Aux Output 其中一个连接 Scan/PZT，不能并联。
+7. 首次 Red Pitaya OUT2 -> Scan/PZT 只做开环扫谱，不做 P_LOCK / PI_LOCK。
+8. 扫谱确认后，才进入 P_LOCK，且 Ki=0、Kp 很小、output_limit 很小。
+9. P_LOCK 方向确认后，才允许考虑 PI_LOCK。
+```
+
+### 立即停止条件
+
+```text
+OUT2 接近 +/-1 V。
+OUT2 不是预期的 0.81 V offset + 小三角波。
+Scan/PZT 上同时接了 Red Pitaya OUT2 和 D2-125 Aux Output。
+OUT2 和 D2-125 Servo Output 有任何并联风险。
+谱线扫描方向不明确。
+P_LOCK 后出现发散、跳变、饱和或拉飞锁点。
+```
+
 ## 2026-06-30 v2B3 timing clean 与首次 scan/lock SOP 边界
 
 用户手动 Vivado Implementation 时序记录：

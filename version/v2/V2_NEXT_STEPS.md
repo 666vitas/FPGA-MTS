@@ -1,5 +1,47 @@
 # V2_NEXT_STEPS
 
+## 2026-07-01 下一步：从 Aux/PZT 数据进入 v2PZT-1
+
+用户最新 Aux/PZT 数据说明：D2-125 Aux Output 在 Ramp 状态不是从 0 V 开始的纯三角波，而是约 `0.81 V DC 偏置 + 小三角波`；在 Lock 状态约为 `0.813 V DC 保持 + 小幅扰动`。
+
+因此，后续路线从“只验证 sequential PI candidate”更新为：
+
+```text
+v2PZT-0：记录 Aux/PZT 数据，确认 D2-125 Aux Output 电压范围和作用。
+v2PZT-1：只实现 SAFE / SCAN / HOLD。
+v2PZT-2：OUT2 -> Scan/PZT 开环扫谱。
+v2PZT-3：P_LOCK，Ki=0，验证极性和 PZT 响应。
+v2PZT-4：PI_LOCK，实现短时间 PZT 慢通道锁定。
+v3REG：新增 custom FPGA register_bank。
+v4HOST：上位机新增 Custom FPGA Lock Panel。
+v5AI：AI 识峰、选 Vlock、推荐 Kp/Ki、判断失锁、触发重扫。
+```
+
+当前最小下一步不是直接 P_LOCK，也不是 AI，而是先做文档和设计评审，然后进入 `v2PZT-1 SAFE / SCAN / HOLD`：
+
+```text
+SAFE: OUT2 = 0
+SCAN: OUT2 = scan_offset + triangle
+HOLD: OUT2 = captured_vlock
+```
+
+第一版建议参数只作为后续设计输入，不代表现在已经可上板执行：
+
+```text
+scan_offset 约 0.81 V
+scan_amp 约 0.03 V
+scan_freq 约 52.7 Hz
+```
+
+安全边界：
+
+```text
+Red Pitaya OUT2 不能和 D2-125 Aux Output 同时并联到 Scan/PZT。
+Red Pitaya OUT2 不能和 D2-125 Servo Output 并联。
+OUT2 初始必须先接示波器。
+OUT2 输出必须限制在 +/-1 V 内。
+```
+
 ## 2026-06-30 v2B3 timing clean 后的下一步
 
 已记录用户手动 Vivado Implementation 结果：

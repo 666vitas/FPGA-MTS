@@ -1,5 +1,72 @@
 # STATUS
 
+## 2026-07-01 Aux/PZT 实验数据记录与路线更新
+
+本次只记录用户最新确认的 D2-125 Aux Output / Scan-PZT 数据，并更新后续 scan/lock 开发计划。Codex 本次未修改 RTL，未运行 Vivado，未综合、实现、生成 bit/bin，也未烧录 Red Pitaya。
+
+最新实验结论：
+
+```text
+ramp-aux-unlock.csv:
+  CH4 = D2-125 Aux Output
+  Vpp = 0.1173 V
+  min = 0.7505 V
+  max = 0.8678 V
+  RMS = 0.8093 V
+  mean 约 0.8087 V
+  频率约 52.7 Hz
+
+ramp-aux-unlock1.csv:
+  CH4 = D2-125 Aux Output
+  Vpp = 0.0626 V
+  min = 0.7767 V
+  max = 0.8393 V
+  RMS = 0.8097 V
+  mean 约 0.8096 V
+  频率约 52.7 Hz
+
+ramp-aux-locking.csv:
+  CH4 = D2-125 Aux Output
+  Vpp = 0.01687 V
+  min = 0.8031 V
+  max = 0.8200 V
+  RMS = 0.813 V
+  mean 约 0.8130 V
+```
+
+新的物理认识：
+
+```text
+D2-125 Aux Output 不是单纯从 0 V 开始的三角波。
+Ramp 状态约为 0.81 V DC 偏置 + 小三角波。
+Lock 状态约为 0.813 V DC 保持 + 小幅扰动。
+```
+
+因此，Red Pitaya OUT2 后续如果替代 D2-125 Aux Output，应按下面路线实现：
+
+```text
+SCAN:   OUT2 = scan_offset + triangle
+HOLD:   OUT2 = captured_vlock
+P_LOCK: OUT2 = captured_vlock + Kp * error
+PI_LOCK:OUT2 = captured_vlock + Kp * error + Ki * integral(error)
+```
+
+当前能力边界仍然是：
+
+```text
+当前 FPGA 只有 mixer + LPF + 简单 P/PI candidate。
+当前还没有 OUT2 scan/lock mode selector。
+当前还没有 register_bank。
+当前上位机不能在 Custom FPGA Mode 下切换 FPGA 内部模式。
+当前不能声称已经实现 PZT 锁定。
+```
+
+记录文件：
+
+```text
+version/v2/V2_AUX_PZT_EXPERIMENT_RECORD.md
+```
+
 ## 2026-06-30 v2B3 mode=1 sequential PI 时序通过记录
 
 这里记录的是用户手动运行 Vivado Implementation 后给出的结果，只作为项目状态记录。

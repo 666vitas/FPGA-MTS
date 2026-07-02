@@ -1,5 +1,61 @@
 # V2_DEVELOPMENT_ROADMAP
 
+## 2026-07-01 Aux/PZT 数据后的路线更新
+
+最新 D2-125 Aux Output / Scan-PZT 数据表明：
+
+```text
+Ramp / Unlock:
+  约 0.81 V DC 偏置 + 0.063 到 0.117 Vpp 低频三角波
+  频率约 52.7 Hz
+
+Locked:
+  约 0.813 V DC 保持 + 约 16.9 mVpp 小幅慢控制扰动
+```
+
+因此，后续 Red Pitaya OUT2 替代路线更新为：
+
+| 阶段 | 目标 | 当前是否实现 |
+|---|---|---|
+| `v2PZT-0` | 记录 Aux/PZT 数据，确认 D2-125 Aux Output 电压范围和作用 | 本次完成文档记录 |
+| `v2PZT-1` | 只实现 SAFE / SCAN / HOLD | 未实现 |
+| `v2PZT-2` | OUT2 -> Scan/PZT 开环扫谱 | 未实现 |
+| `v2PZT-3` | P_LOCK，`OUT2 = Vlock + Kp * error`，`Ki=0` | 未实现 |
+| `v2PZT-4` | PI_LOCK，`OUT2 = Vlock + Kp * error + Ki * integral(error)` | 未实现 |
+| `v3REG` | 新增 custom FPGA register_bank | 未实现 |
+| `v4HOST` | 上位机新增 Custom FPGA Lock Panel | 未实现 |
+| `v5AI` | AI 识峰、选 Vlock、推荐 Kp/Ki、失锁判断和重扫 | 未实现 |
+
+当前 FPGA 已具备：
+
+```text
+IN1 + IN2 -> mixer_core -> lpf_core -> OUT1 error
+error -> 简单 P/PI candidate -> OUT2 control
+```
+
+当前还缺少：
+
+```text
+OUT2 内部三角波扫描
+Capture Vlock / HOLD
+P_LOCK / PI_LOCK 模式切换
+register_bank
+上位机 Custom FPGA Mode 下写 FPGA 参数
+AI 自动识峰和自动重锁
+```
+
+安全路线必须保持：
+
+```text
+先 SAFE / SCAN / HOLD；
+先示波器；
+先断开 D2-125 Aux Output；
+再 Red Pitaya OUT2 -> Scan/PZT 开环扫谱；
+先 P-only；
+再 PI；
+最后才考虑 AI。
+```
+
 ## 2026-06-23 v2B3 上板候选选择状态
 
 `pi_controller_seq.sv` 已通过独立 XSim，mode=1 集成路径已通过 XSim。顶层 `red_pitaya_top.sv` 现显式使用：
