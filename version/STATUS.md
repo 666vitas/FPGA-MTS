@@ -1,5 +1,84 @@
 # STATUS
 
+## 2026-07-02 v2B3 only-pi 示波器测试未通过，进入 v2B3_scope_safe
+
+本次记录用户上传的 `only-pi.csv` / `only-pi_timeseries.png` 示波器测试结论，并生成下一版 `v2B3_scope_safe` 安全修正。Codex 本次只做 Markdown 记录和 `laser_lock_core.sv` 小范围默认参数安全修正；未运行 Vivado，未综合、实现、生成 bit/bin，也未烧录 Red Pitaya。
+
+本次 only-pi 不是 v2B3 通过数据。
+
+```text
+OUT1 正常：
+Board OUT1 / CH1 能看到 FPGA mixer + LPF 后的 error-like 信号。
+Vpp ≈ 0.05385 V，min ≈ -0.02714 V，max ≈ +0.02671 V，RMS ≈ 0.009618 V。
+
+OUT2 未通过：
+Board OUT2 / CH4 长期贴在约 -0.2 V 附近。
+Vpp ≈ 0.01497 V，min ≈ -0.2036 V，max ≈ -0.1886 V，RMS ≈ 0.1991 V，mean ≈ -0.199 V。
+```
+
+判断：
+
+```text
+OUT1 error observation 链路基本正常。
+OUT2 只剩约 15 mVpp 小动态，不是 v2B3 通过现象。
+OUT2 更像是 control_o 被负向 output_limit 限幅，而不是 Red Pitaya +/-1 V 满量程物理削顶。
+疑似 sequential PI 的积分项在同号 error 下累积，把 control_o 推到负向 output_limit。
+```
+
+同步记录的其他通道：
+
+```text
+CH2:
+Vpp ≈ 0.151 V
+min ≈ 0.593 V
+max ≈ 0.744 V
+RMS ≈ 0.6554 V
+
+CH3:
+Vpp ≈ 2.443 V
+min ≈ -1.102 V
+max ≈ +1.341 V
+RMS ≈ 0.3496 V
+```
+
+CH3 外部 D2-125 / analog error 相关信号较大，不能直接进入 Red Pitaya IN1/IN2。IN1/IN2 仍必须保持在 `+/-1 V` 内。
+
+本轮 `v2B3_scope_safe` RTL 参数安全修正：
+
+```text
+v0.94/rtl/laser_lock_core.sv
+
+PID_KI_DEFAULT: 16'sd16 -> 16'sd0
+PID_OUTPUT_LIMIT_DEFAULT: 14'd1500 -> 14'd819
+```
+
+含义：
+
+```text
+Ki=0：先关闭积分项，验证 CONTROL_PATH_MODE=1 下 pi_controller_seq 的 P 路径是否安全。
+output_limit=819：约等于 +/-0.10 V。
+如果 OUT2 仍然偏置明显或接近 limit，下一轮再降到 410 counts，约 +/-0.05 V。
+```
+
+当前安全边界：
+
+```text
+本次不能进入真实反馈测试。
+OUT2 仍只能接示波器。
+禁止 OUT2 接激光器。
+禁止 OUT2 接 D2-125 Servo Output 三通。
+禁止 OUT2 接 D2-125 Aux Output。
+禁止 OUT2 接激光器电源 Scan / PZT。
+禁止 OUT2 与任何 D2-125 输出并联。
+IN1/IN2 必须在 +/-1 V 内。
+```
+
+记录文件：
+
+```text
+version/v2/V2B3_ONLY_PI_SCOPE_TEST_RECORD.md
+```
+
 ## 2026-07-01 Aux/PZT 实验数据记录与路线更新
 
 本次只记录用户最新确认的 D2-125 Aux Output / Scan-PZT 数据，并更新后续 scan/lock 开发计划。Codex 本次未修改 RTL，未运行 Vivado，未综合、实现、生成 bit/bin，也未烧录 Red Pitaya。

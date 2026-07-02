@@ -1,5 +1,34 @@
 # 当前状态总结
 
+## 当前主线状态强制摘要
+
+本文档默认使用中文表达；文件路径、RTL 模块名、端口名、寄存器名和 Vivado timing 术语保留英文原名。
+
+当前项目状态必须按下面结论理解：
+
+```text
+1. v0.94 是唯一有效 FPGA 主线。
+2. 当前 FPGA 已实现 mixer_core + lpf_core + output_protect。
+3. OUT1 是 error_o 观察输出。
+4. OUT2 是 control_o / sequential PI candidate。
+5. 当前还没有完整替代 D2-125。
+6. 当前还没有 FPGA 独立真实激光闭环。
+7. 当前还没有 ramp_generator。
+8. 当前还没有 scan_lock_fsm。
+9. 当前还没有上位机选谱线。
+10. 当前还没有 AI/CNN 自动锁定。
+```
+
+安全边界：
+
+```text
+OUT2 当前只允许接示波器。
+OUT2 不能接激光器。
+OUT2 不能接 D2-125 Servo Output 三通。
+OUT2 不能接激光器电源 Scan / PZT。
+OUT2 不能和 D2-125 输出并联。
+```
+
 ## v2-0 状态同步补充（2026-06-15）
 
 根据 Claude 独立审查报告和 `E:\new\fpga_lock\v94\v0.94` 当前实际 RTL/SIM，本文档早期 v1ab 状态已经落后。当前不能再说“PID 还没有实现”或“control_o 恒为 0”。真实状态是：

@@ -71,13 +71,17 @@ module laser_lock_core #(
     // If OUT1 error is about 0.12 to 0.15 V, the expected OUT2 control is about
     // 0.06 to 0.075 V.
     parameter logic signed [15:0] PID_KP_DEFAULT = 16'sd2048,
-    // Mode 0 has no integrator. Mode 1 starts with a deliberately small Ki so
-    // the later sequential-PI scope test accumulates only slowly.
-    parameter logic signed [15:0] PID_KI_DEFAULT = 16'sd16,
+    // v2B3_scope_safe keeps mode 1 in pi_controller_seq but disables the
+    // integrator for the next scope-only test. The previous Ki=16 board data
+    // showed OUT2 parked near the negative output_limit, so the next step is
+    // to prove the P path is safe before re-enabling I.
+    parameter logic signed [15:0] PID_KI_DEFAULT = 16'sd0,
     parameter logic signed [13:0] PID_OFFSET_DEFAULT = 14'sd0,
-    // 1500 counts is roughly +/-0.18 V on the Red Pitaya output scale. It keeps
-    // OUT2 far below the +/-1 V full-scale range during the oscilloscope test.
-    parameter logic [13:0] PID_OUTPUT_LIMIT_DEFAULT = 14'd1500
+    // 819 counts is roughly +/-0.10 V on the Red Pitaya output scale. It keeps
+    // OUT2 farther from the +/-1 V full-scale range during the next
+    // v2B3_scope_safe oscilloscope-only test. If OUT2 still parks near the
+    // limit, the next conservative step is 410 counts, about +/-0.05 V.
+    parameter logic [13:0] PID_OUTPUT_LIMIT_DEFAULT = 14'd819
 ) (
     // clk_i：模块时钟。
     // 未来接官方 adc_clk，让本模块和 adc_dat[0]/adc_dat[1] 在同一个时钟域。

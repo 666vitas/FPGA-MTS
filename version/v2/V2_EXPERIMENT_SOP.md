@@ -1,4 +1,203 @@
-# V2_EXPERIMENT_SOP
+# V2 实验 SOP
+
+## 当前总规则：中文 SOP 和小白实验边界
+
+本文档面向小白实验用户，默认使用中文表达；文件路径、RTL 模块名、信号名、寄存器名和 Vivado timing 术语保留英文原名。
+
+每个实验阶段都必须写清：
+
+```text
+目标
+接线
+正常现象
+停止条件
+通过标准
+是否允许烧录
+是否允许接激光器
+是否允许接 Scan/PZT
+保存哪些数据
+```
+
+## 当前允许接线
+
+```text
+Red Pitaya IN1 <- PD + BPF + Amp，必须在 +/-1 V 内
+Red Pitaya IN2 <- REF，必须在 +/-1 V 内
+Red Pitaya OUT1 -> 示波器，或后续在专门 SOP 下接 D2-125 Error Input
+Red Pitaya OUT2 -> 示波器
+```
+
+## 当前禁止接线
+
+```text
+OUT2 不能接激光器
+OUT2 不能接 D2-125 Servo Output 三通
+OUT2 不能接激光器电源 Scan / PZT
+OUT2 不能和 D2-125 输出并联
+D2-125 DC Error 不能接 Red Pitaya IN1
+IN1 / IN2 不能超过 +/-1 V
+```
+
+## 2026-07-02 v2B3_scope_safe 示波器复测 SOP
+
+本 SOP 覆盖最新 `only-pi.csv` 后的下一次实验。由于本次 OUT2 长期贴在约 `-0.2 V` 附近，v2B3 不能关闭，也不能进入真实反馈测试。
+
+### 本次 only-pi 结论
+
+```text
+OUT1 正常：
+Board OUT1 / CH1 能看到 FPGA mixer + LPF 后的 error-like 信号。
+Vpp ≈ 0.05385 V，min ≈ -0.02714 V，max ≈ +0.02671 V，RMS ≈ 0.009618 V。
+
+OUT2 未通过：
+Board OUT2 / CH4 长期贴在约 -0.2 V 附近。
+Vpp ≈ 0.01497 V，min ≈ -0.2036 V，max ≈ -0.1886 V，RMS ≈ 0.1991 V，mean ≈ -0.199 V。
+```
+
+可能原因：
+
+```text
+OUT1 error 存在 DC 偏置或平均误差；
+PID_KI_DEFAULT 当前非零；
+积分器在一段时间内累积同号误差；
+control_o 被推到负向 output_limit；
+导致 OUT2 动态范围只剩约 15 mVpp。
+```
+
+### v2B3_scope_safe 修正含义
+
+下一版只做安全收敛，不增加新功能：
+
+```text
+CONTROL_PATH_MODE=1 仍然使用 pi_controller_seq。
+OUTPUT_MODE=3 仍然让 OUT1 显示 mixer + LPF error。
+PID_KI_DEFAULT = 16'sd0。
+PID_OUTPUT_LIMIT_DEFAULT = 14'd819，约 +/-0.10 V。
+```
+
+专业说法：
+本轮关闭 I 项并降低 `output_limit`，用 `pi_controller_seq` 的 P 路径先证明 OUT2 可解释、可限幅、不贴边。
+
+小白理解：
+先把会慢慢累积的那一部分刹住，只看 OUT2 能不能跟着 OUT1 小幅变化，不要再一直靠在负边界。
+
+在本项目中的对应关系：
+OUT1 继续看 error，OUT2 继续只接示波器，下一次只判断 `Ki=0` 后 OUT2 是否离开 `-0.2 V` 附近。
+
+如果做错的风险：
+如果 OUT2 仍贴 limit 或随机跳变，说明还不能接任何真实控制端。
+
+### 用户手动 Vivado 步骤
+
+Codex 不运行 Vivado。用户手动执行：
+
+```text
+1. 用户手动打开 Vivado。
+2. 确认 red_pitaya_top 是 Design Top。
+3. 确认 pi_controller_seq.sv 在 Design Sources。
+4. 确认 tb_*.sv 不在 Design Sources。
+5. Run Synthesis。
+6. Run Implementation。
+7. 检查 WNS >= 0，TNS = 0，Failing Endpoints = 0。
+8. timing 通过后才 Generate Bitstream。
+9. 生成 bit/bin 后烧录 Red Pitaya。
+```
+
+### 复测接线
+
+只允许：
+
+```text
+Red Pitaya IN1 <- PD + BPF + Amp 后的 MTS/PD 信号，必须在 +/-1 V 内
+Red Pitaya IN2 <- 外部 REF，必须在 +/-1 V 内
+OUT1 -> 示波器 CH1 或 CH2
+OUT2 -> 示波器 CH4
+```
+
+禁止：
+
+```text
+OUT2 -> 激光器
+OUT2 -> D2-125 Servo Output
+OUT2 -> D2-125 Aux Output
+OUT2 -> Scan/PZT
+OUT2 与任何 D2-125 输出并联
+CH3 外部 D2-125 / analog error 直接进入 Red Pitaya IN1/IN2
+```
+
+### 正常现象
+
+```text
+OUT1 仍然是 FPGA mixer + LPF error。
+OUT1 波形应与 only-pi.csv 中 CH1 类似。
+OUT1 Vpp 可以是几十 mV 量级。
+OUT1 不应消失。
+OUT1 不应明显削顶。
+
+OUT2 不应再长期贴在 -0.2 V 附近。
+OUT2 应围绕 0 V 附近小幅变化，或至少不应长期贴近 output_limit。
+OUT2 应跟随 OUT1 error 的变化趋势。
+因为 Ki=0，OUT2 不应发生积分导致的慢慢爬升。
+OUT2 不应随机跳变。
+OUT2 不应快速饱和。
+OUT2 不应接近 +/-1 V。
+如果 output_limit=819，则 OUT2 不应超过约 +/-0.10 V。
+```
+
+### 异常判断和停止条件
+
+```text
+如果 OUT2 仍贴在负向 limit：
+可能存在 offset_i、polarity、error DC 偏置、符号处理或 pi_controller_seq 状态问题。
+
+如果 OUT2 严格等于 OUT1 的一半：
+说明当前可能退回到 CONTROL_PATH_MODE=0 P-only fallback，需检查 top 参数是否实际为 mode=1。
+
+如果 OUT2 始终为 0：
+可能 CONTROL_PATH_MODE 没生效、pi_controller_seq.sv 未加入 Design Sources、reset/enable 问题或顶层未重新综合。
+
+如果 OUT2 随机跳：
+停止，检查时序、未初始化寄存器、CDC 或 reset。
+
+如果 OUT1 消失：
+停止，说明 error 链路被破坏，不能继续。
+```
+
+### 保存数据
+
+```text
+Vivado timing 截图
+OUT1/OUT2 示波器截图
+CSV 数据
+文件命名建议：v2b3_scope_safe_ki0_limit819.csv
+```
+
+### v2B3 关闭条件
+
+只有当 `v2B3_scope_safe` 满足以下条件，才可以关闭 v2B3：
+
+```text
+1. timing 通过；
+2. OUT1 error 正常；
+3. OUT2 不再贴 limit；
+4. OUT2 不随机跳变；
+5. OUT2 不接近 +/-1 V；
+6. OUT2 行为能用 Ki=0 的 P-only through pi_controller_seq 解释；
+7. 所有数据已保存。
+```
+
+v2B3 关闭后，才讨论 v2D / v2E 或后续 v2PZT。
+
+## 当前阶段统一结论
+
+```text
+是否允许烧录：只有用户手动 Vivado timing 通过并确认后才允许。
+是否允许接激光器：当前默认不允许。
+是否允许接 Scan/PZT：当前默认不允许。
+OUT2 当前状态：只允许接示波器。
+当前能否声称锁定：不能。当前还不是 FPGA 独立真实激光闭环。
+必须保存的数据：示波器截图、CSV、Vivado timing、bitstream 对应源码/参数记录。
+```
 
 ## 2026-07-01 Aux/PZT 后续实验 SOP 更新
 

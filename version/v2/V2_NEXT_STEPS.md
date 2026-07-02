@@ -1,5 +1,123 @@
 # V2_NEXT_STEPS
 
+## 2026-07-02 下一步：v2B3_scope_safe 手动 Vivado timing 与 OUT1/OUT2 示波器复测
+
+最新 `only-pi.csv` 不是 v2B3 通过数据。OUT1 正常，OUT2 未通过。
+
+```text
+OUT1 / CH1:
+Vpp ≈ 0.05385 V
+min ≈ -0.02714 V
+max ≈ +0.02671 V
+RMS ≈ 0.009618 V
+
+OUT2 / CH4:
+Vpp ≈ 0.01497 V
+min ≈ -0.2036 V
+max ≈ -0.1886 V
+RMS ≈ 0.1991 V
+mean ≈ -0.199 V
+```
+
+判断：
+
+```text
+OUT1 正常：FPGA mixer + LPF error observation 仍可见。
+OUT2 未通过：长期贴在约 -0.2 V 附近，只剩约 15 mVpp 小动态。
+疑似积分项导致 control_o 负向 output_limit 饱和。
+```
+
+下一步先执行 `v2B3_scope_safe`，不要继续推进真实反馈、PZT 或更大功能。
+
+本轮安全修正目标：
+
+```text
+CONTROL_PATH_MODE=1 仍然使用 pi_controller_seq。
+OUTPUT_MODE=3 仍然让 OUT1 显示 mixer + LPF error。
+关闭积分项：PID_KI_DEFAULT = 16'sd0。
+降低限幅：PID_OUTPUT_LIMIT_DEFAULT = 14'd819，约 +/-0.10 V。
+如果 OUT2 仍贴近 limit，下一轮再降到 410 counts，约 +/-0.05 V。
+```
+
+下一版 `v2B3_scope_safe` 烧录后，示波器应看到：
+
+```text
+OUT1 仍然是 FPGA mixer + LPF error。
+OUT1 波形应与 only-pi.csv 中 CH1 类似。
+OUT1 Vpp 可以是几十 mV 量级。
+OUT1 不应消失。
+OUT1 不应明显削顶。
+
+OUT2 不应再长期贴在 -0.2 V 附近。
+OUT2 应围绕 0 V 附近小幅变化，或至少不应长期贴近 output_limit。
+OUT2 应跟随 OUT1 error 的变化趋势。
+因为 Ki=0，OUT2 不应发生积分导致的慢慢爬升。
+OUT2 不应随机跳变。
+OUT2 不应快速饱和。
+OUT2 不应接近 +/-1 V。
+如果 output_limit=819，则 OUT2 不应超过约 +/-0.10 V。
+```
+
+如果 OUT2 仍异常，按下面判断：
+
+```text
+如果 OUT2 仍贴在负向 limit：
+可能存在 offset_i、polarity、error DC 偏置、符号处理或 pi_controller_seq 状态问题。
+
+如果 OUT2 严格等于 OUT1 的一半：
+说明当前可能退回到 CONTROL_PATH_MODE=0 P-only fallback，需检查 top 参数是否实际为 mode=1。
+
+如果 OUT2 始终为 0：
+可能 CONTROL_PATH_MODE 没生效、pi_controller_seq.sv 未加入 Design Sources、reset/enable 问题或顶层未重新综合。
+
+如果 OUT2 随机跳变：
+停止，检查时序、未初始化寄存器、CDC 或 reset。
+
+如果 OUT1 消失：
+停止，说明 error 链路被破坏，不能继续。
+```
+
+用户下一次实验步骤：
+
+```text
+1. 用户手动打开 Vivado。
+2. 确认 red_pitaya_top 是 Design Top。
+3. 确认 pi_controller_seq.sv 在 Design Sources。
+4. 确认 tb_*.sv 不在 Design Sources。
+5. Run Synthesis。
+6. Run Implementation。
+7. 检查 WNS >= 0，TNS = 0，Failing Endpoints = 0。
+8. timing 通过后才 Generate Bitstream。
+9. 生成 bit/bin 后烧录 Red Pitaya。
+10. 只接：
+    OUT1 -> 示波器 CH1 或 CH2
+    OUT2 -> 示波器 CH4
+11. 禁止接：
+    OUT2 -> 激光器
+    OUT2 -> D2-125 Servo Output
+    OUT2 -> D2-125 Aux Output
+    OUT2 -> Scan/PZT
+12. 保存：
+    Vivado timing 截图
+    OUT1/OUT2 示波器截图
+    CSV 数据
+    文件命名建议：v2b3_scope_safe_ki0_limit819.csv
+```
+
+只有当 `v2B3_scope_safe` 满足以下条件，才可以关闭 v2B3：
+
+```text
+1. timing 通过；
+2. OUT1 error 正常；
+3. OUT2 不再贴 limit；
+4. OUT2 不随机跳变；
+5. OUT2 不接近 +/-1 V；
+6. OUT2 行为能用 Ki=0 的 P-only through pi_controller_seq 解释；
+7. 所有数据已保存。
+```
+
+v2B3 关闭后，才讨论 v2D / v2E 或后续 v2PZT。
+
 ## 2026-07-01 下一步：从 Aux/PZT 数据进入 v2PZT-1
 
 用户最新 Aux/PZT 数据说明：D2-125 Aux Output 在 Ramp 状态不是从 0 V 开始的纯三角波，而是约 `0.81 V DC 偏置 + 小三角波`；在 Lock 状态约为 `0.813 V DC 保持 + 小幅扰动`。

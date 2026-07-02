@@ -1,4 +1,49 @@
-# V2_DEVELOPMENT_ROADMAP
+# V2 开发路线图
+
+## 当前中文总规则和安全边界
+
+本文档面向实验用户，默认使用中文表达；文件路径、RTL 模块名、端口名、寄存器名和 Vivado timing 术语保留英文原名。
+
+当前 D2-125 真实接线模型仍是实验安全基准：D2-125 负责真实 Ramp / Unlock / Lock 工作流，Red Pitaya / FPGA 当前只做 `mixer_core + lpf_core + output_protect` 误差观察和 `control_o / sequential PI candidate` 候选输出观察。
+
+当前 Red Pitaya / FPGA 主线状态：
+
+```text
+v0.94 是唯一有效 FPGA 主线。
+version/v2 是当前 v2 阶段文档主线。
+software 是上位机软件主线。
+```
+
+当前 FPGA 已实现：
+
+```text
+mixer_core + lpf_core + output_protect
+OUT1 = error_o 观察输出
+OUT2 = control_o / sequential PI candidate
+```
+
+当前还没有实现：
+
+```text
+完整替代 D2-125
+FPGA 独立真实激光闭环
+ramp_generator
+scan_lock_fsm
+上位机选谱线
+AI/CNN 自动锁定
+```
+
+v2B3 当前状态：`pi_controller_seq` 和 `CONTROL_PATH_MODE=1` 已完成 RTL/SIM 与用户手动 timing clean 记录，但它仍只是 OUT2 示波器候选路径，不等于可以接激光器，不等于可以替代 D2-125。
+
+D2-125 各功能未来替代边界：
+
+| 阶段 | 替代目标 | 当前边界 |
+|---|---|---|
+| v2F | 单路低增益闭环 | 只允许在明确安全 SOP 下做低增益、短时间、可回退闭环 |
+| v3 | `ramp_generator`、`scan_lock_fsm`、Aux Servo Output 替代 | v3 才开始做，不属于当前 v2B3 已完成内容 |
+| v4/v5 | 上位机选谱线、自动识峰、AI/CNN | 后续阶段，不作为当前上板前提 |
+
+当前 OUT2 仍只接示波器。禁止把 OUT2 接激光器、D2-125 Servo Output 三通、Scan/PZT，或和 D2-125 输出并联。
 
 ## 2026-07-01 Aux/PZT 数据后的路线更新
 
