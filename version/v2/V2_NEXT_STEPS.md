@@ -4,6 +4,8 @@
 
 最新 `only-pi.csv` 不是 v2B3 通过数据。OUT1 正常，OUT2 未通过。
 
+同时，D2-125 Aux Output 的 Ramp / Unlock / Lock 实测数据已经记录到 `version/v2/V2_AUX_PZT_EXPERIMENT_RECORD.md`。这些 Aux 数据先作为后续 v3/v4/v5 设计参考，不改变当前接线边界。
+
 ```text
 OUT1 / CH1:
 Vpp ≈ 0.05385 V
@@ -27,7 +29,7 @@ OUT2 未通过：长期贴在约 -0.2 V 附近，只剩约 15 mVpp 小动态。
 疑似积分项导致 control_o 负向 output_limit 饱和。
 ```
 
-下一步先执行 `v2B3_scope_safe`，不要继续推进真实反馈、PZT 或更大功能。
+下一步仍然先执行 `v2B3_scope_safe`，不要继续推进真实反馈、PZT 或更大功能。
 
 本轮安全修正目标：
 
@@ -117,6 +119,18 @@ OUT2 不应接近 +/-1 V。
 ```
 
 v2B3 关闭后，才讨论 v2D / v2E 或后续 v2PZT。
+
+Aux 数据当前只用于后续：
+
+```text
+v3 ramp_generator
+v3 scan_lock_fsm
+v3 Aux/Scan replacement
+v4 上位机 Custom FPGA Lock Panel
+v5 AI / 自动重锁
+```
+
+当前 v2B3 / v2B3_scope_safe 阶段仍不能把 OUT2 接 Scan/PZT，因为 OUT2 仍是 `control_o / sequential PI candidate`，仍只能接示波器，且当前还没有 `ramp_generator` / `scan_lock_fsm`。Red Pitaya OUT2 也不能和 D2-125 Aux Output 并联。
 
 ## 2026-07-01 下一步：从 Aux/PZT 数据进入 v2PZT-1
 

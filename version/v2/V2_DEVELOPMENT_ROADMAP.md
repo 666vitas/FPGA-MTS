@@ -45,20 +45,36 @@ D2-125 各功能未来替代边界：
 
 当前 OUT2 仍只接示波器。禁止把 OUT2 接激光器、D2-125 Servo Output 三通、Scan/PZT，或和 D2-125 输出并联。
 
-## 2026-07-01 Aux/PZT 数据后的路线更新
+## 2026-07-02 Aux/PZT 实测数据后的路线更新
 
 最新 D2-125 Aux Output / Scan-PZT 数据表明：
 
 ```text
 Ramp / Unlock:
-  约 0.81 V DC 偏置 + 0.063 到 0.117 Vpp 低频三角波
-  频率约 52.7 Hz
+  ramp-aux-unlock.csv:
+    mean≈0.8087 V, min≈0.7505 V, max≈0.8678 V, Vpp≈0.1173 V, freq≈52.68 Hz
+  ramp-aux-unlock1.csv:
+    mean≈0.8096 V, min≈0.7767 V, max≈0.8393 V, Vpp≈0.0626 V, freq≈52.68 Hz
 
-Locked:
-  约 0.813 V DC 保持 + 约 16.9 mVpp 小幅慢控制扰动
+Lock:
+  ramp-aux-locking.csv:
+    mean≈0.8130 V, min≈0.8031 V, max≈0.8200 V, Vpp≈0.0169 V
 ```
 
-因此，后续 Red Pitaya OUT2 替代路线更新为：
+这些 Aux 实测数据将作为 v3 `ramp_generator`、v3 `scan_lock_fsm`、v3 Aux/Scan replacement、v4 上位机 `Custom FPGA Lock Panel`、v5 AI / 自动重锁的设计参考。
+
+重要边界：
+
+```text
+当前 v2B3 / v2B3_scope_safe 不使用这些数据改变接线。
+当前 OUT2 仍只接示波器。
+当前还没有 ramp_generator / scan_lock_fsm。
+v3 之后才考虑 Aux/Scan replacement。
+Red Pitaya OUT2 不能和 D2-125 Aux Output 并联到 Scan/PZT。
+Red Pitaya OUT2 不能和 D2-125 Servo Output 并联。
+```
+
+后续 Red Pitaya OUT2 替代路线更新为：
 
 | 阶段 | 目标 | 当前是否实现 |
 |---|---|---|
@@ -92,6 +108,8 @@ AI 自动识峰和自动重锁
 安全路线必须保持：
 
 ```text
+当前先回到 v2B3_scope_safe 的 OUT1/OUT2 示波器验证；
+Aux 数据先作为后续设计参考；
 先 SAFE / SCAN / HOLD；
 先示波器；
 先断开 D2-125 Aux Output；

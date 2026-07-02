@@ -1,19 +1,21 @@
 # V2 Aux/PZT 实验记录与后续 scan/lock 计划
 
-## 2026-07-01 记录范围
+## 2026-07-02 记录范围
 
-本文件记录用户最新确认的 D2-125 Aux Output / Scan-PZT 通道实验数据，并据此更新 Red Pitaya OUT2 后续替代路线。
+本文件记录用户确认的 D2-125 Auxiliary Servo Output 在 Ramp / Unlock / Lock 状态下的实测数据，并据此更新后续 v3/v4/v5 的设计参考。
 
 本次只整理 Markdown 文档：
 
 ```text
 未修改 RTL。
+未修改 Python。
+未修改 testbench。
 未运行 Vivado。
 未运行 synthesis / implementation。
 未生成 bitstream / bin。
 未烧录 Red Pitaya。
-未修改 redpitaya.xpr。
 未修改 XDC / SDC。
+未执行 git add / git commit / git push。
 ```
 
 ## 当前 FPGA 真实能力
@@ -35,7 +37,7 @@ error -> 简单 P/PI candidate -> OUT2 control
 5. AI 自动识峰、自动选 Vlock 或自动重锁。
 ```
 
-因此当前不能声称已经实现 PZT 锁定，也不能把 OUT2 直接当作完整 D2-125 Aux Output 替代。
+因此当前不能声称已经实现 PZT 锁定，也不能把 OUT2 直接当作完整 D2-125 Aux Output 替代。当前 v2B3 / v2B3_scope_safe 阶段仍然只允许 OUT2 接示波器。
 
 ## 最新 Aux/PZT 数据
 
@@ -53,16 +55,15 @@ CH4 为 D2-125 Aux Output：
 Vpp = 0.1173 V
 min = 0.7505 V
 max = 0.8678 V
-RMS = 0.8093 V
 mean 约 0.8087 V
-频率约 52.7 Hz
+主频约 52.68 Hz
 ```
 
 解释：
 
 ```text
 Aux Output 在 Ramp 状态约为：
-0.81 V DC 偏置 + 0.117 Vpp 低频三角波扫描。
+0.81 V DC offset + 0.117 Vpp triangle，频率约 52.7 Hz。
 ```
 
 ### ramp-aux-unlock1.csv
@@ -79,16 +80,15 @@ CH4 为 D2-125 Aux Output：
 Vpp = 0.0626 V
 min = 0.7767 V
 max = 0.8393 V
-RMS = 0.8097 V
 mean 约 0.8096 V
-频率约 52.7 Hz
+主频约 52.68 Hz
 ```
 
 解释：
 
 ```text
 Aux Output 在较小扫描幅度下约为：
-0.81 V DC 偏置 + 0.063 Vpp 低频三角波扫描。
+0.81 V DC offset + 0.063 Vpp triangle，频率约 52.7 Hz。
 ```
 
 ### ramp-aux-locking.csv
@@ -102,10 +102,9 @@ D2-125 Aux Output / Scan-PZT 通道，Locked 状态
 CH4 为 D2-125 Aux Output：
 
 ```text
-Vpp = 0.01687 V
+Vpp = 0.0169 V
 min = 0.8031 V
 max = 0.8200 V
-RMS = 0.813 V
 mean 约 0.8130 V
 ```
 
@@ -113,7 +112,14 @@ mean 约 0.8130 V
 
 ```text
 Aux Output 在锁定状态约为：
-0.813 V DC 保持电压 + 约 16.9 mVpp 小幅慢控制扰动。
+0.813 V hold + 0.0169 Vpp residual / slow correction。
+```
+
+注意：
+
+```text
+Lock 状态下 CH4 的扰动很小，不应强行解释成大三角波。
+它更接近保持电压附近的小幅慢控制扰动。
 ```
 
 ## 对 D2-125 Aux/PZT 的新认识
@@ -121,13 +127,19 @@ Aux Output 在锁定状态约为：
 D2-125 Aux Output 不是单纯从 0 V 开始的三角波。根据最新数据：
 
 ```text
-Ramp 状态：约 0.81 V DC 偏置 + 小三角波。
-Lock 状态：约 0.813 V DC 保持 + 小幅扰动。
+Ramp / Unlock 状态：约 0.81 V DC offset + 0.063~0.117 Vpp triangle，频率约 52.7 Hz。
+Lock 状态：约 0.813 V hold + 0.0169 Vpp residual / slow correction。
 ```
 
 因此 Red Pitaya OUT2 如果要替代 D2-125 Aux Output，后续应实现：
 
 ```text
+scan_offset
+scan_amp
+scan_freq
+Vlock
+slow_scan_output_limit
+
 SCAN 模式：
 OUT2 = scan_offset + triangle
 
@@ -142,6 +154,8 @@ OUT2 = captured_vlock + Kp * error + Ki * integral(error)
 ```
 
 最新 Aux 数据说明 D2-125 Aux Output 的电压范围约为 `0.75 V` 到 `0.87 V`，处于 Red Pitaya OUT2 约 `+/-1 V` 输出范围内。因此后续优先尝试 `Red Pitaya OUT2 -> Scan/PZT` 替代 D2-125 Aux Output 是可行路线，但必须先实现 SAFE / SCAN / HOLD，并先用示波器验证。
+
+这些数据属于后续 v3/v4/v5 的设计参考，不改变当前 v2B3_scope_safe 接线边界。
 
 ## 能力边界
 
@@ -161,6 +175,67 @@ PZT 锁定完整流程
 ```
 
 当前上位机在 Custom FPGA Mode 下还不能写 FPGA 内部参数，不能切换 `SCAN / HOLD / P_LOCK / PI_LOCK`，也不能读取 FPGA 内部 debug/status 寄存器。
+
+## 后续如何使用这些数据
+
+### v3 ramp_generator
+
+参考默认参数：
+
+```text
+scan_offset ≈ 0.81 V
+scan_amp ≈ 0.03 V 到 0.06 V
+scan_freq ≈ 52.7 Hz
+```
+
+说明：
+
+```text
+0.063 Vpp 对应约 +/-0.0315 V。
+0.117 Vpp 对应约 +/-0.0585 V。
+```
+
+### v3 scan_lock_fsm
+
+用于定义：
+
+```text
+SCAN 模式：
+OUTx = scan_offset + triangle
+
+HOLD 模式：
+OUTx = captured Vlock
+
+LOCK 模式：
+OUTx = Vlock + slow correction
+```
+
+### v3 Aux/Scan replacement
+
+用于确认未来替代 D2-125 Aux Output / Scan-PZT 时，不能输出零均值三角波，而要输出带 `scan_offset` 的慢扫描量，并且必须先确认 D2-125 Aux Output 已断开，避免并联。
+
+### v4 上位机 Custom FPGA Lock Panel
+
+用于设置默认参数：
+
+```text
+scan_offset_v = 0.81 V
+scan_amp_v = 0.03 V 起步
+scan_freq_hz = 52.7 Hz
+Vlock 初始范围约 0.80~0.82 V
+slow output limit 可参考 0.0169 Vpp 的 Lock 状态扰动
+```
+
+### v5 AI / 自动重锁
+
+用于判断：
+
+```text
+正常扫描范围
+正常锁定保持范围
+失锁后 Rescan 的扫描幅度
+AI 推荐 Vlock 的初始范围
+```
 
 ## 更新后的阶段计划
 
@@ -248,6 +323,7 @@ Red Pitaya OUT2 不能和 D2-125 Aux Output 同时并联到 Scan/PZT。
 Red Pitaya OUT2 不能和 D2-125 Servo Output 并联。
 OUT2 初始必须先接示波器。
 OUT2 输出必须限制在 +/-1 V 内。
+当前 v2B3 / v2B3_scope_safe 阶段 OUT2 仍只能接示波器，不能因为记录了 Aux 数据就直接接 Scan/PZT。
 ```
 
 第一次 SCAN 建议：

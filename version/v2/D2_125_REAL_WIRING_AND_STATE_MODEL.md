@@ -60,6 +60,22 @@ OUT2 接任何未确认输入范围和极性的真实执行器
 
 在 Lock 状态下，Aux Servo Output 不再是大幅扫描，而更接近锁定点附近的保持量和小幅慢控制扰动。
 
+Aux Output 的实测数据见：
+
+```text
+version/v2/V2_AUX_PZT_EXPERIMENT_RECORD.md
+```
+
+当前已记录的关键数值：
+
+```text
+Ramp / Unlock：
+约 0.81 V offset + 0.063~0.117 Vpp triangle，主频约 52.7 Hz。
+
+Lock：
+约 0.813 V hold + 0.0169 Vpp residual / slow correction。
+```
+
 因此，未来 Red Pitaya 替代 Aux Servo Output 时，不能只输出从 0 V 开始的三角波，而应考虑：
 
 ```text
@@ -68,9 +84,12 @@ Capture Vlock
 HOLD
 P_LOCK
 PI_LOCK
+slow_scan_output_limit
 ```
 
 这些功能当前还没有进入可接 Scan/PZT 的阶段。
+
+当前 v2B3 / v2B3_scope_safe 阶段仍然不能用 OUT2 接 Scan/PZT。Red Pitaya OUT2 不能和 D2-125 Aux Output 同时并联到 Scan/PZT，也不能和 D2-125 Servo Output 并联。
 
 ## 5. Red Pitaya 未来替代映射
 

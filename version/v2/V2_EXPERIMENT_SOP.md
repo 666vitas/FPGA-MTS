@@ -199,9 +199,11 @@ OUT2 当前状态：只允许接示波器。
 必须保存的数据：示波器截图、CSV、Vivado timing、bitstream 对应源码/参数记录。
 ```
 
-## 2026-07-01 Aux/PZT 后续实验 SOP 更新
+## 2026-07-02 Aux/PZT 实测数据记录后的实验边界
 
-最新 Aux/PZT 数据确认：D2-125 Aux Output 在 Ramp 状态约为 `0.81 V DC 偏置 + 小三角波`，在 Lock 状态约为 `0.813 V DC 保持 + 小幅扰动`。因此 Red Pitaya OUT2 后续替代 Aux Output 时，不能只输出从 0 V 开始的三角波，而应实现 `scan_offset + triangle`，并支持 Capture Vlock 后 HOLD。
+最新 Aux/PZT 数据确认：D2-125 Aux Output 在 Ramp / Unlock 状态约为 `0.81 V DC offset + 0.063~0.117 Vpp triangle`，主频约 `52.7 Hz`；在 Lock 状态约为 `0.813 V hold + 0.0169 Vpp residual / slow correction`。
+
+这些数据只作为后续 v3/v4/v5 的设计参考。当前阶段不能因为测得 Aux 数据就直接把 OUT2 接 Scan/PZT。
 
 ### 当前禁止执行
 
@@ -210,6 +212,21 @@ OUT2 当前状态：只允许接示波器。
 禁止把 Red Pitaya OUT2 和 D2-125 Aux Output 并联。
 禁止把 Red Pitaya OUT2 和 D2-125 Servo Output 并联。
 禁止把当前 sequential PI candidate 说成已经实现 PZT 锁定。
+```
+
+### 未来 Scan/PZT 替代前必须检查
+
+```text
+1. Scan/PZT 输入允许电压范围；
+2. Red Pitaya OUT2 输出范围；
+3. scan_offset 是否需要 0.81 V 附近；
+4. scan_amp 是否从 0.03 V 起步；
+5. scan_freq 是否约 52.7 Hz；
+6. Vlock 初始范围是否在 0.80~0.82 V 附近；
+7. slow output limit 是否参考 0.0169 Vpp 的 Lock 状态扰动；
+8. D2-125 Aux Output 是否已断开；
+9. OUT2 是否会和 D2-125 Aux Output 并联；
+10. OUT2 是否会和 D2-125 Servo Output 并联。
 ```
 
 ### v2PZT-1 首次目标
