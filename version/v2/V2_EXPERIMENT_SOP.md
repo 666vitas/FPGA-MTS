@@ -42,6 +42,55 @@ IN1 / IN2 不能超过 +/-1 V
 
 本 SOP 覆盖最新 `only-pi.csv` 后的下一次实验。由于本次 OUT2 长期贴在约 `-0.2 V` 附近，v2B3 不能关闭，也不能进入真实反馈测试。
 
+### v2B3_scope_safe 通过标准和 only-p.csv 结论
+
+PASS 条件：
+
+```text
+OUT1 error 正常；
+OUT2 不贴 -0.2 V；
+OUT2 不贴 output_limit；
+OUT2 不随机跳变；
+OUT2 不快速饱和；
+OUT2 不接近 +/-1 V；
+OUT2 / OUT1 比例可解释；
+OUT2 只接示波器。
+```
+
+本次 `only-p.csv` 满足这些条件，记录为：
+
+```text
+PASS WITH NOTES
+```
+
+本次关键数据：
+
+```text
+OUT1 / CH1:
+Vpp ≈ 0.04874 V
+min ≈ -0.01209 V
+max ≈ +0.03665 V
+RMS ≈ 0.01007 V
+mean ≈ +0.00868 V
+
+OUT2 / CH4:
+Vpp ≈ 0.02410 V
+min ≈ -0.00177 V
+max ≈ +0.02233 V
+RMS ≈ 0.00888 V
+mean ≈ +0.00850 V
+OUT2 / OUT1 Vpp ≈ 0.494
+```
+
+说明：
+
+```text
+Ki=0 修正有效。
+OUT2 不再贴 -0.2 V。
+OUT2 仍只能接示波器。
+这不是闭环锁定，也不代表 FPGA 已经替代 D2-125。
+```
+
 ### 本次 only-pi 结论
 
 ```text

@@ -45,6 +45,33 @@ D2-125 各功能未来替代边界：
 
 当前 OUT2 仍只接示波器。禁止把 OUT2 接激光器、D2-125 Servo Output 三通、Scan/PZT，或和 D2-125 输出并联。
 
+## 2026-07-02 v2B3_scope_safe 状态：PASS WITH NOTES / 准备关闭
+
+`v2B3_scope_safe / only-p.csv` 已完成上板示波器测试：
+
+```text
+OUT1 Vpp ≈ 0.04874 V，error observation 正常。
+OUT2 Vpp ≈ 0.02410 V，mean ≈ +0.00850 V。
+OUT2 不再贴 -0.2 V。
+OUT2 / OUT1 Vpp ≈ 0.494。
+Ki=0 修正有效。
+```
+
+阶段判断：
+
+```text
+v2B3_scope_safe = PASS WITH NOTES / 准备关闭。
+```
+
+下一阶段：
+
+```text
+v2D：
+OUT2 hardcoded scan_offset + triangle 示波器验证。
+```
+
+v2D 的目标不是接 Scan/PZT，而是先证明 Red Pitaya OUT2 能安全输出类似 D2-125 Aux Ramp 的 `0.81 V offset + 小三角波`。真正接 Scan/PZT 是更后面的 v2F 或单独 PZT SOP，不是 v2D 第一轮。
+
 ## 2026-07-02 Aux/PZT 实测数据后的路线更新
 
 最新 D2-125 Aux Output / Scan-PZT 数据表明：

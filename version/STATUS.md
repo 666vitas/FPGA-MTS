@@ -1,5 +1,54 @@
 # STATUS
 
+## 2026-07-02 v2B3_scope_safe only-p 上板示波器测试 PASS WITH NOTES
+
+本次记录用户完成的 `v2B3_scope_safe / only-p.csv` 上板示波器数据。该版本使用 `Ki=0` 与 `output_limit=819`，目标是验证 `CONTROL_PATH_MODE=1` 下 `pi_controller_seq` 的 P 路径在示波器-only 条件下是否安全可解释。
+
+本次只记录 Markdown；未修改 RTL，未运行 Vivado，未综合、实现、生成 bit/bin，也未烧录 Red Pitaya。
+
+```text
+Board OUT1 / CH1:
+Vpp ≈ 0.04874 V
+min ≈ -0.01209 V
+max ≈ +0.03665 V
+RMS ≈ 0.01007 V
+mean ≈ +0.00868 V
+
+Board OUT2 / CH4:
+Vpp ≈ 0.02410 V
+min ≈ -0.00177 V
+max ≈ +0.02233 V
+RMS ≈ 0.00888 V
+mean ≈ +0.00850 V
+```
+
+实验判断：
+
+```text
+OUT1 error observation 正常，Vpp 约 48.74 mV。
+OUT2 Vpp 约 24.10 mV，mean 约 +8.50 mV。
+OUT2 不再贴 -0.2 V。
+OUT2 不再贴近负向 output_limit。
+OUT2 / OUT1 Vpp ≈ 0.02410 / 0.04874 ≈ 0.494。
+Ki=0 scope-safe 修正有效。
+v2B3_scope_safe 可以判定为 PASS WITH NOTES，并准备关闭。
+```
+
+Notes：
+
+```text
+这不是闭环锁定。
+这不代表 FPGA 已经替代 D2-125。
+这不允许直接进入 OUT2 接 Scan/PZT。
+OUT2 仍只允许接示波器。
+```
+
+记录文件：
+
+```text
+version/v2/V2B3_SCOPE_SAFE_ONLY_P_TEST_RECORD.md
+```
+
 ## 2026-07-02 v2B3 only-pi 示波器测试未通过，进入 v2B3_scope_safe
 
 本次记录用户上传的 `only-pi.csv` / `only-pi_timeseries.png` 示波器测试结论，并生成下一版 `v2B3_scope_safe` 安全修正。Codex 本次只做 Markdown 记录和 `laser_lock_core.sv` 小范围默认参数安全修正；未运行 Vivado，未综合、实现、生成 bit/bin，也未烧录 Red Pitaya。

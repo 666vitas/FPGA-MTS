@@ -1,6 +1,80 @@
 # V2_NEXT_STEPS
 
-## 2026-07-02 下一步：v2B3_scope_safe 手动 Vivado timing 与 OUT1/OUT2 示波器复测
+## 2026-07-02 当前唯一下一步：保存 v2B3_scope_safe 证据，准备 v2D scope-only 任务
+
+`v2B3_scope_safe / only-p.csv` 已完成上板示波器测试，结论为：
+
+```text
+PASS WITH NOTES
+```
+
+关键数据：
+
+```text
+OUT1 / CH1:
+Vpp ≈ 0.04874 V
+min ≈ -0.01209 V
+max ≈ +0.03665 V
+RMS ≈ 0.01007 V
+mean ≈ +0.00868 V
+
+OUT2 / CH4:
+Vpp ≈ 0.02410 V
+min ≈ -0.00177 V
+max ≈ +0.02233 V
+RMS ≈ 0.00888 V
+mean ≈ +0.00850 V
+```
+
+判断：
+
+```text
+OUT1 error observation 正常。
+OUT2 不再贴 -0.2 V。
+OUT2 不再积分爬升。
+OUT2 不接近 +/-1 V。
+OUT2 / OUT1 Vpp ≈ 0.494。
+Ki=0 修正有效。
+OUT2 仍只接示波器。
+```
+
+当前唯一下一步：
+
+```text
+1. 用户保存 only-p.csv、only-p_timeseries.png、Vivado timing 截图。
+2. Claude / GPT 根据数据确认 v2B3_scope_safe PASS WITH NOTES。
+3. Codex 不再扩展 v2B3。
+4. 下一阶段准备 v2D：OUT2 hardcoded scan_offset + triangle 示波器验证。
+5. v2D 仍然只接示波器，不接 Scan/PZT。
+```
+
+下一条 Codex 任务标题：
+
+```text
+v2D: OUT2 hardcoded scan_offset + triangle scope-only test mode
+```
+
+下一条任务目标：
+
+```text
+在 laser_lock_core.sv 中增加一个编译时测试模式，让 OUT2 输出：
+OUT2 = 0.81 V offset + 52.7 Hz triangle
+
+用于示波器验证 Red Pitaya OUT2 是否能复现 D2-125 Aux Ramp 的电压范围。
+```
+
+本次不要实现 v2D RTL；该任务以后单独执行。
+
+注意：
+
+```text
+下一步不是 CNN。
+下一步不是接 Scan/PZT。
+下一步不是闭环锁定。
+v2D 之前不要接执行器。
+```
+
+## 2026-07-02 历史记录：v2B3_scope_safe 手动 Vivado timing 与 OUT1/OUT2 示波器复测
 
 最新 `only-pi.csv` 不是 v2B3 通过数据。OUT1 正常，OUT2 未通过。
 
@@ -132,7 +206,7 @@ v5 AI / 自动重锁
 
 当前 v2B3 / v2B3_scope_safe 阶段仍不能把 OUT2 接 Scan/PZT，因为 OUT2 仍是 `control_o / sequential PI candidate`，仍只能接示波器，且当前还没有 `ramp_generator` / `scan_lock_fsm`。Red Pitaya OUT2 也不能和 D2-125 Aux Output 并联。
 
-## 2026-07-01 下一步：从 Aux/PZT 数据进入 v2PZT-1
+## 2026-07-01 历史规划：从 Aux/PZT 数据进入 v2PZT-1
 
 用户最新 Aux/PZT 数据说明：D2-125 Aux Output 在 Ramp 状态不是从 0 V 开始的纯三角波，而是约 `0.81 V DC 偏置 + 小三角波`；在 Lock 状态约为 `0.813 V DC 保持 + 小幅扰动`。
 
