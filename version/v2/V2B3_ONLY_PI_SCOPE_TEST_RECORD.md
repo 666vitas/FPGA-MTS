@@ -1,5 +1,11 @@
 # v2B3 only-pi 示波器测试记录与 v2B3_scope_safe 修正方案
 
+测试名称：
+
+```text
+v2B3 only-pi scope test
+```
+
 ## 1. 本次 only-pi.csv 的接线说明
 
 本次数据来自 v2B3 / only-pi 上板示波器观察。Red Pitaya 输入和板上输出含义如下：

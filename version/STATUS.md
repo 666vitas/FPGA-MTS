@@ -91,25 +91,22 @@ ramp-aux-unlock.csv:
   Vpp = 0.1173 V
   min = 0.7505 V
   max = 0.8678 V
-  RMS = 0.8093 V
   mean 约 0.8087 V
-  频率约 52.7 Hz
+  主频约 52.68 Hz
 
 ramp-aux-unlock1.csv:
   CH4 = D2-125 Aux Output
   Vpp = 0.0626 V
   min = 0.7767 V
   max = 0.8393 V
-  RMS = 0.8097 V
   mean 约 0.8096 V
-  频率约 52.7 Hz
+  主频约 52.68 Hz
 
 ramp-aux-locking.csv:
   CH4 = D2-125 Aux Output
-  Vpp = 0.01687 V
+  Vpp = 0.0169 V
   min = 0.8031 V
   max = 0.8200 V
-  RMS = 0.813 V
   mean 约 0.8130 V
 ```
 
@@ -117,8 +114,8 @@ ramp-aux-locking.csv:
 
 ```text
 D2-125 Aux Output 不是单纯从 0 V 开始的三角波。
-Ramp 状态约为 0.81 V DC 偏置 + 小三角波。
-Lock 状态约为 0.813 V DC 保持 + 小幅扰动。
+Ramp / Unlock 状态约为 0.81 V DC offset + 0.063~0.117 Vpp triangle，主频约 52.7 Hz。
+Lock 状态约为 0.813 V hold + 0.0169 Vpp residual / slow correction。
 ```
 
 因此，Red Pitaya OUT2 后续如果替代 D2-125 Aux Output，应按下面路线实现：
