@@ -1,56 +1,43 @@
-\# GPT Reading Guide for FPGA-MTS
+# GPT Reading Guide for FPGA-MTS
 
+This repository is the active local checkout for the Red Pitaya FPGA laser frequency locking project.
 
+## Active Project Boundary
 
-This repository is my Red Pitaya FPGA laser frequency locking project.
+Active local project root:
 
+```text
+E:\new\fpga_lock\v94
+```
 
+Active GitHub project:
 
-Priority reading order:
+```text
+666vitas/FPGA-MTS
+```
 
+Active development directories:
 
+- `v0.94/`
+- `version/`
+- `software/`
 
-1\. `version/`
+Do not use:
 
-&#x20;  - v1/v2/v2a development records
+- `weifang`
+- `v-weifang`
+- `version-weifang`
 
-&#x20;  - roadmap, SOP, review checklist
+## Agent Workflow
 
+GPT should read the GitHub project and newly generated project files, understand the current experiment progress, and generate instructions for Codex.
 
+Codex should perform local file operations under `E:\new\fpga_lock\v94`, report the files it reads and modifies, and follow the user's explicit scope for Markdown, RTL, Python, testbench, simulation, and experiment SOP work.
 
-2\. `v0.94/`
+Claude Code should review Codex-generated code, RTL timing risks, SOP safety risks, and experiment safety issues, but it is not the only experiment authority.
 
-&#x20;  - real FPGA development directory
+The user is responsible for manually running Vivado, generating bitstreams, programming Red Pitaya, wiring hardware, saving oscilloscope/Vivado evidence, and reporting experiment results back to GPT/Codex.
 
-&#x20;  - RTL, testbench, Vivado source files
+## Default Safety Boundary
 
-
-
-3\. `v-weifang/`
-
-&#x20;  - copied active FPGA development project
-
-
-
-4\. `version-weifang/`
-
-&#x20;  - related development records
-
-
-
-5\. `docs/`
-
-&#x20;  - earlier project documents
-
-
-
-Important status:
-
-
-
-The v2a PI/PID code has already been written. Do not ignore it.
-
-
-
-v2a is useful because it is the first digital replacement of the D2-125 servo core, but it does not yet replace the full D2-125 workflow. The full workflow still requires scan, offset, scan-lock switching, lock acquisition, relock, and lock quality judgment.
-
+By default, Codex must not run Vivado, run synthesis, run implementation, generate bitstream/bin files, program Red Pitaya, modify `redpitaya.xpr`, modify XDC/SDC constraints, or read/modify any weifang-related directory.
