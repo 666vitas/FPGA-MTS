@@ -1,89 +1,78 @@
 # V2_DEVELOPMENT_ROADMAP
 
-## 2026-06-23 v2B3 上板候选选择状态
+> Active baseline: only the GitHub project `666vitas/FPGA-MTS` `v0.94` mainline plus `version/v2` documentation are valid for this roadmap. Do not read, reference, sync, copy, or modify any `weifang` or `version-weifang` directory for this route.
 
-`pi_controller_seq.sv` 已通过独立 XSim，mode=1 集成路径已通过 XSim。顶层 `red_pitaya_top.sv` 现显式使用：
+## 0. Current D2-125 real wiring model
+
+The current experimentally confirmed analog baseline is:
 
 ```text
-LASER_LOCK_CONTROL_PATH_MODE = 1
--> laser_lock_core CONTROL_PATH_MODE = 1
--> pi_controller_seq
--> OUT2 候选输出
+Laser
+-> Rb / MTS optical path
+-> PD
+-> analog BPF
+-> Mini-Circuits amplifier
+-> analog mixer x 4.6 MHz REF
+-> MTS error
+-> D2-125 Error Input
 ```
 
-这一步仅把 v2B3 设为下一次用户手动 Vivado 的候选路径；不等于 timing 已通过，不等于可锁激光。v2B1 P-only 上板证据仍作为 mode=0 回退基线保留：OUT2/OUT1 为 `0.515`（mixer.csv）与 `0.555`（no-mixer.csv）。
-
-## 2026-06-22 v2B2/v2B3 状态：RTL/SIM 通过，板级 timing 验证待用户执行
-
-| 子阶段 | 当前状态 | 已完成 | 尚未完成 |
-|---|---|---|---|
-| v2B1 | CLOSED | timing-safe P-only OUT2 上板示波器验证；WNS `+0.361 ns` | 不扩大 P-only 功能 |
-| v2B2 | RTL/SIM PASS | `pi_controller_seq.sv`；35/35 PASS | Vivado synthesis/implementation/timing |
-| v2B3 | RTL/SIM PASS | `CONTROL_PATH_MODE=1` 集成；27/27 PASS | mode 1 的 timing 与 OUT2 示波器验证 |
-
-控制路径规则：
+The D2-125 should be modeled as a stateful system:
 
 ```text
-mode 0：默认 timing-safe P-only 回退路径。
-mode 1：sequential PI，等待用户手动 Vivado timing 和示波器验证。
-mode 2：旧完整 PI，仅参考/仿真，不作为板级默认。
+Ramp
+Unlock
+Lock
 ```
 
-只有 sequential PI 的 XSim、Vivado timing、OUT2 示波器三项都通过，才进入 v2D/v2E 的进一步开环观察；之后才讨论 v2F 低增益闭环。当前 OUT2 仍只接示波器。
-
-## 2026-06-22 v2B1 上板验证完成：OUT2 安全输出验证通过
-
-v2B1 timing-safe P-only Shadow Control 已完成 timing-clean 上板示波器测试。用户记录的 implementation 结果：`WNS=+0.361 ns`、`TNS=0.000 ns`、`Failing Endpoints=0`。烧录后 OUT1 输出 FPGA mixer+LPF error，OUT2 输出 P-only shadow control。
-
-两组板级数据均支持半幅关系：
-
-| 数据文件 | OUT2 Vpp | OUT1 Vpp | OUT2 / OUT1 | 结论 |
-|---|---:|---:|---:|---|
-| `mixer.csv` | `0.01771 V` | `0.03439 V` | `0.515` | 与 `protected_error >>> 1` 一致 |
-| `no-mixer.csv` | `0.02644 V` | `0.04768 V` | `0.555` | 与当前 P-only shadow control 一致 |
-
-v2B1 已完成的范围是“OUT2 安全输出验证”，不是完整 PI/PID，也不是激光闭环。下一路线固定为：
+Ramp state:
 
 ```text
-v2B2：timing-clean pipelined PI controller。
-v2B3：将流水线 PI 重新集成到 OUT2。
-v2D/v2E：在 OUT2 仍只接示波器的前提下继续开环观察。
-v2F：满足物理接口、安全限幅和低增益条件后，才讨论闭环替代 D2-125。
+D2-125 Auxiliary Servo Output
+-> laser power supply Scan / PZT
+-> triangular scan of laser frequency
 ```
 
-## 2026-06-16 v2B1 timing 修复后的当前有效路线
+Ramp is used to sweep the spectrum, find peaks, and locate a candidate lock point. It is not closed-loop locking.
 
-v2B1 的默认上板目标从“完整 `pi_controller` 直接驱动 OUT2”调整为“timing-safe P-only Shadow Control”。原因是：手动 Vivado Implementation 已显示完整 PI 直接进入 125 MHz 主路径会严重 timing fail，约 `WNS=-10.995 ns`、`TNS=-5029 ns`，最差路径在 `i_laser_lock_core/i_pi_controller` 内部，穿过 DSP、CARRY、integrator、anti-windup 和 limiter。
-
-当前保留两条路线，但默认只走安全路线：
-
-| 路线 | 当前状态 | 用途 |
-|---|---|---|
-| `USE_FULL_PI_CONTROLLER=0` | v2B1 默认 | 小逻辑、寄存输出、P-only、OUT2 只接示波器，优先解决 timing |
-| `USE_FULL_PI_CONTROLLER=1` | 保留但不默认 | 完整 PI + anti-windup，后续 v2B2/v2B3 做流水线化后再回到主路径 |
-
-当前有效阶段划分：
+Unlock state:
 
 ```text
-v2B1：timing-safe P-only Shadow Control，上板前必须重新跑 Vivado timing
-v2B2：完整 pi_controller 流水线化设计，不改变 v2A 算法意图
-v2B3：流水线 PI 重新集成到 OUT2 路径
-v2C：Vivado 综合、实现、时序、DRC 和 bitstream
-v2D：OUT2 示波器空载上板测试
-v2F：低增益闭环替代 D2-125
+D2-125 does not close the loop.
+The user manually adjusts current, temperature, interference-filter angle, Scan offset, and optics.
+Feedback outputs are treated as open-loop or safe-state outputs.
 ```
 
-小白理解：现在先让 OUT2 有一个很小、可预测、容易过时序的影子控制量。完整 PI 没丢，只是不能拿一个已经 timing fail 的长组合路径去冒险烧板。
-
-## 2026-06-15 v2 当前有效路线：FPGA MTS Error Shadow PI
-
-v2 的总目标不是“一步完整复刻 D2-125”，而是先用 FPGA 数字 PI 逐步替代 D2-125 的基础 servo core。D2-125 还包含 Ramp、Offset、Scan/Lock 切换、Servo Output、Aux Servo Output、relock、锁定质量判断等完整工作流；这些不属于当前 v2B1，后续放到 v3 以后处理。
-
-当前有效链路是：
+Lock state:
 
 ```text
-Red Pitaya IN1 -> 混频前 PD/MTS 信号，必须在 +/-1 V 内
-Red Pitaya IN2 -> REF，必须在 +/-1 V 内
+MTS error
+-> D2-125 Error Input
+-> D2-125 internal PI/PID
+-> Servo Output
+-> tee splitter
+   |-> laser power supply: slow current feedback
+   `-> potentiometer gain adjust -> interference-filter laser: fast current feedback
+```
+
+The Servo Output is one main PID current-feedback output. The tee only splits it into two current-feedback branches. The potentiometer adjusts fast-branch gain; it does not change the feedback type.
+
+At the same time:
+
+```text
+D2-125 Aux Servo Output
+-> laser power supply Scan / PZT
+```
+
+In Ramp state, Aux outputs the triangular scan. In Lock state, Aux can provide auxiliary PI / slow Scan-PZT control for maintaining the lock center and compensating slow drift.
+
+## 1. Current Red Pitaya / FPGA mainline status
+
+The active FPGA chain is still:
+
+```text
+Red Pitaya IN1 <- pre-mixer PD/MTS signal after BPF + amplifier, within +/-1 V
+Red Pitaya IN2 <- external REF, within +/-1 V
 
 IN1 + IN2
 -> mixer_core
@@ -92,222 +81,126 @@ IN1 + IN2
 -> error_o
 -> OUT1
 
-同时：
-
-error_o
--> pi_controller
+same error_o / protected_error
+-> pi_controller or pi_controller_seq
 -> control_o
 -> OUT2
 ```
 
-当前禁止继续把下面旧方案当作有效路线：
+Current meaning:
 
 ```text
-D2-125 DC Error Monitor -> Red Pitaya IN1 -> pi_controller -> OUT2
+OUT1 = FPGA mixer+LPF error observation.
+OUT2 = FPGA control candidate / shadow control / sequential PI candidate.
+OUT2 remains oscilloscope-only in the current stage.
 ```
 
-该 DC Error 旁路方案只保留为历史记录，不再执行。禁止把 D2-125 DC Error、D2-125 Servo Output、激光电源 Scan 或任何超过 +/-1 V 的信号接入 Red Pitaya IN1/IN2。OUT2 在 v2B1/v2D 第一阶段只接示波器，不接激光、不接 D2-125 Servo Output、不接 Scan。
-
-## v2B1 到 v3/v4/v5 的阶段边界
-
-| 阶段 | 替代对象 | 代码功能 | 板上现象 | 是否接激光 |
-|---|---|---|---|---|
-| v2B1 | D2-125 Servo Core 的 shadow output | `error_o -> pi_controller -> OUT2` | OUT1 = FPGA error；OUT2 = 小幅 P-only control | 否 |
-| v2C | Vivado project bit generation | 用户手动综合、实现、生成 bitstream | 还没有板上波形结论 | 否 |
-| v2D | OUT2 示波器空载上板测试 | bitstream 烧录后 OUT2 只接 CH4 | OUT2 跟随 OUT1，且不超过约 +/-0.18 V | 否 |
-| v2E | 参数方向确认 | 调整 polarity、Kp、limit | OUT2 方向和幅度可解释 | 否 |
-| v2F | 低增益替代 Servo Output | OUT2 接一个真实控制端，D2 输出断开 | error 不发散，OUT2 不饱和 | 是，低增益 |
-| v2G | FPGA PI 与 D2-125 对比 | 记录 RMS、锁定时间、饱和次数 | 形成可重复对比数据 | 是 |
-| v3 | 替代 scan 和 lock 工作流 | ramp、scan/lock FSM、relock | FPGA 能扫描、找峰、切锁 | 后续 |
-| v4/v5 | 自动优化和 AI | 数据集、基准、AI 参数建议 | 自动调参/锁定状态识别 | 后续 |
-
-## 当前 v2 代码文件作用
-
-| 文件 | 当前作用 | 小白理解 |
-|---|---|---|
-| `v0.94/rtl/red_pitaya_top.sv` | 把 `laser_lock_core` 的 `error_o/control_o` 路由到 OUT1/OUT2 | 板子最外层接线板，决定 OUT1/OUT2 最后输出什么 |
-| `v0.94/rtl/laser_lock_core.sv` | v2B1 主链路：IN1/IN2 混频、低通、保护、送 PI | FPGA 内部的“误差信号生成 + Shadow PI”小系统 |
-| `v0.94/rtl/mixer_core.sv` | 数字混频 | 把 PD/MTS 信号和 REF 相乘 |
-| `v0.94/rtl/lpf_core.sv` | mixer 后低通 | 把混频后的高频项压下去，留下 error-like signal |
-| `v0.94/rtl/output_protect.sv` | 输出保护和 reset 安全 | 避免 reset 或异常时输出乱跑 |
-| `v0.94/rtl/pi_controller.sv` | v2A 完成的 PI core | 只替代 D2-125 servo core 的基础控制计算 |
-| `v0.94/sim/tb_pi_controller.sv` | 独立 PI core 回归测试 | 证明 PI 零件自己算得对 |
-| `v0.94/sim/tb_laser_lock_core_v2b1_shadow_pi_dc_error.sv` | v2B1 集成行为测试 | 证明 OUT1 仍看 error，OUT2 会给小幅 Shadow PI 输出 |
-
-## 2026-06-14 v2B1 Shadow PI 路线插入
-
-v2A / v2a-1 / v2a-2 已完成的是 FPGA 版 D2-125 Servo Core，不是完整 D2-125 替代。
-
-当前推荐路线改为：
+Current limitations:
 
 ```text
-v2B1：DC Error Shadow PI
-v2C：Vivado 综合 / bitstream
-v2D：OUT2 示波器测试
-v2E：真实 error 开环观察
-v2F：低增益手动替代 Servo Output
-v3：Ramp / Scan / Lock 状态机
+The FPGA has not fully replaced D2-125.
+The FPGA has not independently completed a real laser closed loop.
+There is not yet ramp_generator / scan_lock_fsm / relock / lock quality judgment.
+There is not yet host peak selection or AI/CNN automatic lock supervisor.
 ```
 
-v2B1 数据链路：
+## 2. Current v2B3 status
+
+`pi_controller_seq.sv` is the current sequential PI candidate path. It is selected by the top-level mode when `LASER_LOCK_CONTROL_PATH_MODE=1`. This means:
 
 ```text
-D2-125 DC Error Monitor
--> Red Pitaya IN1
--> v2A 已完成的 pi_controller.sv
--> Red Pitaya OUT2
--> 示波器 CH4
+CONTROL_PATH_MODE=0: timing-safe P-only fallback.
+CONTROL_PATH_MODE=1: sequential PI candidate.
+CONTROL_PATH_MODE=2: legacy complete PI, reference/simulation only.
 ```
 
-v2B1 只做 Shadow PI：D2-125 继续负责真实扫描和真实锁定；OUT2 只接示波器；不替代 D2-125 Ramp、Servo Output 或 Aux Servo Output。
-
-下一步允许的代码范围：
+Even if Vivado timing is clean, v2B3 is not yet a real laser lock. It must first pass OUT1/OUT2 oscilloscope verification:
 
 ```text
-允许修改：laser_lock_core.sv、red_pitaya_top.sv
-允许新建：tb_laser_lock_core_v2b1_shadow_pi_dc_error.sv
-禁止修改：pi_controller.sv、mixer_core.sv、lpf_core.sv、output_protect.sv
+OUT1 -> oscilloscope: FPGA error remains visible.
+OUT2 -> oscilloscope: sequential PI candidate is safe, limited, and explainable.
+OUT2 must not connect to laser, D2-125 Servo Output, D2-125 Aux Output, Scan/PZT, or current feedback in this stage.
 ```
 
-本文档给出 v2 的主阶段路线。v2a-1 和 v2a-2 只是 v2A 的内部子阶段，不再作为整个 v2 的主体叙述。
+## 3. Correct D2-125 replacement mapping
 
-## 1. 总原则
+| D2-125 function | Future Red Pitaya / host replacement |
+|---|---|
+| Analog mixer/LPF error generation | FPGA error chain: `mixer_core -> lpf_core -> OUT1/error` |
+| Servo Output -> potentiometer -> interference-filter laser fast current feedback | FPGA fast current control, later as one low-gain branch only |
+| Servo Output -> laser power supply slow current feedback | FPGA slow current control, later stage |
+| Aux Servo Output triangular scan in Ramp state | FPGA `ramp_generator` / triangle scan |
+| Aux Servo Output auxiliary Scan/PZT control in Lock state | FPGA slow scan / PZT control |
+| Ramp / Unlock / Lock transitions | FPGA `scan_lock_fsm` plus host supervision |
+| Manual lock-point choice and tuning | Host software, later AI / 1D-CNN peak recognition and parameter suggestion |
 
-v2 按“先算法零件、再系统集成、再 Vivado、再示波器、再真实闭环”的顺序推进。
+## 4. Updated stage plan
+
+| Stage | Goal | Allowed actuator connection? | Notes |
+|---|---|---|---|
+| v2B3 | sequential PI timing + OUT1/OUT2 oscilloscope validation | No | OUT2 is still a control candidate only |
+| v2D | FPGA error observation and possible later OUT1-to-D2 Error Input comparison | No for OUT2 | Confirms FPGA error chain usefulness |
+| v2E | OUT2 open-loop observation against real error / D2 behavior | No | Compare polarity, limit, noise, and trend on oscilloscope only |
+| v2F | one low-gain single-branch closed-loop test | Yes, one branch only after explicit SOP | Not full D2-125 replacement |
+| v3 | ramp_generator, scan_lock_fsm, Aux/Scan replacement, relock, lock quality | Later | Replaces Ramp/Unlock/Lock workflow gradually |
+| v4 | host-assisted spectrum selection and lock workflow | Later | Host controls parameters and records data |
+| v5 | AI / 1D-CNN peak recognition, parameter suggestion, relock supervisor | Later | AI is slow supervisor, not high-speed PID |
+
+## 5. v2F boundary: single low-gain branch only
+
+v2F must not be described as a full D2-125 replacement. It is only the first low-gain real actuator experiment.
+
+Rules:
 
 ```text
-v2A 独立 PI 核心
--> v2B 系统接口和主工程集成
--> v2C Vivado 综合、实现、时序、DRC 和 bitstream
--> v2D OUT2 示波器空载上板测试
--> v2E 真实 MTS error 输入、OUT2 开环观察
--> v2F 低增益闭环替代 D2-125
--> v2G FPGA PI 与 D2-125 性能对比
+Only one real feedback branch may be connected in v2F.
+Do not simultaneously connect fast current, slow current, and Aux/Scan/PZT.
+D2-125 output must be disconnected from the same actuator terminal before Red Pitaya OUT2 is connected there.
+Kp, Ki, enable, output_limit, polarity, and reset-safe behavior must be reviewed before connection.
+OUT2 must first pass oscilloscope-only validation.
 ```
 
-## 2. v2A：独立数字 PI 核心
+## 6. v3 boundary: scan and D2 workflow replacement
 
-目标：先在独立 testbench 里证明 PI 算法零件安全、可算、可审查。
+v3 begins only after v2F single-branch safety is understood.
 
-内部子阶段：
-
-- v2a-1：P-only。
-- v2a-2：I + anti-windup。
-
-输入：人工构造的 error、kp、ki、offset、limit、enable、hold、polarity。
-
-输出：仿真中的 `control_o`、`p_term_o`、`i_term_o`、`sat_o`。
-
-工具：独立 XSim。v2A 不运行 Vivado 主工程，不生成 bitstream，不上板。
-
-当前状态：
+v3 work may include:
 
 ```text
-v2A 的 PI 核心初次实现完成；
-v2a-2 等待一次 Claude Code 集中审查；
-下一主阶段为 v2B 系统集成。
+ramp_generator
+scan_lock_fsm
+Ramp / Unlock / Lock state machine
+Aux Servo Output replacement
+Scan/PZT slow control
+relock logic
+lock quality judgment
 ```
 
-## 3. v2B：系统接口和主工程集成
+These items are not part of current v2B3/v2D/v2E.
 
-目标：把 v2A 的 PI core 接到 v1 已验证的 `mixer + LPF` 后面，形成：
+## 7. v4/v5 boundary: host and AI
+
+v4/v5 are where host automation and AI become the innovation layer:
 
 ```text
-PD -> ADC -> mixer -> LPF -> pi_controller -> OUT2
+v4: host spectrum selection, parameter panel, data logging, lock workflow UI.
+v5: AI / 1D-CNN peak recognition, Vlock recommendation, Kp/Ki suggestion, lock/unlock decision, Rescan trigger.
 ```
 
-必须保留：
+AI must not be placed in the high-speed PID loop. The FPGA remains responsible for real-time mixer, LPF, P/PI, output limiting, and reset-safe actuator outputs. The host and AI act as a slow supervisor.
 
-- OUT1 始终保留为 error observation。
-- OUT2 第一阶段只接示波器。
-- enable 默认关闭。
-- output limit 默认保守。
-- v1 的 OUT1 路径不能被破坏。
+## 8. Permanent safety boundaries
 
-v2B 开始前必须回答五个物理问题：
+```text
+IN1/IN2 must remain within +/-1 V.
+OUT2 must not be paralleled with D2-125 Servo Output on the same feedback terminal.
+OUT2 must not be paralleled with D2-125 Aux Servo Output on Scan/PZT.
+Before voltage range, polarity, feedback gain, and actuator response are confirmed, Red Pitaya output must not connect to a real laser feedback terminal.
+Default bitstream must keep actuator-facing outputs safe.
+All actuator outputs need output_limit, enable gating, reset safe value, and an emergency stop path.
+Current OUT2 remains oscilloscope-only until a later SOP explicitly permits one low-gain branch.
+```
 
-1. OUT2 接激光的哪个控制端。
-2. 该端允许的电压范围。
-3. 控制极性。
-4. 执行器响应带宽。
-5. 初始 `pid_ce` 频率。
+## 9. Historical notes
 
-## 4. v2C：Vivado 编译和 bitstream
-
-目标：确认完整主工程能综合、实现、通过关键 DRC/timing，并生成来源明确的 bitstream。
-
-工具：Vivado Synthesis、Implementation、DRC、Timing、Generate Bitstream。
-
-通过标准：0 fatal error；关键 warning 可解释；bitstream 对应的源码和文档版本可追踪。
-
-不能声称：v2C 通过不等于 OUT2 硬件安全，也不等于可以接激光。
-
-## 5. v2D：OUT2 示波器空载上板测试
-
-目标：OUT2 只接示波器，验证硬件输出安全。
-
-示波器要看：
-
-- reset 后 OUT2 是否为安全值。
-- enable=0 时 OUT2 是否安全。
-- enable=1 后 OUT2 是否按预期变化。
-- hold 是否冻结输出。
-- output limit 是否真的限幅。
-- OUT1 是否仍然是 error observation。
-
-通过标准：OUT2 无异常跳变、无不可解释 offset、无超限；OUT1 路径不受影响。
-
-不能声称：v2D 通过不等于已闭环，不等于已替代 D2-125。
-
-## 6. v2E：真实 MTS error 输入、OUT2 开环观察
-
-目标：让 PI 看到真实 MTS error-like signal，但 OUT2 仍只接示波器。
-
-示波器要看：
-
-- OUT1 上的真实 error-like signal。
-- OUT2 是否随 error 方向合理变化。
-- OUT2 是否噪声过大、是否频繁饱和。
-- 改变 polarity 后方向是否符合预期。
-
-通过标准：OUT2 对真实 error 的幅度、方向、限幅和噪声都可解释。
-
-不能声称：v2E 通过仍不代表激光已经由 FPGA 锁住。
-
-## 7. v2F：低增益闭环替代 D2-125
-
-目标：在低 Kp、低 Ki、小 output limit、明确执行器安全范围的条件下，让 OUT2 接入一个真实激光控制端，短时间替代 D2-125 的基础 servo 功能。
-
-通过标准：
-
-- error 没有发散。
-- OUT2 没有长期打满。
-- 激光没有被拉飞。
-- 能快速回退到 D2-125。
-- 锁定现象可重复。
-
-不能声称：v2F 初通不等于性能优于 D2-125，也不等于完成双执行器控制。
-
-## 8. v2G：FPGA PI 与 D2-125 性能对比
-
-目标：用统一指标比较 D2-125 和 FPGA PI。
-
-比较内容：
-
-- error RMS。
-- 锁定保持时间。
-- 饱和次数。
-- 恢复能力。
-- 噪声。
-- 参数敏感性。
-
-通过标准：有重复实验、有同一条件下的对比数据，而不是只凭一次示波器截图。
-
-## 9. 后续版本边界
-
-- v3：scan/lock control、自动寻峰、自动重锁 FSM。
-- v4：IQ 解调、相位优化、相位自动匹配。
-- v5：上位机 AI 识峰、CNN peak recognition、参数建议。
-- 后续版本：双 DAC、PZT + current 双执行器控制。
-
-这些内容不进入当前 v2A 文档闭环，也不作为 v2a-2 的阻塞项。
+Older notes that describe `D2-125 DC Error -> Red Pitaya IN1`, full direct D2 replacement, or simultaneous multi-actuator control are historical only. They must not be used as the current execution route.
