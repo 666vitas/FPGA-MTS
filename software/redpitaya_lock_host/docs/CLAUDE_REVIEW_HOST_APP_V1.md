@@ -1,7 +1,7 @@
 # CLAUDE_REVIEW_HOST_APP_V1
 
 **审查日期**: 2026-06-26
-**审查范围**: `E:\new\fpga_lock\raunjian`（只读，未修改任何文件）
+**审查范围**: `E:\new\fpga_lock\v94\software\redpitaya_lock_host`（只读，未修改任何文件）
 **审查人角色**: Red Pitaya STEMlab 125-14 / Python 上位机 / 实验自动化软件审查工程师
 
 ---
@@ -23,7 +23,7 @@
 目录结构与需求完全一致：
 
 ```
-raunjian/
+software/redpitaya_lock_host/
 ├── README.md                  ✅
 ├── requirements.txt           ✅
 ├── config.yaml                ✅
@@ -83,7 +83,7 @@ endlocal
 README 的 Install 部分：
 
 ```bat
-cd /d E:\new\fpga_lock\raunjian
+cd /d E:\new\fpga_lock\v94\software\redpitaya_lock_host
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -95,13 +95,13 @@ pip install -r requirements.txt
 
 ```powershell
 # PowerShell
-Set-Location E:\new\fpga_lock\raunjian
+Set-Location E:\new\fpga_lock\v94\software\redpitaya_lock_host
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-或者写 `cd E:\new\fpga_lock\raunjian`（PowerShell 中 `cd` 等价于 `Set-Location`，不需要 `/d`）。
+或者写 `cd E:\new\fpga_lock\v94\software\redpitaya_lock_host`（PowerShell 中 `cd` 等价于 `Set-Location`，不需要 `/d`）。
 
 ### B3 — PowerShell 运行 bat ⚠️
 
@@ -168,13 +168,13 @@ __version__ = "0.1.0"
 
 ### C3 — 模块导入方式 ✅
 
-所有模块之间使用包内相对导入（如 `from .safety import ...`），在通过 `python -m redpitaya_lock_host.main` 运行时不会出现导入错误。从 `E:\new\fpga_lock\raunjian` 目录执行是正确的。
+所有模块之间使用包内相对导入（如 `from .safety import ...`），在通过 `python -m redpitaya_lock_host.main` 运行时不会出现导入错误。从 `E:\new\fpga_lock\v94\software\redpitaya_lock_host` 目录执行是正确的。
 
 ### C4 — `main.py` 未解析 `--mock` ❌ 见 C1
 
 ### C5 — `config.yaml` 加载逻辑 ✅
 
-`load_config()` 函数正确地从 `Path(__file__).resolve().parents[1] / "config.yaml"` 加载配置，即从包目录的上两级（`raunjian/`）读取。
+`load_config()` 函数正确地从 `Path(__file__).resolve().parents[1] / "config.yaml"` 加载配置，即从上位机软件根目录读取。
 
 ---
 
@@ -214,11 +214,11 @@ self.scpi.write("SOUR2:FUNC TRIANGLE")                  # 2. 设置波形类型
 self.scpi.write(f"SOUR2:FREQ:FIX {settings.frequency_hz:.9g}")  # 3. 频率
 self.scpi.write(f"SOUR2:VOLT {settings.amplitude_v:.9g}")       # 4. 幅度
 self.scpi.write(f"SOUR2:VOLT:OFFS {settings.offset_v:.9g}")     # 5. 偏置
-self.scpi.write("SOUR2:TRIG:IMM")                       # 6. 触发
-self.scpi.write(f"OUTPUT2:STATE {'ON' if enable else 'OFF'}")  # 7. 输出使能
+self.scpi.write(f"OUTPUT2:STATE {'ON' if enable else 'OFF'}")  # 6. 输出使能
+self.scpi.write("SOUR2:TRig:INT")                       # 7. V2 触发
 ```
 
-顺序正确。符合 Red Pitaya SCPI 协议要求：先配参数，然后触发，最后使能输出。
+V2 当前实现使用 `SOUR2:TRig:INT`，并在触发前设置 `OUTPUT2:STATE`。旧 `SOUR2:TRIG:IMM` 路径不再用于 V2 OUT2 Apply。
 
 有一个细节值得注意：`float` 值格式化为 `.9g`（9 位有效数字），这对于 SCPI 命令来说精度足够了，但某些 Red Pitaya 固件版本可能对过长字符串敏感。目前未见已知问题，可以保留。
 
@@ -406,7 +406,7 @@ self.error_label = QLabel(
 
 ### 9.4 `.venv` 已存在但未被 `requirements.txt` 使用 ⚠️
 
-`raunjian/.venv/` 目录已存在（含 Python 3.x），但 `pip list` 未验证是否安装了 `requirements.txt` 中的所有包。`run.bat` 没有激活 venv。用户可能以为装好了，实际缺包。
+`software/redpitaya_lock_host/.venv/` 目录已存在（含 Python 3.x），但 `pip list` 未验证是否安装了 `requirements.txt` 中的所有包。`run.bat` 没有激活 venv。用户可能以为装好了，实际缺包。
 
 ---
 
@@ -459,14 +459,14 @@ self.error_label = QLabel(
 **CMD（推荐用于 .bat）**:
 ```cmd
 E:
-cd E:\new\fpga_lock\raunjian
+cd E:\new\fpga_lock\v94\software\redpitaya_lock_host
 .venv\Scripts\activate
 python -m redpitaya_lock_host.main
 ```
 
 **PowerShell**:
 ```powershell
-Set-Location E:\new\fpga_lock\raunjian
+Set-Location E:\new\fpga_lock\v94\software\redpitaya_lock_host
 .venv\Scripts\activate
 python -m redpitaya_lock_host.main
 ```
@@ -480,7 +480,7 @@ python -m redpitaya_lock_host.main
 ## 14. 给 Codex 的后续修复指令草案
 
 ```
-请修复 E:\new\fpga_lock\raunjian 上位机 V1 的以下阻塞问题：
+请修复 E:\new\fpga_lock\v94\software\redpitaya_lock_host 上位机 V1 的以下阻塞问题：
 
 1. main.py 添加 argparse，支持 --mock 参数：
    - 解析 --mock 后设置一个全局标志或通过 QApplication property 传递
@@ -533,4 +533,4 @@ python -m redpitaya_lock_host.main
 
 ---
 
-*审查完成。报告保存于 `E:\new\fpga_lock\raunjian\docs\CLAUDE_REVIEW_HOST_APP_V1.md`*
+*审查完成。报告保存于 `E:\new\fpga_lock\v94\software\redpitaya_lock_host\docs\CLAUDE_REVIEW_HOST_APP_V1.md`*

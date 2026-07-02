@@ -3,7 +3,8 @@
 ## Fixed Project Boundary
 
 - FPGA project code directory: `E:\new\fpga_lock\v94\v0.94`
-- Host application development directory: `E:\new\fpga_lock\raunjian`
+- Host application development directory: `E:\new\fpga_lock\v94\software\redpitaya_lock_host`
+- The old standalone host-app directory is no longer used; `software/redpitaya_lock_host` is the canonical host-app development directory.
 - No directory containing `weifang` is used, referenced, or modified.
 - First-stage work is host software only. FPGA RTL, Vivado project files, and bitstream generation are out of scope.
 

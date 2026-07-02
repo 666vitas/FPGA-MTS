@@ -266,7 +266,7 @@ module tb_laser_lock_core_v2b1_shadow_pi_dc_error;
         rstn = 1'b1;
         pd_direct = 14'sd400;
         ref_direct = 14'sd0;
-        wait_cycles(12);
+        wait_cycles(20);
 
         // OUTPUT_MODE=0 is a controlled input-to-OUT1 check. It proves that the
         // later OUT2 calculation uses the same visible error source.

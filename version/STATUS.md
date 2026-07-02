@@ -1,5 +1,180 @@
 # STATUS
 
+## 2026-07-02 v2B3 only-pi 示波器测试未通过，进入 v2B3_scope_safe
+
+本次记录用户上传的 `only-pi.csv` / `only-pi_timeseries.png` 示波器测试结论，并生成下一版 `v2B3_scope_safe` 安全修正。Codex 本次只做 Markdown 记录和 `laser_lock_core.sv` 小范围默认参数安全修正；未运行 Vivado，未综合、实现、生成 bit/bin，也未烧录 Red Pitaya。
+
+本次 only-pi 不是 v2B3 通过数据。
+
+```text
+OUT1 正常：
+Board OUT1 / CH1 能看到 FPGA mixer + LPF 后的 error-like 信号。
+Vpp ≈ 0.05385 V，min ≈ -0.02714 V，max ≈ +0.02671 V，RMS ≈ 0.009618 V。
+
+OUT2 未通过：
+Board OUT2 / CH4 长期贴在约 -0.2 V 附近。
+Vpp ≈ 0.01497 V，min ≈ -0.2036 V，max ≈ -0.1886 V，RMS ≈ 0.1991 V，mean ≈ -0.199 V。
+```
+
+判断：
+
+```text
+OUT1 error observation 链路基本正常。
+OUT2 只剩约 15 mVpp 小动态，不是 v2B3 通过现象。
+OUT2 更像是 control_o 被负向 output_limit 限幅，而不是 Red Pitaya +/-1 V 满量程物理削顶。
+疑似 sequential PI 的积分项在同号 error 下累积，把 control_o 推到负向 output_limit。
+```
+
+同步记录的其他通道：
+
+```text
+CH2:
+Vpp ≈ 0.151 V
+min ≈ 0.593 V
+max ≈ 0.744 V
+RMS ≈ 0.6554 V
+
+CH3:
+Vpp ≈ 2.443 V
+min ≈ -1.102 V
+max ≈ +1.341 V
+RMS ≈ 0.3496 V
+```
+
+CH3 外部 D2-125 / analog error 相关信号较大，不能直接进入 Red Pitaya IN1/IN2。IN1/IN2 仍必须保持在 `+/-1 V` 内。
+
+本轮 `v2B3_scope_safe` RTL 参数安全修正：
+
+```text
+v0.94/rtl/laser_lock_core.sv
+
+PID_KI_DEFAULT: 16'sd16 -> 16'sd0
+PID_OUTPUT_LIMIT_DEFAULT: 14'd1500 -> 14'd819
+```
+
+含义：
+
+```text
+Ki=0：先关闭积分项，验证 CONTROL_PATH_MODE=1 下 pi_controller_seq 的 P 路径是否安全。
+output_limit=819：约等于 +/-0.10 V。
+如果 OUT2 仍然偏置明显或接近 limit，下一轮再降到 410 counts，约 +/-0.05 V。
+```
+
+当前安全边界：
+
+```text
+本次不能进入真实反馈测试。
+OUT2 仍只能接示波器。
+禁止 OUT2 接激光器。
+禁止 OUT2 接 D2-125 Servo Output 三通。
+禁止 OUT2 接 D2-125 Aux Output。
+禁止 OUT2 接激光器电源 Scan / PZT。
+禁止 OUT2 与任何 D2-125 输出并联。
+IN1/IN2 必须在 +/-1 V 内。
+```
+
+记录文件：
+
+```text
+version/v2/V2B3_ONLY_PI_SCOPE_TEST_RECORD.md
+```
+
+## 2026-07-01 Aux/PZT 实验数据记录与路线更新
+
+本次只记录用户最新确认的 D2-125 Aux Output / Scan-PZT 数据，并更新后续 scan/lock 开发计划。Codex 本次未修改 RTL，未运行 Vivado，未综合、实现、生成 bit/bin，也未烧录 Red Pitaya。
+
+最新实验结论：
+
+```text
+ramp-aux-unlock.csv:
+  CH4 = D2-125 Aux Output
+  Vpp = 0.1173 V
+  min = 0.7505 V
+  max = 0.8678 V
+  mean 约 0.8087 V
+  主频约 52.68 Hz
+
+ramp-aux-unlock1.csv:
+  CH4 = D2-125 Aux Output
+  Vpp = 0.0626 V
+  min = 0.7767 V
+  max = 0.8393 V
+  mean 约 0.8096 V
+  主频约 52.68 Hz
+
+ramp-aux-locking.csv:
+  CH4 = D2-125 Aux Output
+  Vpp = 0.0169 V
+  min = 0.8031 V
+  max = 0.8200 V
+  mean 约 0.8130 V
+```
+
+新的物理认识：
+
+```text
+D2-125 Aux Output 不是单纯从 0 V 开始的三角波。
+Ramp / Unlock 状态约为 0.81 V DC offset + 0.063~0.117 Vpp triangle，主频约 52.7 Hz。
+Lock 状态约为 0.813 V hold + 0.0169 Vpp residual / slow correction。
+```
+
+因此，Red Pitaya OUT2 后续如果替代 D2-125 Aux Output，应按下面路线实现：
+
+```text
+SCAN:   OUT2 = scan_offset + triangle
+HOLD:   OUT2 = captured_vlock
+P_LOCK: OUT2 = captured_vlock + Kp * error
+PI_LOCK:OUT2 = captured_vlock + Kp * error + Ki * integral(error)
+```
+
+当前能力边界仍然是：
+
+```text
+当前 FPGA 只有 mixer + LPF + 简单 P/PI candidate。
+当前还没有 OUT2 scan/lock mode selector。
+当前还没有 register_bank。
+当前上位机不能在 Custom FPGA Mode 下切换 FPGA 内部模式。
+当前不能声称已经实现 PZT 锁定。
+```
+
+记录文件：
+
+```text
+version/v2/V2_AUX_PZT_EXPERIMENT_RECORD.md
+```
+
+## 2026-06-30 v2B3 mode=1 sequential PI 时序通过记录
+
+这里记录的是用户手动运行 Vivado Implementation 后给出的结果，只作为项目状态记录。
+Codex 本次没有运行 Vivado，没有综合、实现、生成 bitstream，也没有烧录 Red Pitaya。
+
+```text
+2026-06-xx 用户手动 Vivado Implementation:
+WNS = +0.107 ns
+TNS = 0.000 ns
+Failing Endpoints = 0
+WHS = 0.054 ns
+THS = 0
+结论：mode=1 sequential PI 候选版本 timing clean。
+```
+
+边界说明：
+
+```text
+timing clean != 已经锁定激光
+timing clean != 已经完成 D2-125 替代
+timing clean != 允许把 OUT2 接到激光器
+```
+
+下一步仍然只能做示波器验证：
+
+```text
+OUT1 -> 示波器：确认 FPGA laser_error / error observation 正常
+OUT2 -> 示波器：确认 FPGA laser_control / sequential PI 候选输出正常
+当前阶段 OUT2 禁止连接激光器、D2-125 Servo Output、D2-125 Aux/Scan，
+也禁止连接任何真实执行器通道。
+```
+
 ## 2026-06-23 v2B3 mode=1 上板候选已准备，等待用户手动 timing 验证
 
 当前实际实验接线记录：

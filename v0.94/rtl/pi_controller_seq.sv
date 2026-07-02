@@ -1,17 +1,26 @@
 `timescale 1ns / 1ps
 
-// v2B2 timing-clean sequential PI controller.
+// v2B3 timing-repair sequential PI controller.
 //
 // This module preserves the fixed-point intent of pi_controller.sv while
-// splitting one PI update over seven clk_i states. pid_ce_i starts a
+// splitting one PI update over fifteen clk_i states. pid_ce_i starts a
 // transaction; it is a clock-enable pulse, not another clock. The public
-// outputs update only in S_LIMIT, seven clk_i edges after pid_ce_i is sampled.
+// outputs update only in S_OUTPUT, fifteen clk_i edges after pid_ce_i is
+// sampled.
 //
 // Data path per transaction:
-// capture inputs -> P multiply -> I multiply/P scale -> I update -> sum
-// -> limit/register outputs. The short registered stages avoid the old direct
-// 125 MHz P+I+anti-windup limiter path. This controller is still for OUT2
-// oscilloscope observation until separate Vivado timing and board checks pass.
+// capture inputs -> limit prep -> P multiply -> P scale/I multiply -> I scale
+// -> freeze prep -> freeze decide -> I candidate -> I clamp -> I commit
+// -> sum prep -> final sum -> output limit compare -> register outputs.
+//
+// Hardware meaning for FPGA beginners:
+// each state is one row of flip-flops. The old seven-state version still left
+// the integrator feedback update as one long combinational route through
+// current_control_pre, freeze_integrator, integrator_candidate, and
+// integrator_accepted. This version registers those intermediate decisions so
+// Vivado has much shorter logic to place between two clk_i edges. This
+// controller is still for OUT2 oscilloscope observation until separate Vivado
+// timing and board checks pass.
 
 module pi_controller_seq #(
     parameter int ERROR_WIDTH = 14,
@@ -49,14 +58,22 @@ module pi_controller_seq #(
     localparam logic [OUT_WIDTH:0] OUT_POS_MAX_EXT = {1'b0, OUT_POS_MAX};
     localparam logic signed [ACC_WIDTH-1:0] ACC_ZERO = '0;
 
-    typedef enum logic [2:0] {
+    typedef enum logic [3:0] {
         S_IDLE,
         S_CAPTURE,
-        S_P_CALC,
-        S_I_CALC,
-        S_I_UPDATE,
-        S_SUM,
-        S_LIMIT
+        S_LIMIT_PREP,
+        S_P_MUL,
+        S_P_SCALE_I_MUL,
+        S_I_SCALE,
+        S_FREEZE_PREP,
+        S_FREEZE_DECIDE,
+        S_I_CANDIDATE,
+        S_I_CLAMP,
+        S_I_COMMIT,
+        S_SUM_PRE,
+        S_SUM_FINAL,
+        S_LIMIT_COMPARE,
+        S_OUTPUT
     } state_t;
 
     state_t state_q;
@@ -70,21 +87,23 @@ module pi_controller_seq #(
 
     logic signed [PRODUCT_WIDTH-1:0] p_product_q;
     logic signed [PRODUCT_WIDTH-1:0] i_product_q;
+    logic signed [ACC_WIDTH-1:0]     limit_pos_q;
+    logic signed [ACC_WIDTH-1:0]     limit_neg_q;
     logic signed [ACC_WIDTH-1:0]     p_scaled_q;
+    logic signed [ACC_WIDTH-1:0]     i_delta_q;
     logic signed [ACC_WIDTH-1:0]     integrator_q;
     logic signed [ACC_WIDTH-1:0]     integrator_next_q;
+    logic signed [ACC_WIDTH-1:0]     control_pre_for_freeze_q;
+    logic                            freeze_integrator_q;
+    logic signed [ACC_WIDTH-1:0]     integrator_candidate_q;
+    logic signed [ACC_WIDTH-1:0]     integrator_accepted_q;
+    logic signed [ACC_WIDTH-1:0]     sum_pre_q;
     logic signed [ACC_WIDTH-1:0]     control_pre_q;
+    logic signed [OUT_WIDTH-1:0]     control_limited_q;
+    logic                            sat_next_q;
 
     logic        [OUT_WIDTH:0]         output_limit_ext_w;
     logic        [OUT_WIDTH:0]         limit_clamped_w;
-    logic signed [ACC_WIDTH-1:0]       limit_pos_w;
-    logic signed [ACC_WIDTH-1:0]       limit_neg_w;
-    logic signed [ACC_WIDTH-1:0]       p_scaled_from_product_w;
-    logic signed [ACC_WIDTH-1:0]       i_delta_w;
-    logic signed [ACC_WIDTH-1:0]       current_control_pre_w;
-    logic signed [ACC_WIDTH-1:0]       integrator_candidate_w;
-    logic signed [ACC_WIDTH-1:0]       integrator_accepted_w;
-    logic                              freeze_integrator_w;
 
     // output_limit_i is unsigned. Clamp it before converting to the signed
     // positive/negative bounds so no implicit signed conversion controls the
@@ -93,31 +112,6 @@ module pi_controller_seq #(
     assign limit_clamped_w = (output_limit_ext_w > OUT_POS_MAX_EXT)
                            ? OUT_POS_MAX_EXT
                            : output_limit_ext_w;
-    assign limit_pos_w = $signed({{(ACC_WIDTH - (OUT_WIDTH + 1)){1'b0}}, limit_clamped_w});
-    assign limit_neg_w = -$signed(limit_pos_w);
-
-    assign p_scaled_from_product_w =
-        $signed({{(ACC_WIDTH - PRODUCT_WIDTH){p_product_q[PRODUCT_WIDTH-1]}}, p_product_q}) >>> KP_SHIFT;
-    assign i_delta_w =
-        $signed({{(ACC_WIDTH - PRODUCT_WIDTH){i_product_q[PRODUCT_WIDTH-1]}}, i_product_q}) >>> KI_SHIFT;
-    assign current_control_pre_w = $signed(p_scaled_q) + $signed(integrator_q) + $signed(offset_ext_q);
-    assign freeze_integrator_w =
-        (($signed(current_control_pre_w) >= $signed(limit_pos_w)) && ($signed(i_delta_w) > ACC_ZERO)) ||
-        (($signed(current_control_pre_w) <= $signed(limit_neg_w)) && ($signed(i_delta_w) < ACC_ZERO));
-
-    always_comb begin
-        integrator_candidate_w = freeze_integrator_w
-                               ? integrator_q
-                               : (integrator_q + i_delta_w);
-
-        if ($signed(integrator_candidate_w) > $signed(limit_pos_w)) begin
-            integrator_accepted_w = limit_pos_w;
-        end else if ($signed(integrator_candidate_w) < $signed(limit_neg_w)) begin
-            integrator_accepted_w = limit_neg_w;
-        end else begin
-            integrator_accepted_w = integrator_candidate_w;
-        end
-    end
 
     always_ff @(posedge clk_i) begin
         if (!rstn_i) begin
@@ -130,10 +124,20 @@ module pi_controller_seq #(
             reset_integrator_q   <= 1'b0;
             p_product_q          <= '0;
             i_product_q          <= '0;
+            limit_pos_q          <= '0;
+            limit_neg_q          <= '0;
             p_scaled_q           <= '0;
+            i_delta_q            <= '0;
             integrator_q         <= '0;
             integrator_next_q    <= '0;
+            control_pre_for_freeze_q <= '0;
+            freeze_integrator_q  <= 1'b0;
+            integrator_candidate_q <= '0;
+            integrator_accepted_q <= '0;
+            sum_pre_q            <= '0;
             control_pre_q        <= '0;
+            control_limited_q    <= '0;
+            sat_next_q           <= 1'b0;
             control_o            <= '0;
             p_term_o             <= '0;
             i_term_o             <= '0;
@@ -144,6 +148,9 @@ module pi_controller_seq #(
             state_q              <= S_IDLE;
             integrator_q         <= '0;
             integrator_next_q    <= '0;
+            freeze_integrator_q  <= 1'b0;
+            control_limited_q    <= '0;
+            sat_next_q           <= 1'b0;
             control_o            <= '0;
             p_term_o             <= '0;
             i_term_o             <= '0;
@@ -177,52 +184,104 @@ module pi_controller_seq #(
                     offset_ext_q       <= {{(ACC_WIDTH - OUT_WIDTH){offset_i[OUT_WIDTH-1]}}, offset_i};
                     output_limit_q     <= output_limit_i;
                     reset_integrator_q <= reset_integrator_i;
-                    state_q            <= S_P_CALC;
+                    state_q            <= S_LIMIT_PREP;
                 end
 
-                S_P_CALC: begin
+                S_LIMIT_PREP: begin
+                    limit_pos_q <= $signed({{(ACC_WIDTH - (OUT_WIDTH + 1)){1'b0}}, limit_clamped_w});
+                    limit_neg_q <= -$signed({{(ACC_WIDTH - (OUT_WIDTH + 1)){1'b0}}, limit_clamped_w});
+                    state_q     <= S_P_MUL;
+                end
+
+                S_P_MUL: begin
                     p_product_q <= $signed(error_pol_q) * $signed(kp_q);
-                    state_q     <= S_I_CALC;
+                    state_q     <= S_P_SCALE_I_MUL;
                 end
 
-                S_I_CALC: begin
-                    p_scaled_q  <= p_scaled_from_product_w;
+                S_P_SCALE_I_MUL: begin
+                    p_scaled_q  <= $signed({{(ACC_WIDTH - PRODUCT_WIDTH){p_product_q[PRODUCT_WIDTH-1]}}, p_product_q}) >>> KP_SHIFT;
                     i_product_q <= $signed(error_pol_q) * $signed(ki_q);
-                    state_q     <= S_I_UPDATE;
+                    state_q     <= S_I_SCALE;
                 end
 
-                S_I_UPDATE: begin
+                S_I_SCALE: begin
+                    i_delta_q <= $signed({{(ACC_WIDTH - PRODUCT_WIDTH){i_product_q[PRODUCT_WIDTH-1]}}, i_product_q}) >>> KI_SHIFT;
+                    state_q   <= S_FREEZE_PREP;
+                end
+
+                S_FREEZE_PREP: begin
+                    control_pre_for_freeze_q <= $signed(p_scaled_q) + $signed(integrator_q) + $signed(offset_ext_q);
+                    state_q                  <= S_FREEZE_DECIDE;
+                end
+
+                S_FREEZE_DECIDE: begin
+                    freeze_integrator_q <=
+                        (($signed(control_pre_for_freeze_q) >= $signed(limit_pos_q)) && ($signed(i_delta_q) > ACC_ZERO)) ||
+                        (($signed(control_pre_for_freeze_q) <= $signed(limit_neg_q)) && ($signed(i_delta_q) < ACC_ZERO));
+                    state_q <= S_I_CANDIDATE;
+                end
+
+                S_I_CANDIDATE: begin
+                    integrator_candidate_q <= freeze_integrator_q
+                                            ? integrator_q
+                                            : (integrator_q + i_delta_q);
+                    state_q <= S_I_CLAMP;
+                end
+
+                S_I_CLAMP: begin
+                    if ($signed(integrator_candidate_q) > $signed(limit_pos_q)) begin
+                        integrator_accepted_q <= limit_pos_q;
+                    end else if ($signed(integrator_candidate_q) < $signed(limit_neg_q)) begin
+                        integrator_accepted_q <= limit_neg_q;
+                    end else begin
+                        integrator_accepted_q <= integrator_candidate_q;
+                    end
+                    state_q <= S_I_COMMIT;
+                end
+
+                S_I_COMMIT: begin
                     if (reset_integrator_q) begin
                         integrator_q      <= '0;
                         integrator_next_q <= '0;
                     end else begin
-                        integrator_q      <= integrator_accepted_w;
-                        integrator_next_q <= integrator_accepted_w;
+                        integrator_q      <= integrator_accepted_q;
+                        integrator_next_q <= integrator_accepted_q;
                     end
-                    state_q <= S_SUM;
+                    state_q <= S_SUM_PRE;
                 end
 
-                S_SUM: begin
-                    // integrator_next_q is the accepted value from this same
+                S_SUM_PRE: begin
+                    // integrator_next_q is the accepted value from this
                     // transaction, including reset_integrator handling.
-                    control_pre_q <= $signed(p_scaled_q) + $signed(integrator_next_q) + $signed(offset_ext_q);
-                    state_q       <= S_LIMIT;
+                    sum_pre_q <= $signed(p_scaled_q) + $signed(integrator_next_q);
+                    state_q   <= S_SUM_FINAL;
                 end
 
-                S_LIMIT: begin
-                    if ($signed(control_pre_q) > $signed(limit_pos_w)) begin
-                        control_o <= limit_pos_w[OUT_WIDTH-1:0];
-                        sat_o     <= 1'b1;
-                    end else if ($signed(control_pre_q) < $signed(limit_neg_w)) begin
-                        control_o <= limit_neg_w[OUT_WIDTH-1:0];
-                        sat_o     <= 1'b1;
+                S_SUM_FINAL: begin
+                    control_pre_q <= $signed(sum_pre_q) + $signed(offset_ext_q);
+                    state_q       <= S_LIMIT_COMPARE;
+                end
+
+                S_LIMIT_COMPARE: begin
+                    if ($signed(control_pre_q) > $signed(limit_pos_q)) begin
+                        control_limited_q <= limit_pos_q[OUT_WIDTH-1:0];
+                        sat_next_q        <= 1'b1;
+                    end else if ($signed(control_pre_q) < $signed(limit_neg_q)) begin
+                        control_limited_q <= limit_neg_q[OUT_WIDTH-1:0];
+                        sat_next_q        <= 1'b1;
                     end else begin
-                        control_o <= control_pre_q[OUT_WIDTH-1:0];
-                        sat_o     <= 1'b0;
+                        control_limited_q <= control_pre_q[OUT_WIDTH-1:0];
+                        sat_next_q        <= 1'b0;
                     end
-                    p_term_o <= p_scaled_q[31:0];
-                    i_term_o <= integrator_next_q[31:0];
-                    state_q  <= S_IDLE;
+                    state_q <= S_OUTPUT;
+                end
+
+                S_OUTPUT: begin
+                    control_o <= control_limited_q;
+                    sat_o     <= sat_next_q;
+                    p_term_o  <= p_scaled_q[31:0];
+                    i_term_o  <= integrator_next_q[31:0];
+                    state_q   <= S_IDLE;
                 end
 
                 default: state_q <= S_IDLE;

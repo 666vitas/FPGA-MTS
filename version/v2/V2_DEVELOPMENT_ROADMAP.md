@@ -1,4 +1,123 @@
-# V2_DEVELOPMENT_ROADMAP
+# V2 开发路线图
+
+## 当前中文总规则和安全边界
+
+本文档面向实验用户，默认使用中文表达；文件路径、RTL 模块名、端口名、寄存器名和 Vivado timing 术语保留英文原名。
+
+当前 D2-125 真实接线模型仍是实验安全基准：D2-125 负责真实 Ramp / Unlock / Lock 工作流，Red Pitaya / FPGA 当前只做 `mixer_core + lpf_core + output_protect` 误差观察和 `control_o / sequential PI candidate` 候选输出观察。
+
+当前 Red Pitaya / FPGA 主线状态：
+
+```text
+v0.94 是唯一有效 FPGA 主线。
+version/v2 是当前 v2 阶段文档主线。
+software 是上位机软件主线。
+```
+
+当前 FPGA 已实现：
+
+```text
+mixer_core + lpf_core + output_protect
+OUT1 = error_o 观察输出
+OUT2 = control_o / sequential PI candidate
+```
+
+当前还没有实现：
+
+```text
+完整替代 D2-125
+FPGA 独立真实激光闭环
+ramp_generator
+scan_lock_fsm
+上位机选谱线
+AI/CNN 自动锁定
+```
+
+v2B3 当前状态：`pi_controller_seq` 和 `CONTROL_PATH_MODE=1` 已完成 RTL/SIM 与用户手动 timing clean 记录，但它仍只是 OUT2 示波器候选路径，不等于可以接激光器，不等于可以替代 D2-125。
+
+D2-125 各功能未来替代边界：
+
+| 阶段 | 替代目标 | 当前边界 |
+|---|---|---|
+| v2F | 单路低增益闭环 | 只允许在明确安全 SOP 下做低增益、短时间、可回退闭环 |
+| v3 | `ramp_generator`、`scan_lock_fsm`、Aux Servo Output 替代 | v3 才开始做，不属于当前 v2B3 已完成内容 |
+| v4/v5 | 上位机选谱线、自动识峰、AI/CNN | 后续阶段，不作为当前上板前提 |
+
+当前 OUT2 仍只接示波器。禁止把 OUT2 接激光器、D2-125 Servo Output 三通、Scan/PZT，或和 D2-125 输出并联。
+
+## 2026-07-02 Aux/PZT 实测数据后的路线更新
+
+最新 D2-125 Aux Output / Scan-PZT 数据表明：
+
+```text
+Ramp / Unlock:
+  ramp-aux-unlock.csv:
+    mean≈0.8087 V, min≈0.7505 V, max≈0.8678 V, Vpp≈0.1173 V, freq≈52.68 Hz
+  ramp-aux-unlock1.csv:
+    mean≈0.8096 V, min≈0.7767 V, max≈0.8393 V, Vpp≈0.0626 V, freq≈52.68 Hz
+
+Lock:
+  ramp-aux-locking.csv:
+    mean≈0.8130 V, min≈0.8031 V, max≈0.8200 V, Vpp≈0.0169 V
+```
+
+这些 Aux 实测数据将作为 v3 `ramp_generator`、v3 `scan_lock_fsm`、v3 Aux/Scan replacement、v4 上位机 `Custom FPGA Lock Panel`、v5 AI / 自动重锁的设计参考。
+
+重要边界：
+
+```text
+当前 v2B3 / v2B3_scope_safe 不使用这些数据改变接线。
+当前 OUT2 仍只接示波器。
+当前还没有 ramp_generator / scan_lock_fsm。
+v3 之后才考虑 Aux/Scan replacement。
+Red Pitaya OUT2 不能和 D2-125 Aux Output 并联到 Scan/PZT。
+Red Pitaya OUT2 不能和 D2-125 Servo Output 并联。
+```
+
+后续 Red Pitaya OUT2 替代路线更新为：
+
+| 阶段 | 目标 | 当前是否实现 |
+|---|---|---|
+| `v2PZT-0` | 记录 Aux/PZT 数据，确认 D2-125 Aux Output 电压范围和作用 | 本次完成文档记录 |
+| `v2PZT-1` | 只实现 SAFE / SCAN / HOLD | 未实现 |
+| `v2PZT-2` | OUT2 -> Scan/PZT 开环扫谱 | 未实现 |
+| `v2PZT-3` | P_LOCK，`OUT2 = Vlock + Kp * error`，`Ki=0` | 未实现 |
+| `v2PZT-4` | PI_LOCK，`OUT2 = Vlock + Kp * error + Ki * integral(error)` | 未实现 |
+| `v3REG` | 新增 custom FPGA register_bank | 未实现 |
+| `v4HOST` | 上位机新增 Custom FPGA Lock Panel | 未实现 |
+| `v5AI` | AI 识峰、选 Vlock、推荐 Kp/Ki、失锁判断和重扫 | 未实现 |
+
+当前 FPGA 已具备：
+
+```text
+IN1 + IN2 -> mixer_core -> lpf_core -> OUT1 error
+error -> 简单 P/PI candidate -> OUT2 control
+```
+
+当前还缺少：
+
+```text
+OUT2 内部三角波扫描
+Capture Vlock / HOLD
+P_LOCK / PI_LOCK 模式切换
+register_bank
+上位机 Custom FPGA Mode 下写 FPGA 参数
+AI 自动识峰和自动重锁
+```
+
+安全路线必须保持：
+
+```text
+当前先回到 v2B3_scope_safe 的 OUT1/OUT2 示波器验证；
+Aux 数据先作为后续设计参考；
+先 SAFE / SCAN / HOLD；
+先示波器；
+先断开 D2-125 Aux Output；
+再 Red Pitaya OUT2 -> Scan/PZT 开环扫谱；
+先 P-only；
+再 PI；
+最后才考虑 AI。
+```
 
 > Active baseline: only the GitHub project `666vitas/FPGA-MTS` `v0.94` mainline plus `version/v2` documentation are valid for this roadmap. Do not read, reference, sync, copy, or modify any `weifang` or `version-weifang` directory for this route.
 

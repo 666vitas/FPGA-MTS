@@ -60,9 +60,11 @@ module laser_lock_core #(
     // PID_UPDATE_HZ is the PI update rate. A one-cycle clock-enable pulse is
     // generated from CLK_HZ so pi_controller updates at this slower rate.
     parameter int PID_UPDATE_HZ = 10_000,
-    // v2B1 enables the controller only because OUT2 is restricted to an
-    // oscilloscope-only Shadow PI test. Before OUT2 is connected to any real
-    // actuator, the enable strategy must be reviewed and made safe again.
+    // v2B3_scope_safe enables the controller only because OUT2 is restricted
+    // to an oscilloscope-only test. OUT2 must not be connected to a laser,
+    // D2-125 Servo Output, D2-125 Aux Output, or Scan/PZT in this stage.
+    // Before OUT2 is connected to any real actuator, the enable strategy,
+    // physical voltage range, polarity, and bandwidth must be reviewed.
     parameter bit PID_ENABLE_DEFAULT = 1'b1,
     parameter bit PID_HOLD_DEFAULT = 1'b0,
     parameter bit PID_RESET_INTEGRATOR_DEFAULT = 1'b0,
@@ -71,13 +73,17 @@ module laser_lock_core #(
     // If OUT1 error is about 0.12 to 0.15 V, the expected OUT2 control is about
     // 0.06 to 0.075 V.
     parameter logic signed [15:0] PID_KP_DEFAULT = 16'sd2048,
-    // Mode 0 has no integrator. Mode 1 starts with a deliberately small Ki so
-    // the later sequential-PI scope test accumulates only slowly.
-    parameter logic signed [15:0] PID_KI_DEFAULT = 16'sd16,
+    // v2B3_scope_safe keeps mode 1 in pi_controller_seq but disables the
+    // integrator for the next scope-only test. The previous Ki=16 board data
+    // showed OUT2 parked near the negative output_limit, so the next step is
+    // to prove the pi_controller_seq P path is safe before re-enabling I.
+    parameter logic signed [15:0] PID_KI_DEFAULT = 16'sd0,
     parameter logic signed [13:0] PID_OFFSET_DEFAULT = 14'sd0,
-    // 1500 counts is roughly +/-0.18 V on the Red Pitaya output scale. It keeps
-    // OUT2 far below the +/-1 V full-scale range during the oscilloscope test.
-    parameter logic [13:0] PID_OUTPUT_LIMIT_DEFAULT = 14'd1500
+    // 819 counts is roughly +/-0.10 V on the Red Pitaya output scale. It keeps
+    // OUT2 farther from the +/-1 V full-scale range during the next
+    // v2B3_scope_safe oscilloscope-only test. If OUT2 still parks near the
+    // limit, the next conservative step is 410 counts, about +/-0.05 V.
+    parameter logic [13:0] PID_OUTPUT_LIMIT_DEFAULT = 14'd819
 ) (
     // clk_i：模块时钟。
     // 未来接官方 adc_clk，让本模块和 adc_dat[0]/adc_dat[1] 在同一个时钟域。
@@ -100,10 +106,10 @@ module laser_lock_core #(
     output logic signed [13:0] error_o,
 
     // control_o：Shadow Control 输出。
-    // v2B1 只接 OUT2 示波器观察，不直接控制激光器、不接 D2-125
-    // Servo Output、不接 Scan。If this signal is ever routed to a real actuator,
-    // the physical voltage range, polarity, bandwidth, and initial pid_ce rate
-    // must be reviewed first.
+    // v2B3_scope_safe 只接 OUT2 示波器观察，不直接控制激光器、不接
+    // D2-125 Servo Output、不接 D2-125 Aux Output、不接 Scan/PZT。If this
+    // signal is ever routed to a real actuator, the physical voltage range,
+    // polarity, bandwidth, and initial pid_ce rate must be reviewed first.
     output logic signed [13:0] control_o
 );
 
@@ -297,10 +303,12 @@ module laser_lock_core #(
             // no DSP multiplier, no 48-bit integrator, no anti-windup freeze
             // tree, and no long P+I+offset limiter chain. OUT2 is about half
             // of OUT1 because of the >>> 1 scale, so a 0.12~0.15 V OUT1 error
-            // should produce about 0.06~0.075 V on OUT2. The 1500-count limit
-            // keeps OUT2 near +/-0.18 V and far from the +/-1 V Red Pitaya
-            // output range. OUT2 remains oscilloscope-only: do not connect it
-            // to a laser, D2-125 Servo Output, or Scan input.
+            // should produce about 0.06~0.075 V on OUT2. The shared
+            // PID_OUTPUT_LIMIT_DEFAULT keeps OUT2 far from the +/-1 V Red
+            // Pitaya output range. In v2B3_scope_safe this default is 819
+            // counts, about +/-0.10 V. OUT2 remains oscilloscope-only: do not
+            // connect it to a laser, D2-125 Servo Output, D2-125 Aux Output,
+            // or Scan/PZT.
             assign p_only_error_ext_w = {protected_error[13], protected_error};
             assign p_only_error_pol_w = PID_POLARITY_DEFAULT
                                       ? -p_only_error_ext_w

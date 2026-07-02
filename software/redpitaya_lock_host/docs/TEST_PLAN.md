@@ -2,6 +2,12 @@
 
 Legacy note: this file documents the V1.1 hardware-test plan. For current V2 testing, especially Official SCPI Mode vs Custom FPGA Mode, use `HARDWARE_TEST_SOP.md` and `FPGA_MODE_BOUNDARY.md`.
 
+Current host-app development directory:
+
+```text
+E:\new\fpga_lock\v94\software\redpitaya_lock_host
+```
+
 ## Required Hardware Test Order
 
 Follow this order. Do not connect the laser scan / PZT or PD signal before the earlier checks pass.
@@ -51,6 +57,8 @@ Steps:
 
 Expected result: OUT2 follows settings and safe shutdown disables output.
 
+GUI note: CH4 is a generated preview, not measured OUT2. A 50 Hz triangle wave has a 20 ms period. The preview uses an independent time axis and defaults to at least two full cycles, but the real OUT2 result must still be checked with an oscilloscope.
+
 ## 3. IN1 Real Acquisition Test
 
 Purpose: verify Red Pitaya IN1 ADC acquisition.
@@ -66,6 +74,8 @@ Steps:
 7. Click `Stop Acquisition`.
 
 Expected result: CH1 displays real measured ADC data.
+
+If OUT2 is looped back into IN1 for real output measurement, keep the IN1 absolute input voltage below ±1 V.
 
 ## 4. IN2 REF Acquisition Test
 

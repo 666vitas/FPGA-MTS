@@ -39,9 +39,11 @@ SOUR2:FUNC TRIANGLE
 SOUR2:FREQ:FIX <Hz>
 SOUR2:VOLT <V>
 SOUR2:VOLT:OFFS <V>
-SOUR2:TRIG:IMM
 OUTPUT2:STATE ON|OFF
+SOUR2:TRig:INT
 ```
+
+Note: early V1 notes used `SOUR2:TRIG:IMM`. V2 uses `SOUR2:TRig:INT` after the output state command.
 
 Stopping scan sends:
 

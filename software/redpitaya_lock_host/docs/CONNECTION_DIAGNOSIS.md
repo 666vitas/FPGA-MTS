@@ -39,7 +39,7 @@ V2 performs Probe, Start SCPI Server, Connect SCPI, Disconnect, and acquisition 
 In PowerShell, run the batch file as:
 
 ```powershell
-Set-Location E:\new\fpga_lock\raunjian
+Set-Location E:\new\fpga_lock\v94\software\redpitaya_lock_host
 .\run.bat
 ```
 

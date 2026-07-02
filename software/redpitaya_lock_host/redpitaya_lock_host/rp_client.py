@@ -1,4 +1,9 @@
-"""Red Pitaya business-level client for the laser lock host."""
+"""Deprecated legacy Red Pitaya business-level client for the laser lock host.
+
+The V2 GUI uses rp_scpi_client.RedPitayaScpiClient. This module is kept for
+compatibility with older scripts and should use the same safe SCPI trigger
+sequence when it is called.
+"""
 
 from __future__ import annotations
 
@@ -48,8 +53,8 @@ class RedPitayaClient:
             self.scpi.write(f"SOUR2:FREQ:FIX {settings.frequency_hz:.9g}")
             self.scpi.write(f"SOUR2:VOLT {settings.amplitude_v:.9g}")
             self.scpi.write(f"SOUR2:VOLT:OFFS {settings.offset_v:.9g}")
-            self.scpi.write("SOUR2:TRIG:IMM")
             self.scpi.write(f"OUTPUT2:STATE {'ON' if enable else 'OFF'}")
+            self.scpi.write("SOUR2:TRig:INT")
             return settings
 
     def stop_scan(self) -> None:

@@ -42,8 +42,10 @@ from .connection_workers import (
     ProbeWorker,
     StartScpiServerWorker,
 )
+from .custom_fpga_workflow import CustomFpgaMeasurements, analyze_custom_fpga_measurements
 from .data_logger import save_plot_png, save_waveforms_csv, timestamped_name
 from .mock_client import MockRedPitayaClient
+from .waveform_preview import PreviewConfig, generate_waveform_preview
 from .rp_scpi_client import RedPitayaScpiClient
 from .safety import (
     SafetyError,
@@ -140,6 +142,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.config = config
         self.start_mock = start_mock
+        self.preview_config = PreviewConfig.from_mapping(self.config.get("preview", {}))
         self.client: RedPitayaScpiClient | MockRedPitayaClient | None = None
         self.acquisition_worker: AcquisitionWorker | None = None
         self.last_probe: ProbeResult | None = None
@@ -214,10 +217,12 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
         layout.addWidget(self._connection_group())
-        layout.addWidget(self._output_group())
-        layout.addWidget(self._acquisition_group())
-        layout.addWidget(self._export_group())
-        layout.addStretch(1)
+        self.app_mode_tabs = QTabWidget()
+        self.app_mode_tabs.addTab(self._hardware_bringup_page(), "Hardware Bring-up")
+        self.app_mode_tabs.addTab(self._custom_fpga_observe_page(), "Custom FPGA Observe")
+        self.app_mode_tabs.addTab(self._lock_workflow_page(), "Lock Workflow")
+        self.app_mode_tabs.addTab(self._data_log_page(), "Data Log")
+        layout.addWidget(self.app_mode_tabs, stretch=1)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -291,6 +296,135 @@ class MainWindow(QMainWindow):
         form.addRow(self.mode_explain_label)
         form.addRow(self.scpi_warning_label)
         return group
+
+    def _hardware_bringup_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        layout.addWidget(self._output_group())
+        layout.addWidget(self._acquisition_group())
+        layout.addWidget(self._export_group())
+        layout.addStretch(1)
+        return page
+
+    def _custom_fpga_observe_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        wiring = QLabel(
+            "IN1 = PD/MTS after analog BPF + amplifier, < +/-1 V\n"
+            "IN2 = 4.6 MHz REF, < +/-1 V\n"
+            "OUT1 = FPGA laser_error -> oscilloscope\n"
+            "OUT2 = FPGA laser_control -> oscilloscope only\n"
+            "Do not connect OUT2 to laser scan/PZT or D2-125 yet."
+        )
+        wiring.setWordWrap(True)
+        layout.addWidget(wiring)
+
+        group = QGroupBox("Manual Oscilloscope Readings")
+        form = QFormLayout(group)
+        self._configure_form(form)
+        self.obs_out1_vpp = self._measurement_spin(" Vpp")
+        self.obs_out1_min = self._measurement_spin(" V")
+        self.obs_out1_max = self._measurement_spin(" V")
+        self.obs_out2_vpp = self._measurement_spin(" Vpp")
+        self.obs_out2_min = self._measurement_spin(" V")
+        self.obs_out2_max = self._measurement_spin(" V")
+        self.obs_pd_vpp = self._measurement_spin(" Vpp")
+        self.obs_ref_amp = self._measurement_spin(" V")
+        self.obs_notes = QTextEdit()
+        self.obs_notes.setMinimumHeight(70)
+        self.obs_notes.setPlaceholderText("Scope observations, wiring, fast drift/jump notes")
+        self.obs_analyze_button = QPushButton("Analyze Observe Readings")
+        self._style_button(self.obs_analyze_button)
+        self.obs_result_label = QLabel("OUT2/OUT1 ratio -- | safety --")
+        self.obs_result_label.setWordWrap(True)
+        self.obs_result_label.setStyleSheet("font-weight: 600;")
+        form.addRow("OUT1 error Vpp", self.obs_out1_vpp)
+        form.addRow("OUT1 error min", self.obs_out1_min)
+        form.addRow("OUT1 error max", self.obs_out1_max)
+        form.addRow("OUT2 control Vpp", self.obs_out2_vpp)
+        form.addRow("OUT2 control min", self.obs_out2_min)
+        form.addRow("OUT2 control max", self.obs_out2_max)
+        form.addRow("PD / absorption Vpp", self.obs_pd_vpp)
+        form.addRow("REF amplitude", self.obs_ref_amp)
+        form.addRow("notes", self.obs_notes)
+        form.addRow(self.obs_analyze_button)
+        form.addRow(self.obs_result_label)
+        layout.addWidget(group)
+        layout.addStretch(1)
+        return page
+
+    def _lock_workflow_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        self.lock_step_combo = QComboBox()
+        self.lock_step_combo.addItems(
+            [
+                "1. Input Safety Check",
+                "2. Error Signal Observe",
+                "3. Control Output Observe",
+                "4. Direction / Polarity Check",
+                "5. Gain / Limit Check",
+                "6. Ready for Low-gain Lock Test",
+                "7. Future Lock Engage",
+                "8. Future Relock",
+            ]
+        )
+        self.lock_step_detail = QLabel("")
+        self.lock_step_detail.setWordWrap(True)
+        mapping = QLabel(
+            "D2-125 Ramp -> future FPGA scan generator / current Official SCPI OUT2 Safe Scan\n"
+            "D2-125 Error Input -> FPGA mixer + LPF -> laser_error\n"
+            "D2-125 Servo Output -> FPGA laser_control / OUT2\n"
+            "D2-125 Lock/Scan switch -> future FPGA FSM + host workflow\n"
+            "D2-125 Relock / Lock Quality -> future host judgment + FPGA state machine"
+        )
+        mapping.setWordWrap(True)
+        layout.addWidget(QLabel("Lock Workflow Step"))
+        layout.addWidget(self.lock_step_combo)
+        layout.addWidget(self.lock_step_detail)
+        layout.addWidget(mapping)
+        future = QLabel(
+            "Future FPGA controls are not implemented until FPGA register/debug interface is available."
+        )
+        future.setWordWrap(True)
+        future.setStyleSheet("color: #9a5b00; font-weight: 600;")
+        layout.addWidget(future)
+        layout.addStretch(1)
+        return page
+
+    def _data_log_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        self.experiment_log_notes = QTextEdit()
+        self.experiment_log_notes.setMinimumHeight(110)
+        self.experiment_log_notes.setPlaceholderText("Experiment notes, wiring, decisions, next steps")
+        self.export_experiment_log_button = QPushButton("Export Experiment Log")
+        self._style_button(self.export_experiment_log_button)
+        self.experiment_log_status = QLabel("Exports Markdown to docs/experiment_logs/")
+        self.experiment_log_status.setWordWrap(True)
+        layout.addWidget(self.experiment_log_notes)
+        layout.addWidget(self.export_experiment_log_button)
+        layout.addWidget(self.experiment_log_status)
+        layout.addStretch(1)
+        return page
+
+    def _measurement_spin(self, suffix: str) -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setRange(-10.0, 10.0)
+        spin.setDecimals(5)
+        spin.setSingleStep(0.01)
+        spin.setSuffix(suffix)
+        self._style_field(spin)
+        return spin
 
     def _output_group(self) -> QGroupBox:
         group = QGroupBox("Output Control")
@@ -431,8 +565,8 @@ class MainWindow(QMainWindow):
         grid.setColumnStretch(1, 1)
         self.ch1 = ChannelPanel("CH1: IN1 / ADC measured", "real ACQ:SOUR1:DATA?")
         self.ch2 = ChannelPanel("CH2: IN2 / ADC measured", "real ACQ:SOUR2:DATA?")
-        self.ch3 = ChannelPanel("CH3: OUT1 preview", "generated preview, not measured")
-        self.ch4 = ChannelPanel("CH4: OUT2 preview", "generated preview, not measured")
+        self.ch3 = ChannelPanel("CH3: OUT1 preview (not measured)", "generated preview, not measured")
+        self.ch4 = ChannelPanel("CH4: OUT2 preview (not measured)", "generated preview, not measured")
         grid.addWidget(self.ch1, 0, 0)
         grid.addWidget(self.ch2, 0, 1)
         grid.addWidget(self.ch3, 1, 0)
@@ -445,6 +579,10 @@ class MainWindow(QMainWindow):
         self.connect_scpi_button.clicked.connect(self.connect_scpi)
         self.disconnect_button.clicked.connect(self.disconnect_from_device)
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
+        self.app_mode_tabs.currentChanged.connect(self._on_app_mode_tab_changed)
+        self.obs_analyze_button.clicked.connect(self._analyze_observe_readings)
+        self.lock_step_combo.currentTextChanged.connect(self._update_lock_step_detail)
+        self.export_experiment_log_button.clicked.connect(self.export_experiment_log)
         self.out1.apply_button.clicked.connect(lambda: self.apply_output(1, self.out1))
         self.out2.apply_button.clicked.connect(lambda: self.apply_output(2, self.out2))
         self.out1.disable_button.clicked.connect(lambda: self.disable_output(1, self.out1))
@@ -461,6 +599,7 @@ class MainWindow(QMainWindow):
         self.decimation_combo.currentTextChanged.connect(self._update_sample_rate_label)
         self.save_csv_button.clicked.connect(self.save_csv)
         self.save_png_button.clicked.connect(self.save_png)
+        self._update_lock_step_detail()
 
     def _load_defaults(self) -> None:
         rp = self.config.get("red_pitaya", {})
@@ -790,6 +929,40 @@ class MainWindow(QMainWindow):
         except OSError as exc:
             self.statusBar().showMessage(f"Save PNG error: {exc}")
 
+    def export_experiment_log(self) -> None:
+        try:
+            analysis = analyze_custom_fpga_measurements(self._observe_measurements())
+            output_dir = Path(__file__).resolve().parents[1] / "docs" / "experiment_logs"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            path = output_dir / timestamped_name("experiment_log", "md")
+            mode = self.app_mode_tabs.tabText(self.app_mode_tabs.currentIndex())
+            ratio = "--" if analysis.out2_out1_ratio is None else f"{analysis.out2_out1_ratio:.4g}"
+            with path.open("w", encoding="utf-8") as handle:
+                handle.write("# Red Pitaya Host Experiment Log\n\n")
+                handle.write(f"- current_mode: {mode}\n")
+                handle.write(f"- current_step: {self.lock_step_combo.currentText()}\n")
+                handle.write("- wiring: IN1 PD/MTS < +/-1 V; IN2 4.6 MHz REF < +/-1 V; OUT1/OUT2 scope-only in Custom FPGA Mode\n")
+                handle.write(f"- out1_error_vpp: {self.obs_out1_vpp.value():.6g}\n")
+                handle.write(f"- out1_error_min: {self.obs_out1_min.value():.6g}\n")
+                handle.write(f"- out1_error_max: {self.obs_out1_max.value():.6g}\n")
+                handle.write(f"- out2_control_vpp: {self.obs_out2_vpp.value():.6g}\n")
+                handle.write(f"- out2_control_min: {self.obs_out2_min.value():.6g}\n")
+                handle.write(f"- out2_control_max: {self.obs_out2_max.value():.6g}\n")
+                handle.write(f"- pd_absorption_vpp: {self.obs_pd_vpp.value():.6g}\n")
+                handle.write(f"- ref_amplitude: {self.obs_ref_amp.value():.6g}\n")
+                handle.write(f"- out2_out1_ratio: {ratio}\n")
+                handle.write(f"- safety_level: {analysis.level}\n")
+                handle.write(f"- safety_judgment: {'; '.join(analysis.messages)}\n")
+                handle.write(f"- next_step: {analysis.next_step}\n\n")
+                handle.write("## Notes\n\n")
+                handle.write(self.experiment_log_notes.toPlainText().strip() or self.obs_notes.toPlainText().strip() or "No notes.")
+                handle.write("\n")
+            self.experiment_log_status.setText(f"Saved {path}")
+            self.statusBar().showMessage(f"Saved experiment log: {path}")
+        except OSError as exc:
+            self.experiment_log_status.setText(f"Export failed: {exc}")
+            self.statusBar().showMessage(f"Experiment log export failed: {exc}")
+
     def _poll_mock_waveforms(self) -> None:
         if not isinstance(self.client, MockRedPitayaClient):
             return
@@ -820,34 +993,23 @@ class MainWindow(QMainWindow):
         t = self.last_waveforms["time_s"]
         in1 = self.last_waveforms["in1_v"]
         in2 = self.last_waveforms["in2_v"]
-        out1 = self._preview_for_control(t, self.out1)
-        out2 = self._preview_for_control(t, self.out2)
+        out1_t, out1 = self._preview_for_control(self.out1)
+        out2_t, out2 = self._preview_for_control(self.out2)
         self.ch1.set_data(t, in1)
         self.ch2.set_data(t, in2)
-        self.ch3.set_data(t, out1)
-        self.ch4.set_data(t, out2)
+        self.ch3.set_data(out1_t, out1)
+        self.ch4.set_data(out2_t, out2)
         self._update_warnings()
 
-    def _preview_for_control(self, t: np.ndarray, control: OutputControl) -> np.ndarray:
-        if t.size == 0:
-            return np.array([], dtype=float)
-        freq = max(control.frequency.value(), 0.001)
-        amp = control.amplitude.value()
-        offset = control.offset.value()
-        phase = np.deg2rad(control.phase.value())
-        x = 2 * np.pi * freq * t + phase
-        waveform = control.waveform.currentText()
-        if waveform == "square":
-            y = np.where(np.sin(x) >= 0, 1.0, -1.0)
-        elif waveform == "triangle":
-            ph = ((freq * t + control.phase.value() / 360.0) % 1.0)
-            y = 2.0 * np.abs(2.0 * ph - 1.0) - 1.0
-        elif waveform == "sawtooth":
-            ph = ((freq * t + control.phase.value() / 360.0) % 1.0)
-            y = 2.0 * ph - 1.0
-        else:
-            y = np.sin(x)
-        return offset + amp * y
+    def _preview_for_control(self, control: OutputControl) -> tuple[np.ndarray, np.ndarray]:
+        return generate_waveform_preview(
+            waveform=control.waveform.currentText(),
+            frequency_hz=control.frequency.value(),
+            amplitude_v=control.amplitude.value(),
+            offset_v=control.offset.value(),
+            phase_deg=control.phase.value(),
+            config=self.preview_config,
+        )
 
     def _update_warnings(self) -> None:
         in1 = self.last_waveforms["in1_v"]
@@ -861,6 +1023,33 @@ class MainWindow(QMainWindow):
         else:
             self.ch3.set_warning("Custom FPGA Mode: OUT1 is laser_error, not SCPI ASG")
             self.ch4.set_warning("Custom FPGA Mode: OUT2 is laser_control, scope-only")
+
+    def _observe_measurements(self) -> CustomFpgaMeasurements:
+        return CustomFpgaMeasurements(
+            out1_error_vpp=self.obs_out1_vpp.value(),
+            out1_error_min=self.obs_out1_min.value(),
+            out1_error_max=self.obs_out1_max.value(),
+            out2_control_vpp=self.obs_out2_vpp.value(),
+            out2_control_min=self.obs_out2_min.value(),
+            out2_control_max=self.obs_out2_max.value(),
+            pd_absorption_vpp=self.obs_pd_vpp.value(),
+            ref_amplitude=self.obs_ref_amp.value(),
+            notes=self.obs_notes.toPlainText(),
+        )
+
+    def _analyze_observe_readings(self) -> None:
+        analysis = analyze_custom_fpga_measurements(self._observe_measurements())
+        ratio = "--" if analysis.out2_out1_ratio is None else f"{analysis.out2_out1_ratio:.4g}"
+        self.obs_result_label.setText(
+            f"OUT2/OUT1 Vpp ratio {ratio} | {analysis.level}\n"
+            f"{'; '.join(analysis.messages)}\nNext: {analysis.next_step}"
+        )
+        if analysis.level == "DANGER":
+            self.obs_result_label.setStyleSheet("color: #b00020; font-weight: 700;")
+        elif analysis.level == "WARNING":
+            self.obs_result_label.setStyleSheet("color: #9a5b00; font-weight: 700;")
+        else:
+            self.obs_result_label.setStyleSheet("color: #146c2e; font-weight: 700;")
 
     def _show_probe_result(self, result: ProbeResult) -> None:
         ip_text = ", ".join(result.resolved_ips) if result.resolved_ips else "--"
@@ -889,6 +1078,14 @@ class MainWindow(QMainWindow):
     def _set_connection_state(self, state: str) -> None:
         self.connection_state = state
         self._apply_button_state(state)
+
+    def _on_app_mode_tab_changed(self, index: int) -> None:
+        label = self.app_mode_tabs.tabText(index)
+        if label == "Hardware Bring-up":
+            self.mode_combo.setCurrentText("Official SCPI Mode")
+        elif label in {"Custom FPGA Observe", "Lock Workflow"}:
+            self.mode_combo.setCurrentText("Custom FPGA Mode")
+        self.statusBar().showMessage(f"Mode page: {label}")
 
     def _apply_button_state(self, state: str) -> None:
         official_or_mock = self._official_mode() or self.mock_check.isChecked()
@@ -946,6 +1143,55 @@ class MainWindow(QMainWindow):
         self._set_connected_state(self.client is not None and self.client.connected)
         self._redraw_from_last_waveforms()
 
+    def _update_lock_step_detail(self) -> None:
+        details = {
+            "1. Input Safety Check": (
+                "Wiring: IN1 PD/MTS after BPF+amp < +/-1 V; IN2 4.6 MHz REF < +/-1 V.\n"
+                "Scope: verify IN1/IN2 before FPGA control decisions.\n"
+                "Pass: both inputs safe and stable. Stop: clipping, wrong REF, or unknown scaling.\n"
+                "Next: Error Signal Observe."
+            ),
+            "2. Error Signal Observe": (
+                "Wiring: OUT1 -> oscilloscope.\n"
+                "Scope: FPGA laser_error on OUT1.\n"
+                "Pass: visible nonzero error-like signal. Stop: OUT1 missing, saturated, or unstable.\n"
+                "Next: Control Output Observe."
+            ),
+            "3. Control Output Observe": (
+                "Wiring: OUT2 -> oscilloscope only.\n"
+                "Scope: FPGA laser_control on OUT2.\n"
+                "Pass: OUT2 within safe limit and not rapidly climbing/jumping. Stop: OUT2 near +/-1 V.\n"
+                "Next: Direction / Polarity Check."
+            ),
+            "4. Direction / Polarity Check": (
+                "Wiring: scope-only observation.\n"
+                "Scope: compare OUT1 error trend and OUT2 control response.\n"
+                "Pass: direction is understood. Stop: ambiguous or runaway response.\n"
+                "Next: Gain / Limit Check."
+            ),
+            "5. Gain / Limit Check": (
+                "Wiring: OUT2 remains scope-only.\n"
+                "Scope: check OUT2/OUT1 ratio, min/max, and Vpp.\n"
+                "Pass: small, bounded control output. Stop: large Vpp, random jumps, or drift.\n"
+                "Next: Ready for Low-gain Lock Test."
+            ),
+            "6. Ready for Low-gain Lock Test": (
+                "Wiring: do not connect actuator until safety and polarity are reviewed.\n"
+                "Pass: input safety, error signal, control output, polarity, and limits are documented.\n"
+                "Next: Future Lock Engage.\n"
+                "Not implemented until FPGA register/debug interface is available."
+            ),
+            "7. Future Lock Engage": (
+                "Future step: host/FSM lock engagement replacing D2-125 Lock/Scan switch.\n"
+                "Not implemented until FPGA register/debug interface is available."
+            ),
+            "8. Future Relock": (
+                "Future step: lock quality judgment and relock state machine.\n"
+                "Not implemented until FPGA register/debug interface is available."
+            ),
+        }
+        self.lock_step_detail.setText(details.get(self.lock_step_combo.currentText(), ""))
+
     def _decimation(self) -> int:
         return int(self.decimation_combo.currentText())
 
@@ -989,7 +1235,9 @@ class MainWindow(QMainWindow):
             "out2_frequency_hz": self.out2.frequency.value(),
             "out2_amplitude_v": self.out2.amplitude.value(),
             "out2_offset_v": self.out2.offset.value(),
-            "preview_note": "OUT1/OUT2 previews are generated, not measured",
+            "preview_cycles": self.preview_config.cycles,
+            "preview_max_points": self.preview_config.max_points,
+            "preview_note": "OUT1/OUT2 previews use an independent generated time axis; they are not measured",
             "error_internal": "not implemented; requires FPGA debug buffer",
         }
 
