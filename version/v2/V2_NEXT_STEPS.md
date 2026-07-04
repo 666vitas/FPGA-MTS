@@ -1,5 +1,28 @@
 # V2_NEXT_STEPS
 
+## 2026-07-04 进入 v3REG-0：从 hardcoded OUT2 scan 升级到运行时寄存器控制
+
+v2 的下一步不再继续扩大编译时 `OUT2_TEST_MODE`，而是进入 v3REG-0：
+
+```text
+上位机
+-> Red Pitaya Linux /dev/mem
+-> FPGA custom_register_bank
+-> ramp_generator
+-> OUT2 scope-only triangle
+```
+
+本阶段只验证 OUT2 在示波器上能被上位机实时改变：
+
+```text
+SAFE: OUT2 = 0
+SCAN: OUT2 = 0.85 V offset + +/-0.05 V triangle, about 50 Hz
+```
+
+仍然禁止 OUT2 接 Scan/PZT、激光器、D2-125 Servo Output、D2-125 Aux Output，禁止 OUT2 和 D2-125 Aux Output 并联。
+
+用户下一步是检查 diff，然后由用户手动 Vivado synthesis / implementation；timing 通过后生成 bitstream，烧录后只接 OUT2 到示波器，用上位机设置 0.85 V offset、0.05 V amp、50 Hz，确认 OUT2 可实时改变。
+
 ## 2026-07-02 当前唯一下一步：保存 v2B3_scope_safe 证据，准备 v2D scope-only 任务
 
 `v2B3_scope_safe / only-p.csv` 已完成上板示波器测试，结论为：

@@ -234,6 +234,20 @@ logic signed [15-1:0] dac_b_sum_laser;
 logic signed [14-1:0] laser_error;
 logic signed [14-1:0] laser_control;
 
+// v3REG-0 host-controlled OUT2 scan path. The register bank is intentionally
+// small: SAFE and SCAN only. The older laser_control candidate is still built
+// below, but it is not the default OUT2 source in this stage.
+logic        [32-1:0] custom_mode;
+logic                 custom_enable;
+logic signed [14-1:0] scan_offset;
+logic signed [14-1:0] scan_amp;
+logic signed [14-1:0] scan_step;
+logic        [32-1:0] scan_update_div;
+logic signed [14-1:0] out2_limit;
+logic signed [14-1:0] scan_out2;
+logic signed [14-1:0] selected_out2;
+logic                 scan_saturated;
+
 // ASG
 SBG_T [2-1:0]            asg_dat;
 
@@ -376,11 +390,7 @@ sys_bus_interconnect #(
 );
 
 // silence unused busses
-generate
-for (genvar i=6; i<8; i++) begin: for_sys
-  sys_bus_stub sys_bus_stub_5_7 (sys[i]);
-end: for_sys
-endgenerate
+sys_bus_stub sys_bus_stub_7 (sys[7]);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Analog mixed signals (PDM analog outputs)
@@ -458,6 +468,41 @@ laser_lock_core #(
   .control_o (laser_control)
 );
 
+custom_register_bank i_custom_register_bank (
+  .clk_i           (adc_clk        ),
+  .rstn_i          (adc_rstn       ),
+  .out2_monitor_i  (selected_out2  ),
+  .saturated_i     (scan_saturated ),
+  .mode_o          (custom_mode    ),
+  .enable_o        (custom_enable  ),
+  .scan_offset_o   (scan_offset    ),
+  .scan_amp_o      (scan_amp       ),
+  .scan_step_o     (scan_step      ),
+  .scan_update_div_o(scan_update_div),
+  .out2_limit_o    (out2_limit     ),
+  .bus             (sys[6]         )
+);
+
+ramp_generator i_ramp_generator (
+  .clk_i        (adc_clk        ),
+  .rstn_i       (adc_rstn       ),
+  .enable_i     (custom_enable && (custom_mode == 32'd1)),
+  .offset_i     (scan_offset    ),
+  .amp_i        (scan_amp       ),
+  .step_i       (scan_step      ),
+  .update_div_i (scan_update_div),
+  .limit_i      (out2_limit     ),
+  .scan_o       (scan_out2      ),
+  .saturated_o  (scan_saturated )
+);
+
+always_comb begin
+  unique case (custom_mode)
+    32'd1:   selected_out2 = custom_enable ? scan_out2 : 14'sd0;
+    default: selected_out2 = 14'sd0;
+  endcase
+end
+
 ////////////////////////////////////////////////////////////////////////////////
 // DAC IO
 ////////////////////////////////////////////////////////////////////////////////
@@ -470,15 +515,16 @@ laser_lock_core #(
 assign dac_a_sum_official = asg_dat[0] + pid_dat[0];
 assign dac_b_sum_official = asg_dat[1] + pid_dat[1];
 assign dac_a_sum_laser    = {laser_error[13], laser_error};
-assign dac_b_sum_laser    = {laser_control[13], laser_control};
+assign dac_b_sum_laser    = {selected_out2[13], selected_out2};
 
 // USE_LASER_LOCK_CORE=1:
 //   DAC A / OUT1 shows laser_error.
-//   DAC B / OUT2 shows laser_control.
+//   DAC B / OUT2 shows the v3REG-0 SAFE/SCAN register-controlled output.
 // Scope meaning after bitstream is manually generated and loaded:
 //   OUT1 should keep the v1/v2 error-observation role.
-//   OUT2 is selected by LASER_LOCK_CONTROL_PATH_MODE. Mode 1 is the v2B3
-//   sequential-PI candidate; it still must only be observed on a scope.
+//   OUT2 is now selected by custom_mode: SAFE drives 0, SCAN drives the
+//   register-controlled triangle generator. It still must only be observed on
+//   a scope in this first stage.
 //   OUT2 must not be used as proof that FPGA has locked the laser.
 assign dac_a_sum = USE_LASER_LOCK_CORE ? dac_a_sum_laser : dac_a_sum_official;
 assign dac_b_sum = USE_LASER_LOCK_CORE ? dac_b_sum_laser : dac_b_sum_official;

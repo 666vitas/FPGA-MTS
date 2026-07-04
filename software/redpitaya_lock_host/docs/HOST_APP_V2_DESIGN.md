@@ -1,5 +1,33 @@
 # Host App V2 Design
 
+## 2026-07-04 v3REG-0 Custom FPGA register client
+
+新增最小命令行脚本：
+
+```text
+software/redpitaya_lock_host/scripts/custom_fpga_scan_control.py
+```
+
+用途是控制 Custom FPGA Mode 下的最小 SAFE/SCAN register bank。它不启动 `redpitaya_scpi`，不使用 official SCPI ASG，而是通过 SSH 在 Red Pitaya Linux 端运行临时 Python `/dev/mem` helper。
+
+示例：
+
+```powershell
+python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local safe
+python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local scan --offset-v 0.85 --amp-v 0.05 --freq-hz 50
+python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local status
+```
+
+只打印 SSH 命令、不执行：
+
+```powershell
+python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local --print-command scan --offset-v 0.85 --amp-v 0.05 --freq-hz 50
+```
+
+默认寄存器物理基地址为 `0x40600000`，对应 GP0 base `0x40000000` + `sys[6]` 区域 `0x00600000`。烧录后必须先用 `status` 读取 `REG_MAGIC = 0x4D545330` 确认接口存在。
+
+本脚本当前没有在真实 Red Pitaya 上执行验证；它是 v3REG-0 的最小 host-side 控制入口。第一阶段仍然只接 OUT2 到示波器，不接 Scan/PZT，不接激光器，不接 D2-125 Aux Output。
+
 ## 2026-07-01 Custom FPGA Lock Panel 规划边界
 
 根据最新 Aux/PZT 数据，未来上位机 Custom FPGA Lock Panel 的职责应是“写模式和参数、记录状态”，而不是在 PC 上做高速实时 PID。
