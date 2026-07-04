@@ -1,5 +1,17 @@
 # STATUS
 
+## 当前主线
+
+当前主线 = v3REG-0 register-controlled OUT2 SAFE/SCAN。
+
+```text
+OUT1 = laser_error = mixer + LPF error observation
+OUT2 = selected_out2 = custom_register_bank + ramp_generator SAFE/SCAN
+laser_control / pi_controller_seq = 后续候选，不是当前 OUT2 输出
+```
+
+本阶段只允许 OUT2 接示波器；不接 Scan/PZT，不接激光器，不声称已经闭环锁定。
+
 ## 2026-07-04 v3REG-0 最小 register_bank 与 OUT2 host-controlled SCAN 已实现，等待用户手动 Vivado 和示波器验证
 
 本次实现目标是关闭“只能编译时硬编码 OUT2 三角波”的限制，新增最小运行时参数链路：

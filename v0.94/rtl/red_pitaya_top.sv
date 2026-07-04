@@ -128,12 +128,15 @@ module red_pitaya_top #(
 
 localparam int unsigned GDW = DWE;
 
-// Laser lock debug integration switch.
+// Current mainline: v3REG-0 register-controlled OUT2 SAFE/SCAN.
 // USE_LASER_LOCK_CORE = 0 keeps the official ASG + PID DAC path.
-// USE_LASER_LOCK_CORE = 1 enables the current v2B3 sequential-PI candidate:
+// USE_LASER_LOCK_CORE = 1 enables the custom FPGA observation/control shell:
 //   ADC IN1 + ADC IN2 are processed by laser_lock_core.
-//   DAC A / OUT1 becomes the FPGA error observation output.
-//   DAC B / OUT2 becomes the selected Shadow Control or sequential-PI output.
+//   DAC A / OUT1 = laser_error = mixer + LPF error observation.
+//   DAC B / OUT2 = selected_out2 from custom_register_bank + ramp_generator.
+//   selected_out2 supports only SAFE and SCAN in v3REG-0.
+// laser_control / pi_controller_seq are retained only as future candidates;
+// they are not the current OUT2 output.
 // This switch does not change ADC IO, PLL, ODDR, PS, AXI, DDR, or constraints.
 // LASER_LOCK_OUTPUT_MODE:
 // 0 = IN1/pd_i -> OUT1
@@ -141,11 +144,11 @@ localparam int unsigned GDW = DWE;
 // 2 = raw mixer -> OUT1
 // 3 = mixer + post-mixer LPF -> OUT1
 // Current board expectation for OUTPUT_MODE=3:
-//   OUT1/CH2: FPGA mixer+LPF error, about 0.12 to 0.15 V in the current setup.
-//   OUT2/CH4: sequential PI candidate output derived from the same error.
-// LASER_LOCK_CONTROL_PATH_MODE=1 only prepares the sequential-PI board
-// candidate. It does not authorize a laser closed loop: OUT2 remains
-// oscilloscope-only, and a timing failure must not produce a board bitstream.
+//   OUT1/CH2: FPGA mixer + LPF error observation.
+//   OUT2/CH4: v3REG-0 SAFE/SCAN triangle output selected by registers.
+// LASER_LOCK_CONTROL_PATH_MODE remains compiled for candidate logic only.
+// It does not drive current OUT2, does not authorize a laser closed loop, and
+// does not authorize connecting OUT2 to Scan/PZT.
 localparam logic USE_LASER_LOCK_CORE = 1'b1;
 localparam int   LASER_LOCK_OUTPUT_MODE = 3;
 localparam int   LASER_LOCK_CONTROL_PATH_MODE = 1;
@@ -222,11 +225,13 @@ logic signed [15-1:0] dac_a_sum_laser;
 logic signed [15-1:0] dac_b_sum_laser;
 
 // Custom laser lock core outputs, still before the official DAC saturation path.
-// In v2B1:
+// Current v3REG-0 routing:
 // - OUT1 / DAC A = laser_error, used on oscilloscope CH2 to observe the FPGA
-//   mixer+LPF error signal.
-// - OUT2 / DAC B = laser_control, used on oscilloscope CH4 to observe the
-//   Shadow PI control signal.
+//   mixer + LPF error signal.
+// - OUT2 / DAC B = selected_out2, driven by custom_register_bank +
+//   ramp_generator in SAFE/SCAN mode.
+// laser_control is retained only as a future candidate and is not the current
+// OUT2 source.
 // OUT2 is oscilloscope-only in this stage. Do not connect it to a laser
 // actuator, D2-125 Servo Output tee, or Scan input.
 // This is not the old D2-125 DC Error input route. The error is generated
