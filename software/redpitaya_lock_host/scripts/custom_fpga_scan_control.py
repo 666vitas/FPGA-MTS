@@ -42,6 +42,7 @@ import json
 import mmap
 import os
 import struct
+import sys
 
 REGISTERS = {
     "MAGIC": 0x00,
@@ -56,6 +57,8 @@ REGISTERS = {
     "STATUS": 0x24,
     "OUT2_MONITOR": 0x28,
 }
+
+EXPECTED_MAGIC = 0x4D545330
 
 
 def to_signed14(value):
@@ -104,6 +107,29 @@ class RegisterWindow:
         self.mem.flush()
 
 
+def read_magic(regs):
+    return regs.read(REGISTERS["MAGIC"])
+
+
+def require_magic(regs):
+    magic = read_magic(regs)
+    if magic == EXPECTED_MAGIC:
+        return magic
+
+    print(
+        "ERROR: custom FPGA register MAGIC mismatch.\n"
+        f"  actual magic:   0x{magic:08X}\n"
+        f"  expected magic: 0x{EXPECTED_MAGIC:08X}\n"
+        "No registers were written.\n"
+        "Possible causes:\n"
+        "  - old bitstream is loaded\n"
+        "  - --base-addr is wrong\n"
+        "  - sys[6] is not connected to custom_register_bank",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
+
+
 def read_status(regs):
     status = regs.read(REGISTERS["STATUS"])
     out2_raw = regs.read(REGISTERS["OUT2_MONITOR"])
@@ -134,9 +160,11 @@ def main():
     regs = RegisterWindow(int(args.base_addr, 0))
     try:
         if args.op == "safe":
+            require_magic(regs)
             regs.write(REGISTERS["ENABLE"], 0)
             regs.write(REGISTERS["MODE"], 0)
         elif args.op == "scan":
+            require_magic(regs)
             regs.write(REGISTERS["ENABLE"], 0)
             regs.write(REGISTERS["SCAN_OFFSET"], args.offset_counts)
             regs.write(REGISTERS["SCAN_AMP"], args.amp_counts)

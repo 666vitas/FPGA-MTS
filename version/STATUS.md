@@ -12,6 +12,38 @@ laser_control / pi_controller_seq = 后续候选，不是当前 OUT2 输出
 
 本阶段只允许 OUT2 接示波器；不接 Scan/PZT，不接激光器，不声称已经闭环锁定。
 
+## 2026-07-05 v3REG-0 P0-1 host MAGIC 预校验已修复，等待用户手动 Vivado 和示波器验证
+
+本次只修复上位机脚本安全阻塞项，不修改 RTL 功能逻辑。
+
+修复内容：
+
+```text
+software/redpitaya_lock_host/scripts/custom_fpga_scan_control.py
+
+safe:
+  打开 RegisterWindow
+  -> require_magic()
+  -> ENABLE=0
+  -> MODE=0
+  -> 打印 status
+
+scan:
+  打开 RegisterWindow
+  -> require_magic()
+  -> ENABLE=0
+  -> 写 SCAN_OFFSET / SCAN_AMP / SCAN_STEP / SCAN_UPDATE_DIV / OUT2_LIMIT
+  -> MODE=1
+  -> ENABLE=1
+  -> 打印 status
+```
+
+如果 `MAGIC != 0x4D545330`，脚本会立即非零退出，并且不会写 `MODE`、`ENABLE`、`SCAN_OFFSET`、`SCAN_AMP`、`SCAN_STEP`、`SCAN_UPDATE_DIV`、`OUT2_LIMIT` 等任何寄存器。错误信息会显示实际 magic、期望 magic，并提示旧 bitstream、base address 错误或 `sys[6]` 未连接 `custom_register_bank`。
+
+本次未修改 RTL，未运行 Vivado synthesis / implementation，未生成 bitstream / bin，未烧录 Red Pitaya，未连接 Red Pitaya 执行真实 `safe` / `scan`，未执行 git add / commit / push。
+
+用户下一步仍然是：手动 Vivado synthesis / implementation，timing 通过后生成 bitstream，烧录后只接 OUT2 到示波器，先运行 `status` 确认 `MAGIC=0x4D545330`，再做 SAFE/SCAN 示波器验证。
+
 ## 2026-07-04 v3REG-0 最小 register_bank 与 OUT2 host-controlled SCAN 已实现，等待用户手动 Vivado 和示波器验证
 
 本次实现目标是关闭“只能编译时硬编码 OUT2 三角波”的限制，新增最小运行时参数链路：

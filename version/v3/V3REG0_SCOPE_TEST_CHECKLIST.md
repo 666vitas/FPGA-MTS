@@ -54,6 +54,14 @@ MAGIC = 0x4D545330
 
 如果 MAGIC 读不到，停止。不要继续写 scan 参数，不要判断 OUT2 波形。
 
+脚本安全要求：
+
+- `status` 只允许读寄存器，不写寄存器。
+- `safe` 和 `scan` 在写任何寄存器前，必须先读取 `MAGIC`。
+- 只有 `MAGIC = 0x4D545330` 时，`safe` / `scan` 才允许继续写寄存器。
+- 如果 MAGIC 不匹配，脚本必须非零退出，且不得写 `MODE`、`ENABLE`、`SCAN_OFFSET`、`SCAN_AMP`、`SCAN_STEP`、`SCAN_UPDATE_DIV`、`OUT2_LIMIT`。
+- MAGIC 不匹配通常说明旧 bitstream、base address 错误，或 `sys[6]` 没有连接 `custom_register_bank`。
+
 ## 4. 示波器接线
 
 只允许：
