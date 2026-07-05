@@ -1,5 +1,17 @@
 # Development Log
 
+## 2026-07-05 - v3REG-0 board monitor OUT2 SAFE/SCAN verified
+
+- Recorded successful board bring-up evidence: Red Pitaya loaded `/root/red_pitaya_top.bit.bin`; `/opt/redpitaya/bin/monitor 0x40600000` returned `0x4D545330`; `/opt/redpitaya/bin/monitor 0x40600004` returned `0x00030000`.
+- Verified hardware behavior: monitor writes `MODE=1`, `ENABLE=1`, `SCAN_OFFSET=0`, `SCAN_AMP=0x19A`, `SCAN_STEP=0x1`, `SCAN_UPDATE_DIV=0x1DC6`, and `OUT2_LIMIT=0x1FFF` produced an approximately 10 Hz safe triangle on OUT2.
+- Verified SAFE shutdown: writing `0x0` to `0x4060000C` then `0x40600008` removed the OUT2 triangle and returned OUT2 to the no-triangle state.
+- Conclusion: PS -> PL sys_bus access, base address `0x40600000`, `custom_register_bank`, `ramp_generator`, MODE/ENABLE control, `selected_out2` -> DAC B / OUT2, and SAFE shutdown are all verified on hardware.
+- Python files changed: none.
+- How to run/verify: board monitor commands above; next GUI verification path is Custom FPGA Mode -> Probe Registers -> Status -> SAFE -> SCAN.
+- Modified RTL: no.
+- Generated bitstream: no.
+- Safety boundary remains: OUT2 oscilloscope-only; do not connect OUT2 to laser PZT, laser current, D2-125 Servo Output, or Scan input.
+
 ## 2026-07-05 - GUI OUT2 path boundary wording fix
 
 - Implemented a minimal GUI wording/defaults fix so users distinguish Official SCPI OUT2 from Custom FPGA `selected_out2` SAFE/SCAN.

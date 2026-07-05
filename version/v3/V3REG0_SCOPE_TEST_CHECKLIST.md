@@ -191,3 +191,66 @@ python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local safe
 - 改 offset 后的截图。
 - 改 amp 后的截图。
 - 最后回到 `safe` 的截图。
+
+## 2026-07-05 Board Verification Record
+
+Result: PASS for v3REG-0 host/register controlled OUT2 safe triangle hardware path.
+
+Observed on board:
+
+```text
+Red Pitaya loaded: /root/red_pitaya_top.bit.bin
+
+/opt/redpitaya/bin/monitor 0x40600000 -> 0x4D545330
+/opt/redpitaya/bin/monitor 0x40600004 -> 0x00030000
+```
+
+The monitor reads confirm:
+
+- `custom_register_bank` MAGIC is present at base address `0x40600000`.
+- VERSION is `0x00030000`.
+- PS -> PL `sys_bus` register access works on the board.
+
+The following monitor-written register state produced an approximately 10 Hz safe triangle on physical OUT2:
+
+```text
+MODE            = 1
+ENABLE          = 1
+SCAN_OFFSET     = 0
+SCAN_AMP        = 0x19A
+SCAN_STEP       = 0x1
+SCAN_UPDATE_DIV = 0x1DC6
+OUT2_LIMIT      = 0x1FFF
+```
+
+SAFE / shutdown was verified with:
+
+```text
+/opt/redpitaya/bin/monitor 0x4060000C 0x0
+/opt/redpitaya/bin/monitor 0x40600008 0x0
+```
+
+After SAFE, the oscilloscope OUT2 triangle disappeared and OUT2 returned to the no-triangle state.
+
+Verified conclusions:
+
+- PS -> PL `sys_bus` custom register access works.
+- `0x40600000` is the correct base address for this loaded bitstream.
+- `custom_register_bank` is active in the real board bitstream.
+- `ramp_generator` output is effective.
+- `MODE` and `ENABLE` have real control over OUT2.
+- `selected_out2` -> DAC B / physical OUT2 is connected.
+- SAFE shutdown is effective.
+
+Safety boundary after this PASS remains unchanged: OUT2 is oscilloscope-only. Do not connect OUT2 to laser PZT, laser current, D2-125 Servo Output, or Scan input.
+
+Next GUI validation path:
+
+```text
+Custom FPGA Mode
+-> Custom FPGA Observe
+-> Probe Registers
+-> Status
+-> SAFE
+-> SCAN
+```
