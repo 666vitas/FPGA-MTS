@@ -1,5 +1,13 @@
 # Development Log
 
+## 2026-07-05 - GUI OUT2 path boundary wording fix
+
+- Implemented a minimal GUI wording/defaults fix so users distinguish Official SCPI OUT2 from Custom FPGA `selected_out2` SAFE/SCAN.
+- Python files changed: `redpitaya_lock_host/main_window.py`, `tests/test_custom_fpga_backend.py`, `tests/test_custom_fpga_workflow.py`.
+- Verification: `python -m py_compile redpitaya_lock_host\main_window.py redpitaya_lock_host\custom_fpga_backend.py`; `python -m pytest tests`.
+- Modified RTL: no.
+- Generated bitstream: no.
+
 ## 2026-07-05 - Custom FPGA missing-register GUI status guard
 
 - Implemented a GUI/status guard so `MAGIC != 0x4D545330` renders `custom_register_bank not found` instead of fake zero register state.

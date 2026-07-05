@@ -1,6 +1,5 @@
 import unittest
 
-from redpitaya_lock_host.custom_fpga_backend import CustomFpgaBackend
 from redpitaya_lock_host.custom_fpga_workflow import (
     CustomFpgaMeasurements,
     analyze_custom_fpga_measurements,
@@ -25,11 +24,6 @@ class CustomFpgaWorkflowTests(unittest.TestCase):
             CustomFpgaMeasurements(out1_error_vpp=0.001, out2_control_vpp=0.01)
         )
         self.assertEqual(analysis.level, "WARNING")
-
-    def test_backend_does_not_return_fake_hardware_data(self) -> None:
-        backend = CustomFpgaBackend()
-        with self.assertRaisesRegex(NotImplementedError, "not implemented yet"):
-            backend.read_status()
 
 
 if __name__ == "__main__":

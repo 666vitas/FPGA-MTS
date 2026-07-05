@@ -333,7 +333,7 @@ class MainWindow(QMainWindow):
             "IN1 = PD/MTS after analog BPF + amplifier, < +/-1 V\n"
             "IN2 = 4.6 MHz REF, < +/-1 V\n"
             "OUT1 = FPGA laser_error -> oscilloscope\n"
-            "OUT2 = FPGA laser_control -> oscilloscope only\n"
+            "OUT2 = selected_out2 (SAFE/SCAN from custom_register_bank + ramp_generator) -> oscilloscope only\n"
             "Do not connect OUT2 to laser scan/PZT or D2-125 yet."
         )
         wiring.setWordWrap(True)
@@ -383,9 +383,9 @@ class MainWindow(QMainWindow):
         form = QFormLayout()
         self._configure_form(form)
         self.custom_base_addr_edit = QLineEdit("0x40600000")
-        self.custom_offset_v = self._custom_double_spin(0.85, -1.0, 1.0, 4, " V")
+        self.custom_offset_v = self._custom_double_spin(0.0, -1.0, 1.0, 4, " V")
         self.custom_amp_v = self._custom_double_spin(0.05, 0.0, 1.0, 4, " V")
-        self.custom_freq_hz = self._custom_double_spin(50.0, 0.001, 100000.0, 3, " Hz")
+        self.custom_freq_hz = self._custom_double_spin(10.0, 0.001, 100000.0, 3, " Hz")
         self.custom_step_counts = QSpinBox()
         self.custom_step_counts.setRange(1, 8191)
         self.custom_step_counts.setValue(1)
@@ -482,7 +482,7 @@ class MainWindow(QMainWindow):
         mapping = QLabel(
             "D2-125 Ramp -> future FPGA scan generator / current Official SCPI OUT2 Safe Scan\n"
             "D2-125 Error Input -> FPGA mixer + LPF -> laser_error\n"
-            "D2-125 Servo Output -> FPGA laser_control / OUT2\n"
+            "D2-125 Servo Output -> future lock controller; current OUT2 is selected_out2 SAFE/SCAN\n"
             "D2-125 Lock/Scan switch -> future FPGA FSM + host workflow\n"
             "D2-125 Relock / Lock Quality -> future host judgment + FPGA state machine"
         )
@@ -532,6 +532,14 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(group)
         layout.setContentsMargins(10, 18, 10, 10)
         layout.setSpacing(8)
+        boundary_note = QLabel(
+            "SCPI Output Control is only for official ASG/overlay testing. "
+            "For the current custom FPGA bitstream, use Custom FPGA Observe -> "
+            "Custom FPGA Control -> SCAN."
+        )
+        boundary_note.setWordWrap(True)
+        boundary_note.setStyleSheet("color: #9a5b00; font-weight: 600;")
+        layout.addWidget(boundary_note)
         self.out1 = self._build_output_control("OUT1", 1, "sine", 1000.0)
         self.out2 = self._build_output_control("OUT2", 2, "triangle", 50.0)
         tabs = QTabWidget()
@@ -947,7 +955,7 @@ class MainWindow(QMainWindow):
     def apply_output(self, channel: int, control: OutputControl) -> None:
         if not self._official_mode() and not isinstance(self.client, MockRedPitayaClient):
             self.statusBar().showMessage(
-                "Custom FPGA Mode: OUT1/OUT2 are laser_error/laser_control, not SCPI ASG"
+                "Custom FPGA Mode: OUT2 is selected_out2 SAFE/SCAN, not SCPI ASG"
             )
             return
         try:
@@ -1269,7 +1277,7 @@ class MainWindow(QMainWindow):
             self.ch4.set_warning("Official SCPI ASG preview, not measured")
         else:
             self.ch3.set_warning("Custom FPGA Mode: OUT1 is laser_error, not SCPI ASG")
-            self.ch4.set_warning("Custom FPGA Mode: OUT2 is laser_control, scope-only")
+            self.ch4.set_warning("Custom FPGA Mode: OUT2 is selected_out2 SAFE/SCAN triangle, scope-only")
 
     def _observe_measurements(self) -> CustomFpgaMeasurements:
         return CustomFpgaMeasurements(
@@ -1394,17 +1402,23 @@ class MainWindow(QMainWindow):
             self.mode_explain_label.setText(
                 "Official SCPI Mode: start redpitaya_scpi if needed, connect to port 5000, "
                 "control official ASG OUT1/OUT2, and acquire IN1/IN2. Starting SCPI may "
-                "load official v0.94 overlay and overwrite the custom FPGA bitstream."
+                "load official v0.94 overlay and overwrite the custom FPGA bitstream. "
+                "Official SCPI Mode controls the official ASG. If a custom FPGA bitstream "
+                "with USE_LASER_LOCK_CORE=1 is loaded, SCPI OUT2 commands may succeed but "
+                "will not drive physical OUT2 because OUT2 is routed to selected_out2."
             )
             self.ch3.subtitle_label.setText("official ASG generated preview, not measured")
             self.ch4.subtitle_label.setText("official ASG generated preview, not measured")
         else:
             self.mode_explain_label.setText(
-                "Custom FPGA Mode: do not start redpitaya_scpi overlay. Current RTL routes "
-                "OUT1=laser_error and OUT2=laser_control. SCPI ASG output control is disabled."
+                "Custom FPGA Mode: do not start redpitaya_scpi overlay. "
+                "OUT1=laser_error (mixer+LPF). OUT2=selected_out2 from register-controlled "
+                "SAFE/SCAN. Use Custom FPGA Observe -> Probe Registers -> Status -> SAFE/SCAN "
+                "to control OUT2. SCPI ASG output commands do not drive physical OUT2 in the "
+                "current custom bitstream."
             )
             self.ch3.subtitle_label.setText("Custom FPGA OUT1 = laser_error; not ADC measured")
-            self.ch4.subtitle_label.setText("Custom FPGA OUT2 = laser_control; scope-only")
+            self.ch4.subtitle_label.setText("Custom FPGA OUT2 = selected_out2 SAFE/SCAN; scope-only")
         self._set_connected_state(self.client is not None and self.client.connected)
         self._redraw_from_last_waveforms()
 
@@ -1424,7 +1438,7 @@ class MainWindow(QMainWindow):
             ),
             "3. Control Output Observe": (
                 "Wiring: OUT2 -> oscilloscope only.\n"
-                "Scope: FPGA laser_control on OUT2.\n"
+                "Scope: selected_out2 SAFE/SCAN triangle on OUT2.\n"
                 "Pass: OUT2 within safe limit and not rapidly climbing/jumping. Stop: OUT2 near +/-1 V.\n"
                 "Next: Direction / Polarity Check."
             ),

@@ -1,5 +1,22 @@
 # FPGA Mode Boundary
 
+## 2026-07-05 OUT2 Path Boundary
+
+The current v3REG-0 custom RTL routes physical OUT2 to `selected_out2`, not to `laser_control`.
+
+Two GUI paths must stay separate:
+
+```text
+A. Official SCPI Mode -> redpitaya_scpi -> official ASG -> OUT1/OUT2
+   Use only with the official overlay/ASG test path.
+
+B. Custom FPGA Mode -> SSH + /dev/mem -> custom_register_bank
+   -> ramp_generator -> selected_out2 -> physical OUT2
+   Use Custom FPGA Observe -> Probe Registers -> Status -> SAFE/SCAN.
+```
+
+When `USE_LASER_LOCK_CORE=1` custom RTL is loaded, official SCPI ASG OUT2 commands may succeed but do not drive physical OUT2.
+
 ## 2026-07-01 Aux/PZT 边界补充
 
 最新 D2-125 Aux Output / Scan-PZT 数据说明，Aux Output 在 Ramp 状态约为：
@@ -60,17 +77,17 @@ localparam int   LASER_LOCK_OUTPUT_MODE = 3;
 localparam int   LASER_LOCK_CONTROL_PATH_MODE = 1;
 ```
 
-With `USE_LASER_LOCK_CORE = 1`:
+With `USE_LASER_LOCK_CORE = 1` in the current v3REG-0 routing:
 
 - OUT1 / DAC A = `laser_error`
-- OUT2 / DAC B = `laser_control`
+- OUT2 / DAC B = `selected_out2` from `custom_register_bank` SAFE/SCAN and `ramp_generator`
 - official `asg_dat[0]` and `asg_dat[1]` no longer directly drive OUT1/OUT2
 
 The custom FPGA signal chain is:
 
 ```text
-IN1 + IN2 -> mixer_core -> lpf_core -> output_protect -> OUT1 error
-same protected_error -> shadow/sequential PI candidate -> OUT2 control
+IN1 + IN2 -> mixer_core -> lpf_core -> output_protect -> OUT1 laser_error
+SSH /dev/mem -> custom_register_bank -> ramp_generator -> selected_out2 -> OUT2
 ```
 
 ## Hardware Safety Boundary
@@ -91,6 +108,8 @@ Official SCPI Mode is different. It starts or connects to `redpitaya_scpi`, then
 
 Starting `redpitaya_scpi` may execute the official v0.94 overlay path and may overwrite the currently loaded custom FPGA bitstream.
 
+If a custom FPGA bitstream with `USE_LASER_LOCK_CORE=1` is loaded, SCPI OUT2 commands can still succeed at the protocol level but will not drive physical OUT2, because physical OUT2 is routed to `selected_out2`.
+
 ## Custom FPGA Mode
 
 Custom FPGA Mode means the current custom bitstream is treated as loaded and should not be disturbed by starting official SCPI overlay services.
@@ -98,9 +117,9 @@ Custom FPGA Mode means the current custom bitstream is treated as loaded and sho
 In this mode:
 
 - OUT1 is the FPGA `laser_error`, not SCPI ASG OUT1.
-- OUT2 is the FPGA `laser_control`, not SCPI ASG OUT2.
-- The V2 host app does not currently change custom FPGA parameters.
-- Future host control requires RTL support such as `register_bank`, `debug_buffer`, or AXI registers.
+- OUT2 is `selected_out2` from register-controlled SAFE/SCAN, not SCPI ASG OUT2.
+- The V2 host app Custom FPGA Control writes the SAFE/SCAN register bank through SSH `/dev/mem`.
+- Probe Registers and Status are read-only. SAFE and SCAN require `MAGIC = 0x4D545330` before writing.
 - Custom FPGA Observe Mode only records manual oscilloscope readings and safety judgments. It does not read internal FPGA mixer/LPF/error snapshots.
 - Lock Workflow Mode is a process checklist for the D2-125 replacement path, not an implemented lock controller.
 

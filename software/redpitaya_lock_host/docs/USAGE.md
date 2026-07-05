@@ -19,7 +19,7 @@ Set-Location E:\new\fpga_lock\v94\software\redpitaya_lock_host
 ## GUI Modes
 
 - Hardware Bring-up: Official SCPI Mode, Probe, Start SCPI Server, Connect SCPI, OUT2 Safe Scan, and IN1/IN2 acquisition.
-- Custom FPGA Observe: manual oscilloscope readings for IN1 PD/MTS, IN2 REF, OUT1 laser_error, and OUT2 laser_control. OUT2 remains scope-only.
+- Custom FPGA Observe: manual oscilloscope readings for IN1 PD/MTS, IN2 REF, OUT1 laser_error, and OUT2 selected_out2 SAFE/SCAN from the register-controlled custom FPGA path. OUT2 remains scope-only.
 - Lock Workflow: D2-125 replacement checklist for input safety, error observation, control observation, polarity, gain/limit, and future lock/relock steps.
 - Data Log: export Markdown experiment logs to `docs/experiment_logs/`.
 

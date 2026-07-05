@@ -143,14 +143,14 @@ Use this only after the timing-pass custom bitstream has been programmed into th
 4. Click `Probe Registers`.
 5. Click `Status` and confirm `MAGIC = 0x4D545330`.
 6. Click `SAFE`.
-7. With OUT2 connected only to the oscilloscope, use the defaults `offset-v=0.85`, `amp-v=0.05`, `freq-hz=50`, `step-counts=1`, `limit-counts=8191`, then click `SCAN`.
+7. With OUT2 connected only to the oscilloscope, use the defaults `offset-v=0.0000`, `amp-v=0.0500`, `freq-hz=10.000`, `step-counts=1`, `limit-counts=8191`, then click `SCAN`.
 
 If `MAGIC = 0x00000000`, the GUI treats SAFE/SCAN as blocked. It means no `custom_register_bank` was read; possible causes are no Program Device, an old bit file, a wrong base address, or needing to reload the timing-pass bitstream. Run `Probe Registers` again after fixing the bitstream/base address.
 
 ## GUI Modes
 
-- Hardware Bring-up / SCPI Mode: Probe, Start SCPI Server, Connect SCPI, OUT2 Safe Scan, IN1/IN2 acquisition, and Stop/Disable outputs.
-- Custom FPGA Observe Mode: Custom FPGA Control v1 for Probe Registers, Status, SAFE, and SCAN through SSH `/dev/mem`, plus manual oscilloscope readings for real wiring: IN1 PD/MTS, IN2 REF, OUT1 laser_error, and OUT2 laser_control. OUT2 is scope-only at the current stage.
+- Hardware Bring-up / SCPI Mode: Probe, Start SCPI Server, Connect SCPI, official ASG OUT2 Safe Scan, IN1/IN2 acquisition, and Stop/Disable outputs. This path is only for official overlay/ASG testing.
+- Custom FPGA Observe Mode: Custom FPGA Control v1 for Probe Registers, Status, SAFE, and SCAN through SSH `/dev/mem`, plus manual oscilloscope readings for real wiring: IN1 PD/MTS, IN2 REF, OUT1 laser_error, and OUT2 selected_out2 SAFE/SCAN. OUT2 is scope-only at the current stage.
 - Lock Workflow Mode: step-by-step D2-125 replacement workflow management. It does not pretend to lock automatically.
 - Data & Experiment Log: exports Markdown experiment logs to `docs/experiment_logs/`.
 
@@ -177,16 +177,17 @@ Real OUT2 must still be verified on an oscilloscope, or by a safe physical loopb
 
 Official SCPI Mode:
 
-- Controls OUT1/OUT2 waveforms through `redpitaya_scpi`.
+- Controls official ASG OUT1/OUT2 waveforms through `redpitaya_scpi`.
 - Can acquire IN1/IN2.
 - Starting `redpitaya_scpi` may load the official v0.94 overlay.
 - Starting `redpitaya_scpi` may overwrite the currently loaded custom FPGA bitstream.
+- If a custom FPGA bitstream with `USE_LASER_LOCK_CORE=1` is loaded, SCPI OUT2 commands may succeed but will not drive physical OUT2 because OUT2 is routed to `selected_out2`.
 
 Custom FPGA Mode:
 
 - OUT1/OUT2 are driven by custom FPGA RTL outputs.
 - OUT1 usually corresponds to `laser_error`.
-- OUT2 usually corresponds to `laser_control`.
+- OUT2 is `selected_out2`: `/dev/mem` -> `custom_register_bank` -> `ramp_generator` -> SAFE/SCAN triangle -> physical OUT2.
 - OUT1/OUT2 are not controlled by the official SCPI ASG in this mode.
 - Reading the FPGA internal `error_internal` signal requires a later RTL debug buffer, register interface, or AXI readout path.
 - The host app currently cannot set FPGA PI parameters or read internal mixer/LPF/error snapshots.
