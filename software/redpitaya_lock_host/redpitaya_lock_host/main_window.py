@@ -44,7 +44,11 @@ from .connection_workers import (
     ProbeWorker,
     StartScpiServerWorker,
 )
-from .custom_fpga_backend import EXPECTED_MAGIC, missing_magic_guidance
+from .custom_fpga_backend import (
+    EXPECTED_MAGIC,
+    missing_magic_guidance,
+    status_payload_has_expected_magic,
+)
 from .custom_fpga_workflow import CustomFpgaMeasurements, analyze_custom_fpga_measurements
 from .data_logger import save_plot_png, save_waveforms_csv, timestamped_name
 from .mock_client import MockRedPitayaClient
@@ -895,6 +899,23 @@ class MainWindow(QMainWindow):
             return
 
         magic = str(payload.get("magic", "--"))
+        if not status_payload_has_expected_magic(payload):
+            self.custom_register_summary.setText(
+                f"custom_register_bank not found | MAGIC {magic} | SAFE/SCAN blocked"
+            )
+            lines = [
+                "custom_register_bank not found.",
+                "The FPGA bitstream may not include the register bank, or the base address is wrong.",
+                "Please verify Vivado sources_1, top-level instantiation, PS-PL bus connection, and BASE_ADDR.",
+                "",
+                missing_magic_guidance(magic),
+            ]
+            if stderr.strip():
+                lines.append("")
+                lines.append(stderr.strip())
+            self.custom_warning_text.setPlainText("\n".join(lines))
+            return
+
         version = str(payload.get("version", "--"))
         mode = payload.get("mode", "--")
         enable = payload.get("enable", "--")
@@ -918,9 +939,6 @@ class MainWindow(QMainWindow):
             f"STATUS: {status}",
             f"OUT2: {out2_counts} counts / {out2_volts_text}",
         ]
-        if magic != f"0x{EXPECTED_MAGIC:08X}":
-            lines.append("")
-            lines.append(missing_magic_guidance(magic))
         if stderr.strip():
             lines.append("")
             lines.append(stderr.strip())

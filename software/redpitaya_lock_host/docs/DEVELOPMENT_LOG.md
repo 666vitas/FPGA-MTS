@@ -1,5 +1,13 @@
 # Development Log
 
+## 2026-07-05 - Custom FPGA missing-register GUI status guard
+
+- Implemented a GUI/status guard so `MAGIC != 0x4D545330` renders `custom_register_bank not found` instead of fake zero register state.
+- Python files changed: `redpitaya_lock_host/custom_fpga_backend.py`, `redpitaya_lock_host/main_window.py`, `tests/test_custom_fpga_backend.py`.
+- Verification: `python -m pytest tests\test_custom_fpga_backend.py`; `python -m py_compile redpitaya_lock_host\custom_fpga_backend.py redpitaya_lock_host\main_window.py`.
+- Modified RTL: no.
+- Generated bitstream: no.
+
 ## 2026-07-05 - GUI Custom FPGA Control v1
 
 - Implemented first GUI Custom FPGA Control panel in Custom FPGA Mode.

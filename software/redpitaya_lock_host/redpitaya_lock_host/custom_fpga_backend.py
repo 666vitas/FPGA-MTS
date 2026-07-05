@@ -99,6 +99,11 @@ def missing_magic_guidance(magic_text: str) -> str:
     )
 
 
+def status_payload_has_expected_magic(payload: dict[str, Any]) -> bool:
+    magic = str(payload.get("magic", "")).strip()
+    return magic.upper() == f"0X{EXPECTED_MAGIC:08X}"
+
+
 def _load_scan_script_module():
     script_path = Path(__file__).resolve().parents[1] / "scripts" / "custom_fpga_scan_control.py"
     spec = importlib.util.spec_from_file_location("_custom_fpga_scan_control", script_path)
