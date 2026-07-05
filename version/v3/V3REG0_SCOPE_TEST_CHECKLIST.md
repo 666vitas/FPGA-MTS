@@ -38,6 +38,16 @@ Failing Endpoints = 0
 
 如果 timing 不通过，停止，不生成可上板 bitstream。
 
+Timing clean 后必须先：
+
+```text
+Generate Bitstream
+-> 将 timing-clean bitstream 加载/烧录到 Red Pitaya FPGA
+-> 烧录完成后再运行上位机脚本
+```
+
+`custom_fpga_scan_control.py` 只读写已经加载进 FPGA 的 `custom_register_bank`，不能替代 bitstream 烧录。Red Pitaya 网页界面不是本阶段必需条件；VPN 可能影响网页、`.local` 或 SSH。实验时建议关闭 VPN，或直接使用板子的实际 IP。
+
 ## 3. 烧录后第一步
 
 烧录后不要先开 SCAN，先只读 status：

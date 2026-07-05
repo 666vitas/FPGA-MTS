@@ -245,11 +245,18 @@ def remote_command(args: argparse.Namespace, op: str, config: ScanConfig | None)
         "exec(compile(code, 'rp_custom_fpga_regs.py', 'exec'))"
     )
     target = f"{args.user}@{args.host}" if args.user else args.host
-    return ["ssh", target, "python3", "-c", remote_python]
+    remote_cmd = "python3 -c " + shlex.quote(remote_python)
+    return ["ssh", target, remote_cmd]
+
+
+def quote_powershell_arg(value: str) -> str:
+    if value and all(ch.isalnum() or ch in "-_./:@\\" for ch in value):
+        return value
+    return "'" + value.replace("'", "''") + "'"
 
 
 def print_command(command: list[str]) -> None:
-    print(" ".join(shlex.quote(part) for part in command))
+    print(" ".join(quote_powershell_arg(part) for part in command))
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

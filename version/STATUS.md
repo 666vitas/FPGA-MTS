@@ -12,6 +12,19 @@ laser_control / pi_controller_seq = 后续候选，不是当前 OUT2 输出
 
 本阶段只允许 OUT2 接示波器；不接 Scan/PZT，不接激光器，不声称已经闭环锁定。
 
+## 2026-07-05 v3REG-0 host SSH quoting 与烧录顺序 SOP 已修正
+
+`custom_fpga_scan_control.py` 已修复 Windows PowerShell -> SSH -> remote bash 的 `python3 -c` quoting，避免远端 bash 误解析 Python 代码。
+实验顺序明确为：先 Generate Bitstream 并把 timing-clean bitstream 加载/烧录进 Red Pitaya FPGA，再运行上位机脚本。
+Red Pitaya 网页界面不是本阶段必需条件；VPN 可能影响网页、`.local` 或 SSH，建议关闭 VPN 或使用板子实际 IP。
+烧录后第一步仍是 `status`，必须读到 `MAGIC=0x4D545330`；之后才允许 `safe` / `scan`，且 OUT2 仍只接示波器。
+
+## 2026-07-05 v3REG0_TIMING_FIX_2 用户手动 Vivado implementation timing PASS
+
+用户手动 Vivado implementation 已通过：`WNS = +0.322 ns`，`TNS = 0.000 ns`，`Failing Endpoints = 0`。
+允许进入 Generate Bitstream；仍只允许 OUT2 示波器 SAFE/SCAN 验证。
+禁止接 Scan/PZT、激光器、D2-125 Servo Output、D2-125 Aux Output。
+
 ## 2026-07-05 v3REG0_TIMING_FIX_2 已拆分 ramp_generator 三角波更新路径
 
 用户手动 Vivado 仍剩 1 条 setup fail：`step_q_reg[5]/C -> direction_up_q_reg/D`，WNS/TNS 均为 `-0.085 ns`。

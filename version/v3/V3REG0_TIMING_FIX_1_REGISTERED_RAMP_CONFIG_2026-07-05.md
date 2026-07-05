@@ -156,3 +156,15 @@ xvlog -sv rtl/ramp_generator.sv
 ```
 
 结果：0 error。未运行 Vivado synthesis / implementation，未生成 bitstream，未烧录 Red Pitaya。
+
+## v3REG0_TIMING_FIX_2 用户手动 Vivado timing PASS
+
+用户手动 Vivado implementation timing 已通过：
+
+```text
+WNS = +0.322 ns
+TNS = 0.000 ns
+Failing Endpoints = 0
+```
+
+允许进入 Generate Bitstream。后续仍只允许 OUT2 接示波器，执行 SAFE/SCAN 验证；禁止接 Scan/PZT、激光器、D2-125 Servo Output、D2-125 Aux Output。
