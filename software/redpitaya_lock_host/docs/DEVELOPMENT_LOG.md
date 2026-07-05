@@ -1,5 +1,15 @@
 # Development Log
 
+## 2026-07-05 - GUI Custom FPGA Control v1
+
+- Implemented first GUI Custom FPGA Control panel in Custom FPGA Mode.
+- Added SSH + `/dev/mem` register operations for Probe Registers, Status, SAFE, and SCAN without starting `redpitaya_scpi`.
+- Python files changed: `redpitaya_lock_host/custom_fpga_backend.py`, `redpitaya_lock_host/connection_workers.py`, `redpitaya_lock_host/main_window.py`.
+- Verification: `python -m py_compile` passed for `custom_fpga_backend.py`, `connection_workers.py`, `main_window.py`, and `scripts/custom_fpga_scan_control.py`.
+- GUI run path: `.\run.bat`, then Custom FPGA Mode -> Probe Registers -> Status -> SAFE -> SCAN.
+- Modified RTL: no.
+- Generated bitstream: no.
+
 ## 2026-06-30 - Four-mode GUI workflow structure
 
 - Reorganized the host GUI around four mode pages:

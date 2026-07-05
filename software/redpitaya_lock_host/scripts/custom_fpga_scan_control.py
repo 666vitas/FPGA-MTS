@@ -59,6 +59,16 @@ REGISTERS = {
 }
 
 EXPECTED_MAGIC = 0x4D545330
+PROBE_BASE_ADDRS = [
+    0x40000000,
+    0x40100000,
+    0x40200000,
+    0x40300000,
+    0x40400000,
+    0x40500000,
+    0x40600000,
+    0x40700000,
+]
 
 
 def to_signed14(value):
@@ -130,12 +140,31 @@ def require_magic(regs):
     raise SystemExit(2)
 
 
+def warn_missing_magic(magic):
+    if magic == EXPECTED_MAGIC:
+        return
+    print(
+        "WARNING: SSH connected and /dev/mem read completed, but custom_register_bank was not found.\n"
+        f"  actual magic:   0x{magic:08X}\n"
+        f"  expected magic: 0x{EXPECTED_MAGIC:08X}\n"
+        "Do not run safe or scan yet.\n"
+        "Possible causes:\n"
+        "  - bitstream was not actually loaded\n"
+        "  - an old bit file was loaded\n"
+        "  - FPGA configuration was lost after Program Device or board reboot\n"
+        "  - base address is different; run probe",
+        file=sys.stderr,
+    )
+
+
 def read_status(regs):
+    magic = regs.read(REGISTERS["MAGIC"])
+    version = regs.read(REGISTERS["VERSION"])
     status = regs.read(REGISTERS["STATUS"])
     out2_raw = regs.read(REGISTERS["OUT2_MONITOR"])
     return {
-        "magic": f"0x{regs.read(REGISTERS['MAGIC']):08X}",
-        "version": f"0x{regs.read(REGISTERS['VERSION']):08X}",
+        "magic": f"0x{magic:08X}",
+        "version": f"0x{version:08X}",
         "mode": regs.read(REGISTERS["MODE"]),
         "enable": regs.read(REGISTERS["ENABLE"]) & 1,
         "status_raw": f"0x{status:08X}",
@@ -146,16 +175,54 @@ def read_status(regs):
     }
 
 
+def probe_base_addresses():
+    results = []
+    found_base = None
+    for base_addr in PROBE_BASE_ADDRS:
+        item = {"base_addr": f"0x{base_addr:08X}"}
+        try:
+            regs = RegisterWindow(base_addr)
+            try:
+                magic = regs.read(REGISTERS["MAGIC"])
+                version = regs.read(REGISTERS["VERSION"])
+            finally:
+                regs.close()
+            item["magic"] = f"0x{magic:08X}"
+            item["version"] = f"0x{version:08X}"
+            item["match"] = magic == EXPECTED_MAGIC
+            if magic == EXPECTED_MAGIC and found_base is None:
+                found_base = base_addr
+        except Exception as exc:
+            item["error"] = str(exc)
+            item["match"] = False
+        results.append(item)
+
+    message = "custom_register_bank not found; reload the current timing-clean bitstream or check the base address."
+    if found_base is not None:
+        message = f"custom_register_bank found; use --base-addr 0x{found_base:08X}"
+
+    return {
+        "expected_magic": f"0x{EXPECTED_MAGIC:08X}",
+        "found_base_addr": None if found_base is None else f"0x{found_base:08X}",
+        "message": message,
+        "probes": results,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-addr", default="0x40600000")
-    parser.add_argument("--op", choices=["safe", "scan", "status"], required=True)
+    parser.add_argument("--op", choices=["safe", "scan", "status", "probe"], required=True)
     parser.add_argument("--offset-counts", type=int, default=6962)
     parser.add_argument("--amp-counts", type=int, default=410)
     parser.add_argument("--step-counts", type=int, default=1)
     parser.add_argument("--update-div", type=int, default=1524)
     parser.add_argument("--limit-counts", type=int, default=8191)
     args = parser.parse_args()
+
+    if args.op == "probe":
+        print(json.dumps(probe_base_addresses(), indent=2, sort_keys=True))
+        return
 
     regs = RegisterWindow(int(args.base_addr, 0))
     try:
@@ -173,7 +240,10 @@ def main():
             regs.write(REGISTERS["OUT2_LIMIT"], args.limit_counts)
             regs.write(REGISTERS["MODE"], 1)
             regs.write(REGISTERS["ENABLE"], 1)
-        print(json.dumps(read_status(regs), indent=2, sort_keys=True))
+        status = read_status(regs)
+        if args.op == "status":
+            warn_missing_magic(int(status["magic"], 16))
+        print(json.dumps(status, indent=2, sort_keys=True))
     finally:
         regs.close()
 
@@ -280,6 +350,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     scan_parser.add_argument("--limit-counts", type=int, default=8191)
 
     subparsers.add_parser("status", help="Read magic/version/status/out2 monitor")
+    subparsers.add_parser("probe", help="Read magic/version at candidate GP0 base addresses")
     return parser.parse_args(argv)
 
 

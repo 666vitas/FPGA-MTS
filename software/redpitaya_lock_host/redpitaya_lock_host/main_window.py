@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QSplitter,
     QStatusBar,
     QTabWidget,
@@ -38,10 +39,12 @@ from .acquisition_worker import AcquisitionWorker
 from .connection_probe import ProbeResult
 from .connection_workers import (
     ConnectScpiWorker,
+    CustomFpgaRegisterWorker,
     DisconnectWorker,
     ProbeWorker,
     StartScpiServerWorker,
 )
+from .custom_fpga_backend import EXPECTED_MAGIC, missing_magic_guidance
 from .custom_fpga_workflow import CustomFpgaMeasurements, analyze_custom_fpga_measurements
 from .data_logger import save_plot_png, save_waveforms_csv, timestamped_name
 from .mock_client import MockRedPitayaClient
@@ -84,6 +87,7 @@ SCPI_STARTING = "SCPI_STARTING"
 SCPI_READY = "SCPI_READY"
 SCPI_CONNECTED = "SCPI_CONNECTED"
 ACQUIRING = "ACQUIRING"
+CUSTOM_FPGA_BUSY = "CUSTOM_FPGA_BUSY"
 ERROR = "ERROR"
 
 
@@ -148,7 +152,14 @@ class MainWindow(QMainWindow):
         self.last_probe: ProbeResult | None = None
         self.last_waveforms = self._empty_waveforms()
         self.connection_state = DISCONNECTED
-        self.worker: ProbeWorker | StartScpiServerWorker | ConnectScpiWorker | DisconnectWorker | None = None
+        self.worker: (
+            ProbeWorker
+            | StartScpiServerWorker
+            | ConnectScpiWorker
+            | DisconnectWorker
+            | CustomFpgaRegisterWorker
+            | None
+        ) = None
         self.current_sample_rate = 125e6 / 1024
         self._last_frame_time: float | None = None
         self._safe_shutdown_registered = False
@@ -323,6 +334,7 @@ class MainWindow(QMainWindow):
         )
         wiring.setWordWrap(True)
         layout.addWidget(wiring)
+        layout.addWidget(self._custom_fpga_control_group())
 
         group = QGroupBox("Manual Oscilloscope Readings")
         form = QFormLayout(group)
@@ -357,6 +369,91 @@ class MainWindow(QMainWindow):
         layout.addWidget(group)
         layout.addStretch(1)
         return page
+
+    def _custom_fpga_control_group(self) -> QGroupBox:
+        group = QGroupBox("Custom FPGA Control")
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(10, 18, 10, 10)
+        layout.setSpacing(8)
+
+        form = QFormLayout()
+        self._configure_form(form)
+        self.custom_base_addr_edit = QLineEdit("0x40600000")
+        self.custom_offset_v = self._custom_double_spin(0.85, -1.0, 1.0, 4, " V")
+        self.custom_amp_v = self._custom_double_spin(0.05, 0.0, 1.0, 4, " V")
+        self.custom_freq_hz = self._custom_double_spin(50.0, 0.001, 100000.0, 3, " Hz")
+        self.custom_step_counts = QSpinBox()
+        self.custom_step_counts.setRange(1, 8191)
+        self.custom_step_counts.setValue(1)
+        self.custom_limit_counts = QSpinBox()
+        self.custom_limit_counts.setRange(0, 8191)
+        self.custom_limit_counts.setValue(8191)
+        for widget in (
+            self.custom_base_addr_edit,
+            self.custom_offset_v,
+            self.custom_amp_v,
+            self.custom_freq_hz,
+            self.custom_step_counts,
+            self.custom_limit_counts,
+        ):
+            self._style_field(widget)
+        form.addRow("base address", self.custom_base_addr_edit)
+        form.addRow("offset-v", self.custom_offset_v)
+        form.addRow("amp-v", self.custom_amp_v)
+        form.addRow("freq-hz", self.custom_freq_hz)
+        form.addRow("step-counts", self.custom_step_counts)
+        form.addRow("limit-counts", self.custom_limit_counts)
+
+        buttons = QGridLayout()
+        buttons.setHorizontalSpacing(8)
+        buttons.setVerticalSpacing(6)
+        self.custom_probe_button = QPushButton("Probe Registers")
+        self.custom_status_button = QPushButton("Status")
+        self.custom_safe_button = QPushButton("SAFE")
+        self.custom_scan_button = QPushButton("SCAN")
+        for button in (
+            self.custom_probe_button,
+            self.custom_status_button,
+            self.custom_safe_button,
+            self.custom_scan_button,
+        ):
+            self._style_button(button)
+        buttons.addWidget(self.custom_probe_button, 0, 0)
+        buttons.addWidget(self.custom_status_button, 0, 1)
+        buttons.addWidget(self.custom_safe_button, 1, 0)
+        buttons.addWidget(self.custom_scan_button, 1, 1)
+
+        self.custom_register_summary = QLabel(
+            "MAGIC -- | VERSION -- | MODE -- | ENABLE -- | STATUS -- | OUT2 --"
+        )
+        self.custom_register_summary.setWordWrap(True)
+        self.custom_register_summary.setStyleSheet("font-weight: 600;")
+        self.custom_warning_text = QTextEdit()
+        self.custom_warning_text.setReadOnly(True)
+        self.custom_warning_text.setMinimumHeight(90)
+        self.custom_warning_text.setPlainText("Probe or Status reads registers only. SAFE/SCAN require MAGIC=0x4D545330.")
+
+        layout.addLayout(form)
+        layout.addLayout(buttons)
+        layout.addWidget(self.custom_register_summary)
+        layout.addWidget(self.custom_warning_text)
+        return group
+
+    def _custom_double_spin(
+        self,
+        value: float,
+        minimum: float,
+        maximum: float,
+        decimals: int,
+        suffix: str,
+    ) -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setRange(minimum, maximum)
+        spin.setDecimals(decimals)
+        spin.setSingleStep(0.01)
+        spin.setValue(value)
+        spin.setSuffix(suffix)
+        return spin
 
     def _lock_workflow_page(self) -> QWidget:
         page = QWidget()
@@ -580,6 +677,10 @@ class MainWindow(QMainWindow):
         self.disconnect_button.clicked.connect(self.disconnect_from_device)
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
         self.app_mode_tabs.currentChanged.connect(self._on_app_mode_tab_changed)
+        self.custom_probe_button.clicked.connect(lambda: self._start_custom_fpga_operation("probe"))
+        self.custom_status_button.clicked.connect(lambda: self._start_custom_fpga_operation("status"))
+        self.custom_safe_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
+        self.custom_scan_button.clicked.connect(lambda: self._start_custom_fpga_operation("scan"))
         self.obs_analyze_button.clicked.connect(self._analyze_observe_readings)
         self.lock_step_combo.currentTextChanged.connect(self._update_lock_step_detail)
         self.export_experiment_log_button.clicked.connect(self.export_experiment_log)
@@ -696,6 +797,134 @@ class MainWindow(QMainWindow):
         worker.failed.connect(self._on_disconnect_failed)
         worker.finished.connect(self._clear_worker)
         worker.start()
+
+    def _start_custom_fpga_operation(self, operation: str) -> None:
+        if self._official_mode():
+            self.mode_combo.setCurrentText("Custom FPGA Mode")
+        try:
+            base_addr = int(self.custom_base_addr_edit.text().strip(), 0)
+        except ValueError:
+            self.statusBar().showMessage("Invalid Custom FPGA base address")
+            return
+        params = {}
+        if operation == "scan":
+            params = {
+                "offset_v": self.custom_offset_v.value(),
+                "amp_v": self.custom_amp_v.value(),
+                "freq_hz": self.custom_freq_hz.value(),
+                "step_counts": self.custom_step_counts.value(),
+                "limit_counts": self.custom_limit_counts.value(),
+            }
+        target = self._target_host()
+        user = self.ssh_user_edit.text().strip() or "root"
+        password = self.ssh_password_edit.text()
+        message = f"Custom FPGA {operation}: SSH /dev/mem on {target}, base=0x{base_addr:08X}"
+        self.statusBar().showMessage(message)
+        self._append_connection_log(message)
+        self.custom_warning_text.setPlainText(message)
+        self._set_connection_state(CUSTOM_FPGA_BUSY)
+        worker = CustomFpgaRegisterWorker(
+            operation,
+            target,
+            user,
+            password,
+            base_addr,
+            params,
+            self,
+        )
+        self.worker = worker
+        worker.finished_ok.connect(self._on_custom_fpga_finished)
+        worker.failed.connect(self._on_custom_fpga_failed)
+        worker.finished.connect(self._clear_worker)
+        worker.start()
+
+    def _on_custom_fpga_finished(self, result: object) -> None:
+        data = dict(result)
+        operation = str(data.get("operation", "custom"))
+        payload = data.get("payload", {})
+        if not isinstance(payload, dict):
+            payload = {}
+        self._render_custom_fpga_payload(operation, payload, str(data.get("stderr", "")))
+        message = f"Custom FPGA {operation} complete"
+        self.statusBar().showMessage(message)
+        self._append_connection_log(message)
+        self._restore_after_custom_fpga_operation()
+
+    def _on_custom_fpga_failed(self, text: str) -> None:
+        self._set_connection_state(ERROR)
+        guidance = text
+        if "actual magic:   0x00000000" in text:
+            guidance = (
+                f"{text}\n\n"
+                "GUI guidance: no custom_register_bank was read. Possible causes:\n"
+                "- no Program Device / FPGA not loaded\n"
+                "- old bit file is loaded\n"
+                "- base address is wrong\n"
+                "- reload the timing-pass bitstream, then Probe again"
+            )
+        self.custom_warning_text.setPlainText(guidance)
+        self.statusBar().showMessage(f"Custom FPGA error: {text.splitlines()[0] if text else 'unknown'}")
+        self._append_connection_log(f"Custom FPGA error: {text}")
+
+    def _restore_after_custom_fpga_operation(self) -> None:
+        if self.last_probe is not None and self.last_probe.port_5000 and self._official_mode():
+            self._set_connection_state(SCPI_READY)
+        elif self.last_probe is not None and self.last_probe.port_22:
+            self._set_connection_state(SSH_AVAILABLE)
+        else:
+            self._set_connection_state(DISCONNECTED)
+
+    def _render_custom_fpga_payload(self, operation: str, payload: dict[str, Any], stderr: str) -> None:
+        if operation == "probe":
+            found = payload.get("found_base_addr") or "--"
+            lines = [
+                f"Probe Registers: expected MAGIC 0x{EXPECTED_MAGIC:08X}",
+                f"found_base_addr: {found}",
+                str(payload.get("message", "")),
+            ]
+            for item in payload.get("probes", []):
+                if isinstance(item, dict):
+                    lines.append(
+                        f"{item.get('base_addr', '--')}: magic {item.get('magic', '--')} "
+                        f"version {item.get('version', '--')} match {item.get('match', False)}"
+                    )
+            self.custom_register_summary.setText(
+                f"MAGIC probe | VERSION probe | MODE -- | ENABLE -- | STATUS -- | OUT2 -- | found {found}"
+            )
+            self.custom_warning_text.setPlainText("\n".join(line for line in lines if line))
+            return
+
+        magic = str(payload.get("magic", "--"))
+        version = str(payload.get("version", "--"))
+        mode = payload.get("mode", "--")
+        enable = payload.get("enable", "--")
+        status = str(payload.get("status_raw", "--"))
+        out2_counts = payload.get("out2_counts", "--")
+        out2_volts = payload.get("out2_volts", "--")
+        try:
+            out2_volts_text = f"{float(out2_volts):.6g} V"
+        except (TypeError, ValueError):
+            out2_volts_text = "-- V"
+        self.custom_register_summary.setText(
+            f"MAGIC {magic} | VERSION {version} | MODE {mode} | ENABLE {enable} | "
+            f"STATUS {status} | OUT2 {out2_counts} counts / {out2_volts_text}"
+        )
+        lines = [
+            f"{operation.upper()} result",
+            f"MAGIC: {magic}",
+            f"VERSION: {version}",
+            f"MODE: {mode}",
+            f"ENABLE: {enable}",
+            f"STATUS: {status}",
+            f"OUT2: {out2_counts} counts / {out2_volts_text}",
+        ]
+        if magic != f"0x{EXPECTED_MAGIC:08X}":
+            lines.append("")
+            lines.append(missing_magic_guidance(magic))
+        if stderr.strip():
+            lines.append("")
+            lines.append(stderr.strip())
+        self.custom_warning_text.setPlainText("\n".join(lines))
 
     def apply_output(self, channel: int, control: OutputControl) -> None:
         if not self._official_mode() and not isinstance(self.client, MockRedPitayaClient):
@@ -1089,7 +1318,8 @@ class MainWindow(QMainWindow):
 
     def _apply_button_state(self, state: str) -> None:
         official_or_mock = self._official_mode() or self.mock_check.isChecked()
-        worker_running = state in {PROBING, SCPI_STARTING}
+        worker_running = state in {PROBING, SCPI_STARTING, CUSTOM_FPGA_BUSY}
+        custom_busy = state == CUSTOM_FPGA_BUSY
         connected = state in {SCPI_CONNECTED, ACQUIRING}
         scpi_ready = state == SCPI_READY
         ssh_available = state == SSH_AVAILABLE
@@ -1120,6 +1350,23 @@ class MainWindow(QMainWindow):
         for control in (self.out1, self.out2):
             control.apply_button.setEnabled(connected and not acquiring and official_or_mock)
             control.disable_button.setEnabled(connected and not acquiring and official_or_mock)
+        custom_enabled = (not custom_busy) and (not connected) and (not self.mock_check.isChecked())
+        for button in (
+            self.custom_probe_button,
+            self.custom_status_button,
+            self.custom_safe_button,
+            self.custom_scan_button,
+        ):
+            button.setEnabled(custom_enabled)
+        for widget in (
+            self.custom_base_addr_edit,
+            self.custom_offset_v,
+            self.custom_amp_v,
+            self.custom_freq_hz,
+            self.custom_step_counts,
+            self.custom_limit_counts,
+        ):
+            widget.setEnabled(custom_enabled)
 
     def _official_mode(self) -> bool:
         return self.mode_combo.currentText() == "Official SCPI Mode"

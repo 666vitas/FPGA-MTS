@@ -133,10 +133,24 @@ Use:
 7. Apply.
 8. After confirming the waveform on the oscilloscope, consider connecting the laser scan/PZT input.
 
+## GUI Custom FPGA Control
+
+Use this only after the timing-pass custom bitstream has been programmed into the Red Pitaya FPGA. This path uses SSH plus `/dev/mem`; it does not start `redpitaya_scpi` and does not use the Official SCPI ASG to control Custom FPGA OUT2.
+
+1. Start the GUI with `.\run.bat`.
+2. Select `Custom FPGA Mode` or open the `Custom FPGA Observe` page.
+3. Keep `base address` at `0x40600000` unless the register probe shows a different matching base.
+4. Click `Probe Registers`.
+5. Click `Status` and confirm `MAGIC = 0x4D545330`.
+6. Click `SAFE`.
+7. With OUT2 connected only to the oscilloscope, use the defaults `offset-v=0.85`, `amp-v=0.05`, `freq-hz=50`, `step-counts=1`, `limit-counts=8191`, then click `SCAN`.
+
+If `MAGIC = 0x00000000`, the GUI treats SAFE/SCAN as blocked. It means no `custom_register_bank` was read; possible causes are no Program Device, an old bit file, a wrong base address, or needing to reload the timing-pass bitstream. Run `Probe Registers` again after fixing the bitstream/base address.
+
 ## GUI Modes
 
 - Hardware Bring-up / SCPI Mode: Probe, Start SCPI Server, Connect SCPI, OUT2 Safe Scan, IN1/IN2 acquisition, and Stop/Disable outputs.
-- Custom FPGA Observe Mode: manual oscilloscope readings for real wiring: IN1 PD/MTS, IN2 REF, OUT1 laser_error, and OUT2 laser_control. OUT2 is scope-only at the current stage.
+- Custom FPGA Observe Mode: Custom FPGA Control v1 for Probe Registers, Status, SAFE, and SCAN through SSH `/dev/mem`, plus manual oscilloscope readings for real wiring: IN1 PD/MTS, IN2 REF, OUT1 laser_error, and OUT2 laser_control. OUT2 is scope-only at the current stage.
 - Lock Workflow Mode: step-by-step D2-125 replacement workflow management. It does not pretend to lock automatically.
 - Data & Experiment Log: exports Markdown experiment logs to `docs/experiment_logs/`.
 

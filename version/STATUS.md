@@ -12,6 +12,19 @@ laser_control / pi_controller_seq = 后续候选，不是当前 OUT2 输出
 
 本阶段只允许 OUT2 接示波器；不接 Scan/PZT，不接激光器，不声称已经闭环锁定。
 
+## 2026-07-05 GUI Custom FPGA Control v1 已接入
+
+上位机 PySide6 GUI 已新增 Custom FPGA Control v1：Probe Registers / Status / SAFE / SCAN。
+该路径通过 SSH + `/dev/mem` 访问 `custom_register_bank`，不启动 `redpitaya_scpi`，不使用 Official SCPI ASG 控制 Custom FPGA OUT2。
+SAFE / SCAN 写寄存器前必须读到 `MAGIC = 0x4D545330`；`MAGIC = 0x00000000` 时 GUI 提示重新 Probe、检查 Program Device / 旧 bit / base address / timing-pass bitstream。
+本次未修改 RTL，未生成 bitstream。
+
+## 2026-07-05 v3REG-0 status 可读但 MAGIC 为 0，已新增只读 probe
+
+用户通过 SSH 执行 `status` 已成功，但读到 `magic/version = 0x00000000`，因此不能 `safe` / `scan`。
+脚本新增只读 `probe`，扫描 `0x40000000` 到 `0x40700000` 的 1 MiB base，逐项输出 magic/version。
+若 `probe` 全 0，优先重新 Program Device / 重新加载当前 timing-pass 的 `red_pitaya_top.bit`；不要因未打开网页 App 就排除 bitstream 加载问题。
+
 ## 2026-07-05 v3REG-0 host SSH quoting 与烧录顺序 SOP 已修正
 
 `custom_fpga_scan_control.py` 已修复 Windows PowerShell -> SSH -> remote bash 的 `python3 -c` quoting，避免远端 bash 误解析 Python 代码。

@@ -46,7 +46,7 @@ Generate Bitstream
 -> 烧录完成后再运行上位机脚本
 ```
 
-`custom_fpga_scan_control.py` 只读写已经加载进 FPGA 的 `custom_register_bank`，不能替代 bitstream 烧录。Red Pitaya 网页界面不是本阶段必需条件；VPN 可能影响网页、`.local` 或 SSH。实验时建议关闭 VPN，或直接使用板子的实际 IP。
+`Generate Bitstream` 只是生成 bit 文件；`Program Device` / 加载 bitstream 才是把 FPGA 程序放进 Red Pitaya。`custom_fpga_scan_control.py` 只读写已经加载进 FPGA 的 `custom_register_bank`，不能替代 bitstream 烧录。`Program Device` 后如果板子重启，需要重新加载当前 timing-pass 的 bitstream。Red Pitaya 网页界面不是本阶段必需条件；VPN 可能影响网页、`.local` 或 SSH。实验时建议关闭 VPN，或直接使用板子的实际 IP。
 
 ## 3. 烧录后第一步
 
@@ -63,6 +63,14 @@ MAGIC = 0x4D545330
 ```
 
 如果 MAGIC 读不到，停止。不要继续写 scan 参数，不要判断 OUT2 波形。
+
+如果 `status` 读到 `magic = 0x00000000` / `version = 0x00000000`，说明 SSH 和 `/dev/mem` 读取已经执行，但没有读到 `custom_register_bank`。这不能 safe/scan；先运行：
+
+```powershell
+python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local probe
+```
+
+如果 `probe` 全部为 0，重新 Program Device / 重新加载当前 timing-pass 的 `red_pitaya_top.bit`。不要把“没打开 Red Pitaya 网页 App”误判为已经排除了 bitstream 加载问题。
 
 脚本安全要求：
 
@@ -95,6 +103,19 @@ OUT2 与任何真实执行器并联
 ## 5. 验证命令
 
 在 `software/redpitaya_lock_host` 目录执行。
+
+GUI path for the same v3REG-0 register check:
+
+```text
+software/redpitaya_lock_host/run.bat
+-> Custom FPGA Mode / Custom FPGA Observe
+-> Probe Registers
+-> Status
+-> SAFE
+-> SCAN
+```
+
+GUI `Probe Registers` and `Status` are read-only. GUI `SAFE` and `SCAN` use SSH + `/dev/mem` and must read `MAGIC = 0x4D545330` before any register write. If GUI shows `MAGIC = 0x00000000`, stop: no `custom_register_bank` was read. Re-run Probe Registers, check Program Device / timing-pass bitstream reload, and check the base address before trying SAFE or SCAN again.
 
 先确认寄存器存在：
 

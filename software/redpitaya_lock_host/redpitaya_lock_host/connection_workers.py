@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import QThread, Signal
 
 from .connection_probe import ProbeResult, probe_redpitaya, test_port
+from .custom_fpga_backend import CustomFpgaBackend
 from .rp_scpi_client import RedPitayaScpiClient
 from .scpi_client import ScpiClient
 from .ssh_client import RedPitayaSshClient
@@ -96,5 +97,56 @@ class DisconnectWorker(QThread):
             elif hasattr(self.client, "safe_shutdown"):
                 self.client.safe_shutdown()
             self.finished_ok.emit("Disconnected; outputs safe shutdown complete")
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class CustomFpgaRegisterWorker(QThread):
+    finished_ok = Signal(object)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        operation: str,
+        host: str,
+        username: str,
+        password: str,
+        base_addr: int,
+        params: dict | None = None,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.operation = operation
+        self.host = host
+        self.username = username
+        self.password = password
+        self.base_addr = int(base_addr)
+        self.params = params or {}
+
+    def run(self) -> None:
+        try:
+            backend = CustomFpgaBackend(
+                self.host,
+                self.username,
+                self.password,
+                base_addr=self.base_addr,
+            )
+            if self.operation == "probe":
+                response = backend.probe_registers()
+            elif self.operation == "status":
+                response = backend.read_status()
+            elif self.operation == "safe":
+                response = backend.set_mode_safe()
+            elif self.operation == "scan":
+                response = backend.set_mode_scan(
+                    offset_v=float(self.params["offset_v"]),
+                    amp_v=float(self.params["amp_v"]),
+                    freq_hz=float(self.params["freq_hz"]),
+                    step_counts=int(self.params["step_counts"]),
+                    limit_counts=int(self.params["limit_counts"]),
+                )
+            else:
+                raise ValueError(f"Unknown Custom FPGA operation: {self.operation}")
+            self.finished_ok.emit(response.as_dict())
         except Exception as exc:
             self.failed.emit(str(exc))

@@ -1,5 +1,29 @@
 # Host App V2 Design
 
+## 2026-07-05 GUI Custom FPGA Control v1
+
+The PySide6 GUI now has a first Custom FPGA Control panel on the Custom FPGA Observe page. It supports:
+
+```text
+Probe Registers: read-only scan of candidate GP0 base addresses
+Status: read-only MAGIC/VERSION/MODE/ENABLE/STATUS/OUT2 monitor
+SAFE: require MAGIC=0x4D545330, then write ENABLE=0 and MODE=0
+SCAN: require MAGIC=0x4D545330, then write scan parameters and enable MODE=1
+```
+
+The implementation path is:
+
+```text
+main_window.py
+-> CustomFpgaRegisterWorker in connection_workers.py
+-> CustomFpgaBackend in custom_fpga_backend.py
+-> SSH
+-> remote Python /dev/mem helper
+-> custom_register_bank
+```
+
+This path does not start `redpitaya_scpi` and does not use Official SCPI ASG control for Custom FPGA OUT2. Probe and Status are read-only. SAFE and SCAN are blocked by the remote helper unless `MAGIC = 0x4D545330`. If `MAGIC = 0x00000000`, the GUI tells the user that no `custom_register_bank` was read and points to Program Device, old bit file, base address, or timing-pass bitstream reload as the likely fixes.
+
 ## 2026-07-04 v3REG-0 Custom FPGA register client
 
 新增最小命令行脚本：
@@ -101,7 +125,7 @@ Markdown docs, SOPs, stage records, and small reports should stay under `docs/`.
 - `acquisition_worker.py`: background `QThread` acquisition loop.
 - `waveform_preview.py`: generated OUT1/OUT2 preview time axis and waveform helpers.
 - `custom_fpga_workflow.py`: manual oscilloscope reading analysis for observe-mode safety decisions.
-- `custom_fpga_backend.py`: future Custom FPGA interface stub; every hardware access raises `NotImplementedError`.
+- `custom_fpga_backend.py`: Custom FPGA Control v1 backend for SSH + `/dev/mem` Probe Registers, Status, SAFE, and SCAN. HOLD, PID parameters, debug buffers, and lock/relock remain future work.
 - `main_window.py`: V2 GUI with connection management, output control, acquisition, and four-channel display.
 - `data_logger.py`: CSV metadata and PNG export.
 - `safety.py`: output safety validation and best-effort exit shutdown hooks.
@@ -151,7 +175,8 @@ Custom FPGA Mode:
 - OUT1 / DAC A = `laser_error`.
 - OUT2 / DAC B = `laser_control`.
 - Official `asg_dat[0]` / `asg_dat[1]` do not directly drive OUT1/OUT2.
-- The host app does not currently change custom FPGA parameters.
+- The host app can now read the v3REG-0 custom register bank and write the first SAFE/SCAN controls through SSH `/dev/mem`.
+- The host app still does not implement HOLD, P_LOCK, PI_LOCK, PID tuning, debug-buffer reads, or automatic lock/relock.
 
 ## Output Control
 
@@ -216,4 +241,4 @@ In Custom FPGA Mode, CH3/CH4 labels switch to remind the user that actual OUT1/O
 
 ## FPGA Internal Signals
 
-`error_internal`, mixer output, LPF output, and writable FPGA parameters require FPGA RTL support such as `register_bank`, `debug_buffer`, or AXI registers. V2 does not implement that path and this task does not add a fake Custom FPGA control panel.
+`error_internal`, mixer output, LPF output, HOLD/P_LOCK/PI_LOCK, PID tuning, and high-rate snapshots still require later FPGA RTL support such as debug buffers or expanded AXI registers. V2 now implements only the first real Custom FPGA register control path for status/probe/safe/scan; it does not fake unavailable internal FPGA signals.
