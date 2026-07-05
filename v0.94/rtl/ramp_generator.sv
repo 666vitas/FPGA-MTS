@@ -20,6 +20,9 @@ module ramp_generator (
     logic [31:0] update_cnt_q;
     logic signed [14:0] pos_q;
     logic direction_up_q;
+    logic signed [14:0] pos_candidate_q;
+    logic candidate_direction_up_q;
+    logic update_pending_q;
 
     // Local configuration registers cut the timing path from the sys[6]
     // register bank to the scan arithmetic. Host-side writes may change the
@@ -36,7 +39,6 @@ module ramp_generator (
     logic signed [14:0] step_next_w;
     logic        [31:0] update_div_next_w;
     logic signed [14:0] limit_next_w;
-    logic signed [14:0] next_pos_w;
     logic signed [14:0] raw_scan_w;
     logic signed [14:0] limited_scan_w;
     logic saturated_w;
@@ -67,18 +69,6 @@ module ramp_generator (
         end
         if (limit_next_w > DAC_POS_LIMIT) begin
             limit_next_w = DAC_POS_LIMIT;
-        end
-
-        if (direction_up_q) begin
-            next_pos_w = pos_q + step_q;
-            if (next_pos_w >= amp_q) begin
-                next_pos_w = amp_q;
-            end
-        end else begin
-            next_pos_w = pos_q - step_q;
-            if (next_pos_w <= -amp_q) begin
-                next_pos_w = -amp_q;
-            end
         end
 
         raw_scan_w = {offset_q[13], offset_q} + pos_q;
@@ -116,6 +106,9 @@ module ramp_generator (
             update_cnt_q   <= 32'd0;
             pos_q          <= 15'sd0;
             direction_up_q <= 1'b1;
+            pos_candidate_q <= 15'sd0;
+            candidate_direction_up_q <= 1'b1;
+            update_pending_q <= 1'b0;
             scan_o         <= SAFE_VALUE;
             saturated_o    <= 1'b0;
         end else if (!enable_i) begin
@@ -128,6 +121,9 @@ module ramp_generator (
             update_cnt_q   <= 32'd0;
             pos_q          <= -amp_q;
             direction_up_q <= 1'b1;
+            pos_candidate_q <= 15'sd0;
+            candidate_direction_up_q <= 1'b1;
+            update_pending_q <= 1'b0;
             scan_o         <= SAFE_VALUE;
             saturated_o    <= 1'b0;
         end else begin
@@ -138,13 +134,27 @@ module ramp_generator (
             update_div_m1_q <= update_div_q - 32'd1;
             limit_q        <= limit_next_w;
 
-            if (tick_w) begin
+            if (update_pending_q) begin
                 update_cnt_q <= 32'd0;
-                pos_q <= next_pos_w;
-                if (direction_up_q && (next_pos_w >= amp_q)) begin
+                if (candidate_direction_up_q && (pos_candidate_q >= amp_q)) begin
+                    pos_q <= amp_q;
                     direction_up_q <= 1'b0;
-                end else if (!direction_up_q && (next_pos_w <= -amp_q)) begin
+                end else if (!candidate_direction_up_q && (pos_candidate_q <= -amp_q)) begin
+                    pos_q <= -amp_q;
                     direction_up_q <= 1'b1;
+                end else begin
+                    pos_q <= pos_candidate_q;
+                    direction_up_q <= candidate_direction_up_q;
+                end
+                update_pending_q <= 1'b0;
+            end else if (tick_w) begin
+                update_cnt_q <= 32'd0;
+                candidate_direction_up_q <= direction_up_q;
+                update_pending_q <= 1'b1;
+                if (direction_up_q) begin
+                    pos_candidate_q <= pos_q + step_q;
+                end else begin
+                    pos_candidate_q <= pos_q - step_q;
                 end
             end else begin
                 update_cnt_q <= update_cnt_q + 32'd1;

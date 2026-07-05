@@ -128,3 +128,31 @@ Failing Endpoints = 0
 
 只有 timing 通过后，才允许继续 Generate Bitstream。timing 未通过前禁止烧录、禁止上板、禁止 OUT2 接任何真实执行器。
 
+## v3REG0_TIMING_FIX_2
+
+用户手动 Vivado 结果仍有 1 条 setup fail：
+
+```text
+WNS = -0.085 ns
+TNS = -0.085 ns
+Failing Endpoints = 1
+Worst path: i_ramp_generator/step_q_reg[5]/C -> i_ramp_generator/direction_up_q_reg/D
+```
+
+本次只修改 `v0.94/rtl/ramp_generator.sv`。原实现中 `step_q -> pos +/- step -> amp 边界比较 -> direction_up_q` 仍在同一个 `pll_adc_clk` 周期内完成。修复后改成两拍更新：
+
+```text
+tick 拍：只计算 pos_candidate_q，并寄存 candidate_direction_up_q / update_pending_q
+提交拍：只用已寄存的 pos_candidate_q / candidate_direction_up_q 做边界判断和方向翻转
+```
+
+这样 `direction_up_q` 不再由 `step_q` 同周期组合决定，`step_q` 只到 `pos_candidate_q`，下一拍才由 candidate 决定方向。
+
+验证：
+
+```text
+cd v0.94
+xvlog -sv rtl/ramp_generator.sv
+```
+
+结果：0 error。未运行 Vivado synthesis / implementation，未生成 bitstream，未烧录 Red Pitaya。

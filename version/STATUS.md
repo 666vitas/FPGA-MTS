@@ -12,6 +12,13 @@ laser_control / pi_controller_seq = 后续候选，不是当前 OUT2 输出
 
 本阶段只允许 OUT2 接示波器；不接 Scan/PZT，不接激光器，不声称已经闭环锁定。
 
+## 2026-07-05 v3REG0_TIMING_FIX_2 已拆分 ramp_generator 三角波更新路径
+
+用户手动 Vivado 仍剩 1 条 setup fail：`step_q_reg[5]/C -> direction_up_q_reg/D`，WNS/TNS 均为 `-0.085 ns`。
+本次只修改 `v0.94/rtl/ramp_generator.sv`，把 tick 后的位置更新拆成候选计算拍和边界/方向提交拍，切断 `step_q` 同周期影响 `direction_up_q` 的路径。
+本地 `xvlog -sv rtl/ramp_generator.sv` 通过，0 error；未运行 Vivado synthesis / implementation，未生成 bitstream，未烧录。
+用户下一步：Vivado `Reset Runs -> Run Synthesis -> Run Implementation -> Timing Summary`，通过标准仍为 `WNS >= 0, TNS = 0, Failing Endpoints = 0`。
+
 ## 2026-07-05 v3REG0_TIMING_FIX_1 已修复 ramp_generator 配置长路径，等待用户重新跑 Vivado
 
 用户手动 Vivado implementation timing failed：
