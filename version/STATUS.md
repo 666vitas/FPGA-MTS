@@ -12,6 +12,47 @@ laser_control / pi_controller_seq = 后续候选，不是当前 OUT2 输出
 
 本阶段只允许 OUT2 接示波器；不接 Scan/PZT，不接激光器，不声称已经闭环锁定。
 
+## 2026-07-05 v3REG0_TIMING_FIX_1 已修复 ramp_generator 配置长路径，等待用户重新跑 Vivado
+
+用户手动 Vivado implementation timing failed：
+
+```text
+WNS = -3.697 ns
+TNS = -274.520 ns
+Failing Endpoints = 830
+
+Worst path:
+From: i_custom_register_bank/.../C
+To:   i_ramp_generator/.../D
+Logic Levels = 18
+High Fanout = 30
+Total Delay = 11.685 ns
+Requirement = 8.000 ns
+```
+
+结论：v3REG-0 当前不能 Generate Bitstream，不能烧录，不能上板。
+
+本次只做最小 timing 修复：在 `ramp_generator.sv` 内部增加本地配置寄存器 `offset_q / amp_q / step_q / update_div_q / update_div_m1_q / limit_q`。`custom_register_bank` 输出不再直接进入三角波位置更新、限幅和 tick 判断的深组合逻辑；tick 判断改为使用已寄存的 `update_div_m1_q`。
+
+本次未修改 `red_pitaya_top.sv`，未修改 `custom_register_bank.sv`，未修改 `laser_lock_core.sv`，未修改 PI/mixer/LPF/output_protect，未修改 XDC/constraints，未修改 Vivado project structure。未运行 Vivado synthesis / implementation，未生成 bitstream / bin，未烧录 Red Pitaya。
+
+本地语法检查：
+
+```text
+xvlog -sv rtl/ramp_generator.sv
+结果：0 error
+```
+
+用户下一步必须手动 Vivado `Reset Runs`，重新 `Run Synthesis`，重新 `Run Implementation`。通过标准仍然是：
+
+```text
+WNS >= 0
+TNS = 0
+Failing Endpoints = 0
+```
+
+只有 timing 通过后才允许继续 Generate Bitstream；在此之前禁止烧录和上板。
+
 ## 2026-07-05 v3REG-0 P0-1 host MAGIC 预校验已修复，等待用户手动 Vivado 和示波器验证
 
 本次只修复上位机脚本安全阻塞项，不修改 RTL 功能逻辑。

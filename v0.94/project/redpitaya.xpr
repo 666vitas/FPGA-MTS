@@ -73,20 +73,20 @@
           <Attr Name="UsedIn" Val="implementation"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
-        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_processing_system7_0/system_processing_system7_0.xci">
-          <Proxy FileSetName="system_processing_system7_0"/>
-        </CompFileExtendedInfo>
         <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_proc_sys_reset_0/system_proc_sys_reset_0.xci">
           <Proxy FileSetName="system_proc_sys_reset_0"/>
         </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_register_slice_0_0/system_axi_register_slice_0_0.xci">
-          <Proxy FileSetName="system_axi_register_slice_0_0"/>
+        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_protocol_converter_0_0/system_axi_protocol_converter_0_0.xci">
+          <Proxy FileSetName="system_axi_protocol_converter_0_0"/>
         </CompFileExtendedInfo>
         <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_xadc_0/system_xadc_0.xci">
           <Proxy FileSetName="system_xadc_0"/>
         </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_protocol_converter_0_0/system_axi_protocol_converter_0_0.xci">
-          <Proxy FileSetName="system_axi_protocol_converter_0_0"/>
+        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_processing_system7_0/system_processing_system7_0.xci">
+          <Proxy FileSetName="system_processing_system7_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_register_slice_0_0/system_axi_register_slice_0_0.xci">
+          <Proxy FileSetName="system_axi_register_slice_0_0"/>
         </CompFileExtendedInfo>
       </File>
       <File Path="$PSRCDIR/sources_1/imports/RedPitaya-FPGA-master/rtl/classic/axi_master.v">
@@ -242,6 +242,13 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
+      <File Path="$PPRDIR/../rtl/custom_register_bank.sv">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
       <File Path="$PSRCDIR/sources_1/imports/RedPitaya-FPGA-master/rtl/interface/gpio_if.sv">
         <FileInfo>
           <Attr Name="ImportPath" Val="$PPRDIR/../../../../vivado/RedPitaya-FPGA-master/rtl/interface/gpio_if.sv"/>
@@ -294,13 +301,6 @@
         </FileInfo>
       </File>
       <File Path="$PPRDIR/../rtl/ramp_generator.sv">
-        <FileInfo>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PPRDIR/../rtl/custom_register_bank.sv">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="implementation"/>
