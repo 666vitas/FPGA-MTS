@@ -114,7 +114,10 @@ class RegisterWindow:
         pos = self.page_offset + offset
         self.mem.seek(pos)
         self.mem.write(pack32(value))
-        self.mem.flush()
+        # Do not call mmap.flush() for /dev/mem MMIO registers.
+        # On some Red Pitaya Linux kernels, mmap.flush() on /dev/mem raises
+        # OSError: [Errno 22] Invalid argument. MMIO writes are posted by the
+        # mapped store itself; a follow-up read/status is used for verification.
 
 
 def read_magic(regs):

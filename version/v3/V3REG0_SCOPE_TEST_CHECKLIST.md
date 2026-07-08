@@ -192,11 +192,11 @@ python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local safe
 - 改 amp 后的截图。
 - 最后回到 `safe` 的截图。
 
-## 2026-07-05 Board Verification Record
+## 2026-07-05 板端验证记录
 
-Result: PASS for v3REG-0 host/register controlled OUT2 safe triangle hardware path.
+结果：通过。v3REG-0 上位机/寄存器控制 OUT2 安全三角波输出硬件链路已验证通过。
 
-Observed on board:
+板端观察结果：
 
 ```text
 Red Pitaya loaded: /root/red_pitaya_top.bit.bin
@@ -205,13 +205,13 @@ Red Pitaya loaded: /root/red_pitaya_top.bit.bin
 /opt/redpitaya/bin/monitor 0x40600004 -> 0x00030000
 ```
 
-The monitor reads confirm:
+monitor 读回确认：
 
-- `custom_register_bank` MAGIC is present at base address `0x40600000`.
-- VERSION is `0x00030000`.
-- PS -> PL `sys_bus` register access works on the board.
+- `custom_register_bank` 的 MAGIC 出现在 base address `0x40600000`。
+- VERSION 为 `0x00030000`。
+- PS -> PL `sys_bus` 寄存器访问在板端有效。
 
-The following monitor-written register state produced an approximately 10 Hz safe triangle on physical OUT2:
+以下 monitor 写入寄存器状态后，物理 OUT2 输出约 10 Hz 安全三角波：
 
 ```text
 MODE            = 1
@@ -223,28 +223,28 @@ SCAN_UPDATE_DIV = 0x1DC6
 OUT2_LIMIT      = 0x1FFF
 ```
 
-SAFE / shutdown was verified with:
+SAFE / 关闭操作通过以下命令验证：
 
 ```text
 /opt/redpitaya/bin/monitor 0x4060000C 0x0
 /opt/redpitaya/bin/monitor 0x40600008 0x0
 ```
 
-After SAFE, the oscilloscope OUT2 triangle disappeared and OUT2 returned to the no-triangle state.
+执行 SAFE 后，示波器上的 OUT2 三角波消失，OUT2 回到无三角波状态。
 
-Verified conclusions:
+已验证结论：
 
-- PS -> PL `sys_bus` custom register access works.
-- `0x40600000` is the correct base address for this loaded bitstream.
-- `custom_register_bank` is active in the real board bitstream.
-- `ramp_generator` output is effective.
-- `MODE` and `ENABLE` have real control over OUT2.
-- `selected_out2` -> DAC B / physical OUT2 is connected.
-- SAFE shutdown is effective.
+- PS -> PL `sys_bus` 自定义寄存器访问有效。
+- `0x40600000` 是当前加载 bitstream 的正确 base address。
+- `custom_register_bank` 已经在真实板端 bitstream 中工作。
+- `ramp_generator` 输出有效。
+- `MODE` 和 `ENABLE` 对 OUT2 具有真实控制作用。
+- `selected_out2` -> DAC B / physical OUT2 链路已经打通。
+- SAFE 关闭链路有效。
 
-Safety boundary after this PASS remains unchanged: OUT2 is oscilloscope-only. Do not connect OUT2 to laser PZT, laser current, D2-125 Servo Output, or Scan input.
+通过该项验证后，安全边界仍然不变：OUT2 仅允许接示波器观察；不要将 OUT2 接到 laser PZT、laser current、D2-125 Servo Output 或 Scan input。
 
-Next GUI validation path:
+下一步 GUI 验证路径：
 
 ```text
 Custom FPGA Mode
@@ -254,3 +254,124 @@ Custom FPGA Mode
 -> SAFE
 -> SCAN
 ```
+
+## 2026-07-05 GUI 控制扫描实验记录
+
+结果：通过。v3REG-0 已经可以由 GUI 控制 OUT2 扫描输出，并首次在当前激光器工作状态下观察到实验波形。
+
+已通过项目：
+
+- MAGIC 读回通过：`MAGIC = 0x4D545330`。
+- VERSION 读回通过：`VERSION = 0x00030000`。
+- base address 确认通过：`found_base_addr = 0x40600000`。
+- GUI SCAN 通过。
+- GUI SAFE 通过。
+- 已观察到 OUT2 三角波输出。
+- GUI offset / amplitude / frequency 控制通过。
+- 在当前激光器控制器状态下已观察到实验波形。
+
+当前 GUI Custom FPGA Control 参数：
+
+```text
+base address = 0x40600000
+offset-v     = 0.7500 V
+amp-v        = 0.2000 V
+freq-hz      = 50.170 Hz
+step-counts  = 1
+limit-counts = 8191
+```
+
+GUI SCAN 读回：
+
+```text
+MAGIC   = 0x4D545330
+VERSION = 0x00030000
+MODE    = 1
+ENABLE  = 1
+STATUS  = 0x00000001
+OUT2    = 4522 counts / 0.552069 V
+```
+
+理论扫描范围：
+
+```text
+offset = 0.75 V
+amp    = 0.20 V
+range  ~= 0.55 V to 0.95 V
+Vpp    ~= 0.40 Vpp
+freq   ~= 50.17 Hz
+```
+
+GUI OUT2 读回值 `0.552069 V` 接近理论下限 `0.55 V`，说明 `OUT2_MONITOR` 与当前扫描参数匹配。
+
+本次观察到波形时的激光器控制器状态：
+
+```text
+TEC set/work      = 22.66 C / 22.46 C
+Current set/work  = 40.07 mA / 57.42 mA
+PZT set/work      = 34.99 V / 42.52 V
+```
+
+这些数值属于本次实验条件。后续如果波形发生变化，需要与本次 TEC / current / PZT 状态对照。
+
+本次观察到的波形指标：
+
+```text
+板端扫描/输出信号：
+  Vpp = 0.4583 V
+  min = 0.6236 V
+  max = 1.082 V
+  RMS = 0.8492 V
+
+CH2 信号：
+  Vpp = 0.2701 V
+  min = 0.3303 V
+  max = 0.6004 V
+  RMS = 0.4828 V
+
+CH3 信号：
+  Vpp = 1.784 V
+  min = -1.16 V
+  max = 0.6239 V
+  RMS = 0.2433 V
+
+板端输出信号：
+  Vpp = 0.08848 V
+  min = 0.6243 V
+  max = 0.7128 V
+  RMS = 0.6696 V
+```
+
+阶段结论：
+
+- FPGA 寄存器控制链路已经验证通过：GUI -> SSH -> `/dev/mem` -> `custom_register_bank` -> `ramp_generator` -> `selected_out2` -> DAC B / OUT2。
+- GUI 已经可以设置 OUT2 的 offset、amplitude、frequency、enable/safe 和 scan mode。
+- 在 `offset=0.75 V`、`amp=0.20 V`、`freq=50.17 Hz` 条件下，系统能够产生可观察的周期性扫描波形和通道响应。
+- 项目已经从“板子是否能被上位机控制”的阶段，推进到“上位机控制扫描参数并观察实验波形”的阶段。
+- 当前不是闭环锁定，也不是 D2-125 替代；当前完成的是 GUI 可控扫描输出 + 实验波形观察。
+
+安全边界：
+
+- 继续以示波器优先观察。
+- 任何连接到激光器 PZT、scan input、current modulation 或 D2-125 输入的操作，都必须记录接线方式、幅度范围、偏置范围和安全限制。
+- OUT2 必须保持在 Red Pitaya DAC 安全范围内；提高 offset 或 amplitude 前，必须确认后级输入不会打满。
+- 现在不允许进入闭环锁定测试，必须先完成扫描参数矩阵和波形稳定性记录。
+
+下一步参数矩阵：
+
+```text
+A: offset=0.50 V, amp=0.20 V, freq=50 Hz
+B: offset=0.75 V, amp=0.20 V, freq=50 Hz
+C: offset=0.75 V, amp=0.10 V, freq=20 Hz
+D: offset=0.75 V, amp=0.05 V, freq=10 Hz
+```
+
+每组都记录：
+
+- GUI 参数。
+- OUT2 读回。
+- 示波器 OUT2 Vpp/min/max。
+- CH2/CH3 波形稳定性。
+- 是否出现削顶、跳变、饱和或波形断裂。
+
+下一阶段目标：在保持安全幅度的前提下，找到最适合扫出稳定谱线的 offset / amplitude / frequency 组合。完成后再进入 FPGA mixer + LPF error signal 观察、error signal 与扫描信号关系检查，以及低风险闭环控制流程设计。

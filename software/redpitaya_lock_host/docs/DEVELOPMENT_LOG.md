@@ -1,16 +1,43 @@
 # Development Log
 
-## 2026-07-05 - v3REG-0 board monitor OUT2 SAFE/SCAN verified
+## 2026-07-05 - v3REG-0 GUI 控制 OUT2 扫描并观察到实验波形
 
-- Recorded successful board bring-up evidence: Red Pitaya loaded `/root/red_pitaya_top.bit.bin`; `/opt/redpitaya/bin/monitor 0x40600000` returned `0x4D545330`; `/opt/redpitaya/bin/monitor 0x40600004` returned `0x00030000`.
-- Verified hardware behavior: monitor writes `MODE=1`, `ENABLE=1`, `SCAN_OFFSET=0`, `SCAN_AMP=0x19A`, `SCAN_STEP=0x1`, `SCAN_UPDATE_DIV=0x1DC6`, and `OUT2_LIMIT=0x1FFF` produced an approximately 10 Hz safe triangle on OUT2.
-- Verified SAFE shutdown: writing `0x0` to `0x4060000C` then `0x40600008` removed the OUT2 triangle and returned OUT2 to the no-triangle state.
-- Conclusion: PS -> PL sys_bus access, base address `0x40600000`, `custom_register_bank`, `ramp_generator`, MODE/ENABLE control, `selected_out2` -> DAC B / OUT2, and SAFE shutdown are all verified on hardware.
-- Python files changed: none.
-- How to run/verify: board monitor commands above; next GUI verification path is Custom FPGA Mode -> Probe Registers -> Status -> SAFE -> SCAN.
-- Modified RTL: no.
-- Generated bitstream: no.
-- Safety boundary remains: OUT2 oscilloscope-only; do not connect OUT2 to laser PZT, laser current, D2-125 Servo Output, or Scan input.
+- 记录当前阶段推进：v3REG-0 已经从“板子是否能被上位机控制”推进到“上位机可以控制扫描参数，并且能观察到实验波形”的阶段。
+- 已验证完整链路：GUI -> SSH -> `/dev/mem` -> `custom_register_bank` -> `ramp_generator` -> `selected_out2` -> DAC B / OUT2。Red Pitaya 自定义 bitstream 已在板上运行，base address 为 `0x40600000`；GUI Probe Registers 能找到 `MAGIC=0x4D545330`、`VERSION=0x00030000`、`found_base_addr=0x40600000`。
+- 已确认手动 monitor 和 GUI 两条路径均通过：monitor 写寄存器可以产生 10 Hz OUT2 三角波，monitor SAFE 后三角波消失；修复 `/dev/mem mmap.flush()` EINVAL 的 host helper 问题后，GUI SCAN 可以产生 OUT2 三角波，GUI SAFE 可以关闭 OUT2 输出。
+- 当前 GUI Custom FPGA Control 参数：base address `0x40600000`，`offset-v=0.7500 V`，`amp-v=0.2000 V`，`freq-hz=50.170 Hz`，`step-counts=1`，`limit-counts=8191`。
+- GUI SCAN 读回：`MAGIC=0x4D545330`，`VERSION=0x00030000`，`MODE=1`，`ENABLE=1`，`STATUS=0x00000001`，`OUT2=4522 counts / 0.552069 V`。设定扫描范围约为 `0.55 V` 到 `0.95 V`（约 `0.40 Vpp`），因此当前读回值接近理论下限。
+- 观察到波形时的激光器控制器状态：TEC 设置/工作 `22.66 C / 22.46 C`；电流设置/工作 `40.07 mA / 57.42 mA`；PZT 设置/工作 `34.99 V / 42.52 V`。后续波形变化需要与这些 TEC / current / PZT 条件对照。
+- 本次波形指标：板端扫描/输出信号 `Vpp=0.4583 V`，`min=0.6236 V`，`max=1.082 V`，`RMS=0.8492 V`；CH2 信号 `Vpp=0.2701 V`，`min=0.3303 V`，`max=0.6004 V`，`RMS=0.4828 V`；CH3 信号 `Vpp=1.784 V`，`min=-1.16 V`，`max=0.6239 V`，`RMS=0.2433 V`；板端输出信号 `Vpp=0.08848 V`，`min=0.6243 V`，`max=0.7128 V`，`RMS=0.6696 V`。
+- 结论：GUI 已经可以设置 OUT2 的 offset、amplitude、frequency、enable/safe 和 scan mode；在 `offset=0.75 V`、`amp=0.20 V`、`freq=50.17 Hz` 条件下，系统可以扫描并显示周期性通道响应，已经可以进入下一步谱线扫描观察。
+- 边界：当前完成的是 GUI 可控扫描输出 + 实验波形观察，不是闭环锁定，也不是 D2-125 替代。继续以示波器优先观察；任何连接到激光器 PZT、scan、current modulation 或 D2-125 输入的操作，都必须记录接线、幅度、偏置和安全限制。
+- 下一步计划：执行参数矩阵 A `offset=0.50 V, amp=0.20 V, freq=50 Hz`；B `offset=0.75 V, amp=0.20 V, freq=50 Hz`；C `offset=0.75 V, amp=0.10 V, freq=20 Hz`；D `offset=0.75 V, amp=0.05 V, freq=10 Hz`。每组记录 GUI 参数、OUT2 读回、示波器 OUT2 Vpp/min/max、CH2/CH3 稳定性，以及是否出现削顶、跳变、饱和或断裂。
+- 修改 Python 文件：无。
+- 验证方式：仅文档记录更新，本次未运行命令。
+- 是否修改 RTL：否。
+- 是否生成 bitstream：否。
+
+## 2026-07-05 - 修复 GUI SAFE/SCAN 的 /dev/mem flush EINVAL 问题
+
+- 修复 GUI Custom FPGA SAFE/SCAN 写寄存器失败问题：Probe Registers 和 Status 已经成功（`MAGIC=0x4D545330`，`VERSION=0x00030000`），但远端 helper 写寄存器时报 `OSError: [Errno 22] Invalid argument`。
+- 根因：板端 Python helper 的 `RegisterWindow.write()` 在 `/dev/mem` MMIO 写入后调用了 `mmap.flush()`；当前 Red Pitaya Linux 路径下该调用可能返回 EINVAL，即使 monitor 写寄存器本身是有效的。
+- 修复方式：从 REMOTE_HELPER 写寄存器路径中删除 `self.mem.flush()`；SAFE/SCAN 仍保留 MAGIC precheck，并在写入后继续读回 status。
+- 修改 Python 文件：`scripts/custom_fpga_scan_control.py`，`tests/test_custom_fpga_backend.py`。
+- 验证：`.\.venv\Scripts\python.exe -m py_compile scripts\custom_fpga_scan_control.py redpitaya_lock_host\custom_fpga_backend.py redpitaya_lock_host\main_window.py` 通过；`python -m pytest tests` 通过。`.\.venv\Scripts\python.exe -m pytest tests` 未能运行，因为 `.venv` 中未安装 pytest。
+- 是否修改 RTL：否。
+- 是否生成 bitstream：否。
+
+## 2026-07-05 - v3REG-0 板端 monitor 验证 OUT2 SAFE/SCAN 通过
+
+- 记录板端 bring-up 证据：Red Pitaya 已加载 `/root/red_pitaya_top.bit.bin`；`/opt/redpitaya/bin/monitor 0x40600000` 返回 `0x4D545330`；`/opt/redpitaya/bin/monitor 0x40600004` 返回 `0x00030000`。
+- 验证硬件行为：monitor 写入 `MODE=1`、`ENABLE=1`、`SCAN_OFFSET=0`、`SCAN_AMP=0x19A`、`SCAN_STEP=0x1`、`SCAN_UPDATE_DIV=0x1DC6`、`OUT2_LIMIT=0x1FFF` 后，OUT2 产生约 10 Hz 安全三角波。
+- 验证 SAFE 关闭：向 `0x4060000C` 写 `0x0`，再向 `0x40600008` 写 `0x0` 后，OUT2 三角波消失，OUT2 回到无三角波状态。
+- 结论：PS -> PL sys_bus 访问、base address `0x40600000`、`custom_register_bank`、`ramp_generator`、MODE/ENABLE 控制、`selected_out2` -> DAC B / OUT2、SAFE 关闭链路都已在硬件上验证通过。
+- 修改 Python 文件：无。
+- 如何运行/验证：使用上述 board monitor 命令；下一步 GUI 验证路径是 Custom FPGA Mode -> Probe Registers -> Status -> SAFE -> SCAN。
+- 是否修改 RTL：否。
+- 是否生成 bitstream：否。
+- 安全边界不变：OUT2 仅接示波器观察；不要将 OUT2 接到 laser PZT、laser current、D2-125 Servo Output 或 Scan input。
 
 ## 2026-07-05 - GUI OUT2 path boundary wording fix
 
