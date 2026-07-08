@@ -145,6 +145,25 @@ class CustomFpgaRegisterWorker(QThread):
                     step_counts=int(self.params["step_counts"]),
                     limit_counts=int(self.params["limit_counts"]),
                 )
+            elif self.operation == "hold":
+                response = backend.set_mode_hold(
+                    hold_v=float(self.params["hold_v"]),
+                )
+            elif self.operation == "p-lock":
+                response = backend.set_mode_p_lock(
+                    kp=int(self.params["kp"]),
+                    polarity=int(self.params["polarity"]),
+                    lock_bias_v=float(self.params["lock_bias_v"]),
+                    lock_limit_counts=int(self.params["lock_limit_counts"]),
+                )
+            elif self.operation == "pi-lock":
+                response = backend.set_mode_pi_lock(
+                    kp=int(self.params["kp"]),
+                    ki=int(self.params["ki"]),
+                    polarity=int(self.params["polarity"]),
+                    lock_bias_v=float(self.params["lock_bias_v"]),
+                    lock_limit_counts=int(self.params["lock_limit_counts"]),
+                )
             else:
                 raise ValueError(f"Unknown Custom FPGA operation: {self.operation}")
             self.finished_ok.emit(response.as_dict())

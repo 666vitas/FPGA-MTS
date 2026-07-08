@@ -1,5 +1,18 @@
 # Development Log
 
+## 2026-07-08 - v3REG-1 / v3REG-2 最短锁定路径：HOLD、P_LOCK、PI_LOCK 第一版
+
+- 本次实现目标：在 v3REG-0 已验证 `GUI -> SSH -> /dev/mem -> custom_register_bank -> ramp_generator -> selected_out2 -> DAC B / OUT2` 的基础上，继续实现最短手动/半自动锁定路径。新增 `HOLD` 固定输出、`P_LOCK` 比例锁定、`PI_LOCK` 比例积分锁定的第一版硬件寄存器、RTL 输出选择、CLI、GUI 和测试。当前仍保留外部 EOM RF、模拟 BPF 和放大器，不替代模拟前端。
+- 修改 Python 文件：`software/redpitaya_lock_host/scripts/custom_fpga_scan_control.py`、`software/redpitaya_lock_host/redpitaya_lock_host/custom_fpga_backend.py`、`software/redpitaya_lock_host/redpitaya_lock_host/connection_workers.py`、`software/redpitaya_lock_host/redpitaya_lock_host/main_window.py`、`software/redpitaya_lock_host/tests/test_custom_fpga_backend.py`。
+- 修改 RTL / 仿真文件：`v0.94/rtl/custom_register_bank.sv`、`v0.94/rtl/red_pitaya_top.sv`、`v0.94/sim/tb_custom_register_bank_basic.sv`、新增 `v0.94/sim/tb_out2_lock_controller.sv`。
+- 新寄存器：`HOLD_VALUE(0x2C)`、`KP(0x30)`、`POLARITY(0x34)`、`LOCK_BIAS(0x38)`、`LOCK_LIMIT(0x3C)`、`ERROR_MONITOR(0x40, RO)`、`CONTROL_MONITOR(0x44, RO)`、`KI(0x48)`、`INTEGRAL_RESET(0x4C)`。`KP/KI` 为 raw gain，约定 `256 = 1.0x`；`POLARITY=0` 为 normal，`POLARITY=1` 为 invert。
+- MODE 定义：`0=SAFE`，`1=SCAN`，`2=HOLD`，`3=P_LOCK`，`4=PI_LOCK`。`ENABLE=0` 或 `MODE=0` 时 OUT2 强制为 0；SAFE 仍为最高优先级。P_LOCK/PI_LOCK 默认 `Kp=0`、`Ki=0`，必须人工逐步增加，且先 scope-only 验证。
+- GUI 功能变化：Custom FPGA Control 增加 `HOLD`、`P_LOCK`、`PI_LOCK` 按钮，以及 `hold-v`、`Kp raw`、`Ki raw`、`polarity`、`lock-bias-v`、`lock-limit-counts` 输入；Status 显示增加 `ERROR_MONITOR` 和 `CONTROL_MONITOR`。所有写操作继续要求先通过 MAGIC 检查。
+- 验证方式：host 侧 `py_compile` 通过；`python -m pytest tests` 通过，结果 `13 passed`。Vivado xsim 仿真通过：`tb_out2_lock_controller` 结果 `tests=14 pass=14 fail=0`；`tb_custom_register_bank_basic` 结果 `tests=53 pass=53 fail=0`；`tb_ramp_generator` 结果 `tests=249 pass=249 fail=0`。`red_pitaya_top.sv` 已完成 xvlog 语法分析。
+- 是否修改 RTL：是，修改寄存器银行和 OUT2 模式选择逻辑；未修改 Vivado 工程文件。
+- 是否生成 bitstream：否。
+- 安全边界：本阶段只允许 OUT2 接示波器观察。HOLD/P_LOCK/PI_LOCK 不得默认接 PZT、激光电流、D2-125 Servo Output 或 Scan input。P_LOCK/PI_LOCK 上板时必须从 `Kp=0`、`Ki=0`、`LOCK_LIMIT` 小范围开始，确认 OUT2 幅度、极性、限幅和 SAFE 行为后，才能制定执行器连接 SOP。
+
 ## 2026-07-05 - v3REG-0 GUI 控制 OUT2 扫描并观察到实验波形
 
 - 记录当前阶段推进：v3REG-0 已经从“板子是否能被上位机控制”推进到“上位机可以控制扫描参数，并且能观察到实验波形”的阶段。

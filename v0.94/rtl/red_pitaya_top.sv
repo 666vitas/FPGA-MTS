@@ -239,9 +239,10 @@ logic signed [15-1:0] dac_b_sum_laser;
 logic signed [14-1:0] laser_error;
 logic signed [14-1:0] laser_control;
 
-// v3REG-0 host-controlled OUT2 scan path. The register bank is intentionally
-// small: SAFE and SCAN only. The older laser_control candidate is still built
-// below, but it is not the default OUT2 source in this stage.
+// v3REG-1/2 host-controlled OUT2 path. SAFE/SCAN remain the proven baseline.
+// HOLD and P/PI lock modes are scope-first additions that use laser_error as
+// the existing MTS error signal. Kp/Ki default to zero and must be increased
+// manually from the host after oscilloscope checks.
 logic        [32-1:0] custom_mode;
 logic                 custom_enable;
 logic signed [14-1:0] scan_offset;
@@ -249,9 +250,18 @@ logic signed [14-1:0] scan_amp;
 logic signed [14-1:0] scan_step;
 logic        [32-1:0] scan_update_div;
 logic signed [14-1:0] out2_limit;
+logic signed [14-1:0] hold_value;
+logic signed [14-1:0] lock_kp;
+logic signed [14-1:0] lock_ki;
+logic                 lock_polarity;
+logic signed [14-1:0] lock_bias;
+logic signed [14-1:0] lock_limit;
+logic                 integral_reset;
 logic signed [14-1:0] scan_out2;
 logic signed [14-1:0] selected_out2;
 logic                 scan_saturated;
+logic                 lock_saturated;
+logic                 out2_saturated;
 
 // ASG
 SBG_T [2-1:0]            asg_dat;
@@ -477,7 +487,9 @@ custom_register_bank i_custom_register_bank (
   .clk_i           (adc_clk        ),
   .rstn_i          (adc_rstn       ),
   .out2_monitor_i  (selected_out2  ),
-  .saturated_i     (scan_saturated ),
+  .error_monitor_i (laser_error    ),
+  .control_monitor_i(selected_out2 ),
+  .saturated_i     (out2_saturated ),
   .mode_o          (custom_mode    ),
   .enable_o        (custom_enable  ),
   .scan_offset_o   (scan_offset    ),
@@ -485,6 +497,13 @@ custom_register_bank i_custom_register_bank (
   .scan_step_o     (scan_step      ),
   .scan_update_div_o(scan_update_div),
   .out2_limit_o    (out2_limit     ),
+  .hold_value_o    (hold_value     ),
+  .kp_o            (lock_kp        ),
+  .polarity_o      (lock_polarity  ),
+  .lock_bias_o     (lock_bias      ),
+  .lock_limit_o    (lock_limit     ),
+  .ki_o            (lock_ki        ),
+  .integral_reset_o(integral_reset ),
   .bus             (sys[6]         )
 );
 
@@ -501,12 +520,26 @@ ramp_generator i_ramp_generator (
   .saturated_o  (scan_saturated )
 );
 
-always_comb begin
-  unique case (custom_mode)
-    32'd1:   selected_out2 = custom_enable ? scan_out2 : 14'sd0;
-    default: selected_out2 = 14'sd0;
-  endcase
-end
+out2_lock_controller i_out2_lock_controller (
+  .clk_i            (adc_clk        ),
+  .rstn_i           (adc_rstn       ),
+  .enable_i         (custom_enable  ),
+  .mode_i           (custom_mode    ),
+  .scan_i           (scan_out2      ),
+  .scan_saturated_i (scan_saturated ),
+  .hold_value_i     (hold_value     ),
+  .error_i          (laser_error    ),
+  .kp_i             (lock_kp        ),
+  .ki_i             (lock_ki        ),
+  .polarity_i       (lock_polarity  ),
+  .lock_bias_i      (lock_bias      ),
+  .lock_limit_i     (lock_limit     ),
+  .integral_reset_i (integral_reset ),
+  .control_o        (selected_out2  ),
+  .saturated_o      (lock_saturated )
+);
+
+assign out2_saturated = scan_saturated | lock_saturated;
 
 ////////////////////////////////////////////////////////////////////////////////
 // DAC IO

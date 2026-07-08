@@ -392,6 +392,19 @@ class MainWindow(QMainWindow):
         self.custom_limit_counts = QSpinBox()
         self.custom_limit_counts.setRange(0, 8191)
         self.custom_limit_counts.setValue(8191)
+        self.custom_hold_v = self._custom_double_spin(0.0, -1.0, 1.0, 4, " V")
+        self.custom_kp = QSpinBox()
+        self.custom_kp.setRange(0, 8191)
+        self.custom_kp.setValue(0)
+        self.custom_ki = QSpinBox()
+        self.custom_ki.setRange(0, 8191)
+        self.custom_ki.setValue(0)
+        self.custom_polarity = QComboBox()
+        self.custom_polarity.addItems(["normal", "invert"])
+        self.custom_lock_bias_v = self._custom_double_spin(0.0, -1.0, 1.0, 4, " V")
+        self.custom_lock_limit_counts = QSpinBox()
+        self.custom_lock_limit_counts.setRange(0, 8191)
+        self.custom_lock_limit_counts.setValue(8191)
         for widget in (
             self.custom_base_addr_edit,
             self.custom_offset_v,
@@ -399,6 +412,12 @@ class MainWindow(QMainWindow):
             self.custom_freq_hz,
             self.custom_step_counts,
             self.custom_limit_counts,
+            self.custom_hold_v,
+            self.custom_kp,
+            self.custom_ki,
+            self.custom_polarity,
+            self.custom_lock_bias_v,
+            self.custom_lock_limit_counts,
         ):
             self._style_field(widget)
         form.addRow("base address", self.custom_base_addr_edit)
@@ -407,6 +426,12 @@ class MainWindow(QMainWindow):
         form.addRow("freq-hz", self.custom_freq_hz)
         form.addRow("step-counts", self.custom_step_counts)
         form.addRow("limit-counts", self.custom_limit_counts)
+        form.addRow("hold-v", self.custom_hold_v)
+        form.addRow("Kp raw (256=1x)", self.custom_kp)
+        form.addRow("Ki raw (256=1x)", self.custom_ki)
+        form.addRow("polarity", self.custom_polarity)
+        form.addRow("lock-bias-v", self.custom_lock_bias_v)
+        form.addRow("lock-limit-counts", self.custom_lock_limit_counts)
 
         buttons = QGridLayout()
         buttons.setHorizontalSpacing(8)
@@ -415,17 +440,26 @@ class MainWindow(QMainWindow):
         self.custom_status_button = QPushButton("Status")
         self.custom_safe_button = QPushButton("SAFE")
         self.custom_scan_button = QPushButton("SCAN")
+        self.custom_hold_button = QPushButton("HOLD")
+        self.custom_p_lock_button = QPushButton("P_LOCK")
+        self.custom_pi_lock_button = QPushButton("PI_LOCK")
         for button in (
             self.custom_probe_button,
             self.custom_status_button,
             self.custom_safe_button,
             self.custom_scan_button,
+            self.custom_hold_button,
+            self.custom_p_lock_button,
+            self.custom_pi_lock_button,
         ):
             self._style_button(button)
         buttons.addWidget(self.custom_probe_button, 0, 0)
         buttons.addWidget(self.custom_status_button, 0, 1)
         buttons.addWidget(self.custom_safe_button, 1, 0)
         buttons.addWidget(self.custom_scan_button, 1, 1)
+        buttons.addWidget(self.custom_hold_button, 2, 0)
+        buttons.addWidget(self.custom_p_lock_button, 2, 1)
+        buttons.addWidget(self.custom_pi_lock_button, 3, 0, 1, 2)
 
         self.custom_register_summary = QLabel(
             "MAGIC -- | VERSION -- | MODE -- | ENABLE -- | STATUS -- | OUT2 --"
@@ -435,7 +469,10 @@ class MainWindow(QMainWindow):
         self.custom_warning_text = QTextEdit()
         self.custom_warning_text.setReadOnly(True)
         self.custom_warning_text.setMinimumHeight(90)
-        self.custom_warning_text.setPlainText("Probe or Status reads registers only. SAFE/SCAN require MAGIC=0x4D545330.")
+        self.custom_warning_text.setPlainText(
+            "Probe or Status reads registers only. SAFE/SCAN/HOLD/P_LOCK/PI_LOCK require MAGIC=0x4D545330. "
+            "P_LOCK and PI_LOCK default to Kp/Ki=0 and must be scope-only first."
+        )
 
         layout.addLayout(form)
         layout.addLayout(buttons)
@@ -693,6 +730,9 @@ class MainWindow(QMainWindow):
         self.custom_status_button.clicked.connect(lambda: self._start_custom_fpga_operation("status"))
         self.custom_safe_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
         self.custom_scan_button.clicked.connect(lambda: self._start_custom_fpga_operation("scan"))
+        self.custom_hold_button.clicked.connect(lambda: self._start_custom_fpga_operation("hold"))
+        self.custom_p_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("p-lock"))
+        self.custom_pi_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("pi-lock"))
         self.obs_analyze_button.clicked.connect(self._analyze_observe_readings)
         self.lock_step_combo.currentTextChanged.connect(self._update_lock_step_detail)
         self.export_experiment_log_button.clicked.connect(self.export_experiment_log)
@@ -827,6 +867,18 @@ class MainWindow(QMainWindow):
                 "step_counts": self.custom_step_counts.value(),
                 "limit_counts": self.custom_limit_counts.value(),
             }
+        elif operation == "hold":
+            params = {
+                "hold_v": self.custom_hold_v.value(),
+            }
+        elif operation in {"p-lock", "pi-lock"}:
+            params = {
+                "kp": self.custom_kp.value(),
+                "ki": self.custom_ki.value(),
+                "polarity": 1 if self.custom_polarity.currentText() == "invert" else 0,
+                "lock_bias_v": self.custom_lock_bias_v.value(),
+                "lock_limit_counts": self.custom_lock_limit_counts.value(),
+            }
         target = self._target_host()
         user = self.ssh_user_edit.text().strip() or "root"
         password = self.ssh_password_edit.text()
@@ -930,10 +982,22 @@ class MainWindow(QMainWindow):
         status = str(payload.get("status_raw", "--"))
         out2_counts = payload.get("out2_counts", "--")
         out2_volts = payload.get("out2_volts", "--")
+        error_counts = payload.get("error_counts", "--")
+        error_volts = payload.get("error_volts", "--")
+        control_counts = payload.get("control_counts", "--")
+        control_volts = payload.get("control_volts", "--")
         try:
             out2_volts_text = f"{float(out2_volts):.6g} V"
         except (TypeError, ValueError):
             out2_volts_text = "-- V"
+        try:
+            error_volts_text = f"{float(error_volts):.6g} V"
+        except (TypeError, ValueError):
+            error_volts_text = "-- V"
+        try:
+            control_volts_text = f"{float(control_volts):.6g} V"
+        except (TypeError, ValueError):
+            control_volts_text = "-- V"
         self.custom_register_summary.setText(
             f"MAGIC {magic} | VERSION {version} | MODE {mode} | ENABLE {enable} | "
             f"STATUS {status} | OUT2 {out2_counts} counts / {out2_volts_text}"
@@ -946,7 +1010,11 @@ class MainWindow(QMainWindow):
             f"ENABLE: {enable}",
             f"STATUS: {status}",
             f"OUT2: {out2_counts} counts / {out2_volts_text}",
+            f"ERROR_MONITOR: {error_counts} counts / {error_volts_text}",
+            f"CONTROL_MONITOR: {control_counts} counts / {control_volts_text}",
         ]
+        if operation in {"p-lock", "pi-lock"}:
+            lines.append("Scope-only: keep Kp/Ki low; do not connect PZT/current/D2-125 before matrix validation.")
         if stderr.strip():
             lines.append("")
             lines.append(stderr.strip())
@@ -1382,6 +1450,9 @@ class MainWindow(QMainWindow):
             self.custom_status_button,
             self.custom_safe_button,
             self.custom_scan_button,
+            self.custom_hold_button,
+            self.custom_p_lock_button,
+            self.custom_pi_lock_button,
         ):
             button.setEnabled(custom_enabled)
         for widget in (
@@ -1391,6 +1462,12 @@ class MainWindow(QMainWindow):
             self.custom_freq_hz,
             self.custom_step_counts,
             self.custom_limit_counts,
+            self.custom_hold_v,
+            self.custom_kp,
+            self.custom_ki,
+            self.custom_polarity,
+            self.custom_lock_bias_v,
+            self.custom_lock_limit_counts,
         ):
             widget.setEnabled(custom_enabled)
 

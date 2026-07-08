@@ -375,3 +375,48 @@ D: offset=0.75 V, amp=0.05 V, freq=10 Hz
 - 是否出现削顶、跳变、饱和或波形断裂。
 
 下一阶段目标：在保持安全幅度的前提下，找到最适合扫出稳定谱线的 offset / amplitude / frequency 组合。完成后再进入 FPGA mixer + LPF error signal 观察、error signal 与扫描信号关系检查，以及低风险闭环控制流程设计。
+
+## 9. v3REG-1 / v3REG-2 HOLD 和 P/PI 锁定预验证扩展
+
+本节只记录进入最短锁定路径后的 scope-only 上板顺序。当前目标是验证 Red Pitaya 能基于现有 MTS error signal 生成可控 OUT2，不替代外部 EOM RF、模拟 BPF 或放大器。
+
+允许的 GUI 路径：
+
+```text
+Custom FPGA Mode
+-> Probe Registers
+-> Status
+-> SAFE
+-> SCAN
+-> HOLD
+-> P_LOCK, Kp=0 first
+-> PI_LOCK, Kp=0 and Ki=0 first
+```
+
+允许的 CLI 路径：
+
+```powershell
+python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local status
+python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local safe
+python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local hold --hold-v 0.0
+python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local p-lock --kp 0 --polarity normal --lock-bias-v 0.0 --lock-limit-counts 8191
+python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local pi-lock --kp 0 --ki 0 --polarity normal --lock-bias-v 0.0 --lock-limit-counts 8191
+```
+
+必须记录：
+
+- `MAGIC = 0x4D545330` 和 `VERSION = 0x00030000`。
+- `HOLD` 输出固定电压是否正确。
+- `P_LOCK` 在 `Kp=0` 时是否保持 bias，不产生意外输出。
+- 逐步增加 `Kp` 后，正/负 error 下 OUT2 方向是否符合 polarity。
+- polarity 翻转后 OUT2 方向是否反转。
+- `LOCK_LIMIT` 是否生效。
+- `SAFE` 或 `ENABLE=0` 是否立即让 OUT2 回到 0。
+- `ERROR_MONITOR` 和 `CONTROL_MONITOR` 读回是否与示波器趋势一致。
+
+安全边界：
+
+- HOLD/P_LOCK/PI_LOCK 第一轮只能 `OUT2 -> 示波器`。
+- 禁止直接接 PZT、激光电流、D2-125 Servo Output 或 Scan input。
+- P_LOCK/PI_LOCK 默认 `Kp=0`、`Ki=0`，必须人工逐步增加。
+- 没有完成幅度、偏置、极性、限幅和 SAFE 验证前，不允许进入闭环锁定测试。

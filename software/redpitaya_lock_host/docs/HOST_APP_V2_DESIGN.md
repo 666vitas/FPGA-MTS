@@ -1,5 +1,68 @@
 # Host App V2 Design
 
+## 2026-07-08 v3REG-1 / v3REG-2 Custom FPGA Control 第一版
+
+当前 Custom FPGA Control 已经从 v3REG-0 的 `SAFE/SCAN` 扩展到最短手动/半自动锁定路径：
+
+```text
+SAFE -> SCAN -> HOLD -> P_LOCK -> PI_LOCK
+```
+
+上位机链路仍然是：
+
+```text
+main_window.py
+-> CustomFpgaRegisterWorker
+-> CustomFpgaBackend
+-> SSH
+-> remote Python /dev/mem helper
+-> custom_register_bank
+-> out2_lock_controller / ramp_generator
+-> selected_out2
+```
+
+新增 GUI 控件：
+
+```text
+HOLD button
+P_LOCK button
+PI_LOCK button
+hold-v
+Kp raw, Ki raw
+polarity
+lock-bias-v
+lock-limit-counts
+ERROR_MONITOR / CONTROL_MONITOR readback
+```
+
+新增寄存器：
+
+```text
+0x2C HOLD_VALUE
+0x30 KP
+0x34 POLARITY
+0x38 LOCK_BIAS
+0x3C LOCK_LIMIT
+0x40 ERROR_MONITOR    read-only
+0x44 CONTROL_MONITOR  read-only
+0x48 KI
+0x4C INTEGRAL_RESET
+```
+
+MODE 定义：
+
+```text
+0 SAFE
+1 SCAN
+2 HOLD
+3 P_LOCK
+4 PI_LOCK
+```
+
+`SAFE` 仍然是最高优先级：`ENABLE=0` 或 `MODE=0` 时 OUT2 必须为 0。`Probe Registers` 和 `Status` 只读；`SAFE/SCAN/HOLD/P_LOCK/PI_LOCK` 写寄存器前都必须通过 `MAGIC=0x4D545330` 检查。P_LOCK/PI_LOCK 的默认增益为 `Kp=0`、`Ki=0`，GUI 只提供人工逐步增加入口，不做自动闭环调参。
+
+当前阶段边界：上位机已经能写 HOLD/P/PI 参数，但上板验证必须先 scope-only。不要把 OUT2 默认接到 PZT、激光电流、D2-125 Servo Output 或 Scan input。debug buffer、relock、自动找峰、执行器连接 SOP 仍是后续工作。
+
 ## 2026-07-05 GUI Custom FPGA Control v1
 
 The PySide6 GUI now has a first Custom FPGA Control panel on the Custom FPGA Observe page. It supports:
@@ -125,7 +188,7 @@ Markdown docs, SOPs, stage records, and small reports should stay under `docs/`.
 - `acquisition_worker.py`: background `QThread` acquisition loop.
 - `waveform_preview.py`: generated OUT1/OUT2 preview time axis and waveform helpers.
 - `custom_fpga_workflow.py`: manual oscilloscope reading analysis for observe-mode safety decisions.
-- `custom_fpga_backend.py`: Custom FPGA Control v1 backend for SSH + `/dev/mem` Probe Registers, Status, SAFE, and SCAN. HOLD, PID parameters, debug buffers, and lock/relock remain future work.
+- `custom_fpga_backend.py`: Custom FPGA Control backend for SSH + `/dev/mem` Probe Registers, Status, SAFE, SCAN, HOLD, P_LOCK, and PI_LOCK. Debug buffers, automatic lock/relock, and actuator connection SOP remain future work.
 - `main_window.py`: V2 GUI with connection management, output control, acquisition, and four-channel display.
 - `data_logger.py`: CSV metadata and PNG export.
 - `safety.py`: output safety validation and best-effort exit shutdown hooks.
@@ -173,10 +236,10 @@ Custom FPGA Mode:
 - Treats the current custom bitstream as the active hardware route.
 - Current RTL has `USE_LASER_LOCK_CORE = 1`.
 - OUT1 / DAC A = `laser_error`.
-- OUT2 / DAC B = `laser_control`.
+- OUT2 / DAC B = `selected_out2`.
 - Official `asg_dat[0]` / `asg_dat[1]` do not directly drive OUT1/OUT2.
-- The host app can now read the v3REG-0 custom register bank and write the first SAFE/SCAN controls through SSH `/dev/mem`.
-- The host app still does not implement HOLD, P_LOCK, PI_LOCK, PID tuning, debug-buffer reads, or automatic lock/relock.
+- The host app can now read the custom register bank and write SAFE/SCAN/HOLD/P_LOCK/PI_LOCK controls through SSH `/dev/mem`.
+- The host app still does not implement debug-buffer reads, automatic lock/relock, or a safe actuator connection workflow.
 
 ## Output Control
 

@@ -147,14 +147,39 @@ Use this only after the timing-pass custom bitstream has been programmed into th
 
 If `MAGIC = 0x00000000`, the GUI treats SAFE/SCAN as blocked. It means no `custom_register_bank` was read; possible causes are no Program Device, an old bit file, a wrong base address, or needing to reload the timing-pass bitstream. Run `Probe Registers` again after fixing the bitstream/base address.
 
+### v3REG-1 / v3REG-2 手动锁定最短路径
+
+当前 Custom FPGA Control 已经支持 `SAFE`、`SCAN`、`HOLD`、`P_LOCK` 和 `PI_LOCK`。这些按钮走同一条自定义寄存器路径：
+
+```text
+GUI -> SSH -> /dev/mem -> custom_register_bank -> out2_lock_controller -> selected_out2 -> DAC B / OUT2
+```
+
+推荐上板顺序：
+
+```text
+Custom FPGA Mode
+-> Probe Registers
+-> Status
+-> SAFE
+-> SCAN
+-> HOLD
+-> P_LOCK, with Kp=0 first
+-> PI_LOCK, with Kp=0 and Ki=0 first
+```
+
+`HOLD` 输出固定电压，使用 `hold-v` 设置。`P_LOCK` 使用 `Kp raw`、`polarity`、`lock-bias-v` 和 `lock-limit-counts`。`PI_LOCK` 在 P_LOCK 基础上增加 `Ki raw`。`Kp raw` 和 `Ki raw` 约定 `256 = 1.0x`，GUI 默认值为 0，必须人工逐步增加。
+
+安全边界：HOLD/P_LOCK/PI_LOCK 第一阶段仍然只允许 OUT2 接示波器。不要把 OUT2 默认接到 PZT、激光电流、D2-125 Servo Output 或 Scan input。只有在 scope-only 验证了幅度、偏置、极性、限幅和 SAFE 关闭行为后，才允许单独制定执行器连接 SOP。
+
 ## GUI Modes
 
 - Hardware Bring-up / SCPI Mode: Probe, Start SCPI Server, Connect SCPI, official ASG OUT2 Safe Scan, IN1/IN2 acquisition, and Stop/Disable outputs. This path is only for official overlay/ASG testing.
-- Custom FPGA Observe Mode: Custom FPGA Control v1 for Probe Registers, Status, SAFE, and SCAN through SSH `/dev/mem`, plus manual oscilloscope readings for real wiring: IN1 PD/MTS, IN2 REF, OUT1 laser_error, and OUT2 selected_out2 SAFE/SCAN. OUT2 is scope-only at the current stage.
+- Custom FPGA Observe Mode: Custom FPGA Control for Probe Registers, Status, SAFE, SCAN, HOLD, P_LOCK, and PI_LOCK through SSH `/dev/mem`, plus manual oscilloscope readings for real wiring: IN1 PD/MTS, IN2 REF, OUT1 laser_error, and OUT2 selected_out2. OUT2 is scope-only for HOLD/P_LOCK/PI_LOCK until a separate actuator connection SOP is written.
 - Lock Workflow Mode: step-by-step D2-125 replacement workflow management. It does not pretend to lock automatically.
 - Data & Experiment Log: exports Markdown experiment logs to `docs/experiment_logs/`.
 
-Custom FPGA register writes, debug-buffer reads, AXI registers, lock FSM control, and relock are future work. They require FPGA-side `register_bank`, `debug_buffer`, or AXI readout support.
+Debug-buffer reads, higher-level lock FSM control, relock, and actuator connection SOPs remain future work. The first FPGA-side register path for SCAN/HOLD/P_LOCK/PI_LOCK now exists, but P/PI gains default to zero and must be enabled manually.
 
 ## OUT1/OUT2 Preview Notes
 

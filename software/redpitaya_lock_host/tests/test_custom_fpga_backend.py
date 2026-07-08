@@ -38,15 +38,17 @@ def test_status_payload_accepts_expected_magic_string() -> None:
 def test_remote_helper_requires_magic_before_safe_and_scan_writes() -> None:
     source = (ROOT / "scripts" / "custom_fpga_scan_control.py").read_text(encoding="utf-8")
 
-    safe_start = source.index('if args.op == "safe":')
-    safe_require = source.index("require_magic(regs)", safe_start)
-    safe_write = source.index("regs.write", safe_start)
-    assert safe_require < safe_write
-
-    scan_start = source.index('elif args.op == "scan":')
-    scan_require = source.index("require_magic(regs)", scan_start)
-    scan_write = source.index("regs.write", scan_start)
-    assert scan_require < scan_write
+    for marker in (
+        'if args.op == "safe":',
+        'elif args.op == "scan":',
+        'elif args.op == "hold":',
+        'elif args.op == "p-lock":',
+        'elif args.op == "pi-lock":',
+    ):
+        op_start = source.index(marker)
+        op_require = source.index("require_magic(regs)", op_start)
+        op_write = source.index("regs.write", op_start)
+        assert op_require < op_write
 
 
 def test_remote_helper_mmio_writes_do_not_flush_dev_mem_mapping() -> None:
@@ -69,10 +71,30 @@ def test_remote_helper_safe_and_scan_read_back_status_after_writes() -> None:
 
     safe_start = helper.index('if args.op == "safe":')
     scan_start = helper.index('elif args.op == "scan":')
-    readback_start = helper.index("status = read_status(regs)", scan_start)
+    hold_start = helper.index('elif args.op == "hold":')
+    p_lock_start = helper.index('elif args.op == "p-lock":')
+    pi_lock_start = helper.index('elif args.op == "pi-lock":')
+    readback_start = helper.index("status = read_status(regs)", pi_lock_start)
 
     assert safe_start < readback_start
     assert scan_start < readback_start
+    assert hold_start < readback_start
+    assert p_lock_start < readback_start
+    assert pi_lock_start < readback_start
+
+
+def test_custom_fpga_cli_exposes_hold_p_lock_and_pi_lock_without_default_gain() -> None:
+    custom_fpga_scan_control = load_scan_control_module()
+
+    for command in ("hold", "p-lock", "pi-lock"):
+        args = custom_fpga_scan_control.parse_args(["--host", "rp.local", command])
+        assert args.command == command
+
+    p_args = custom_fpga_scan_control.parse_args(["--host", "rp.local", "p-lock"])
+    pi_args = custom_fpga_scan_control.parse_args(["--host", "rp.local", "pi-lock"])
+    assert p_args.kp == 0
+    assert pi_args.kp == 0
+    assert pi_args.ki == 0
 
 
 def test_gui_text_separates_scpi_and_custom_fpga_out2_paths() -> None:

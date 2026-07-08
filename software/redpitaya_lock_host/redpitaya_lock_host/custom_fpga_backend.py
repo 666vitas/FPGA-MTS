@@ -35,6 +35,20 @@ class ScanConfig:
 
 
 @dataclass(frozen=True)
+class HoldConfig:
+    hold_counts: int
+
+
+@dataclass(frozen=True)
+class LockConfig:
+    kp: int
+    ki: int
+    polarity: int
+    lock_bias_counts: int
+    lock_limit_counts: int
+
+
+@dataclass(frozen=True)
 class CustomFpgaResponse:
     operation: str
     payload: dict[str, Any]
@@ -85,6 +99,27 @@ def build_scan_config(
     )
 
 
+def build_hold_config(*, hold_v: float) -> HoldConfig:
+    return HoldConfig(hold_counts=volts_to_counts(hold_v))
+
+
+def build_lock_config(
+    *,
+    kp: int,
+    ki: int,
+    polarity: int,
+    lock_bias_v: float,
+    lock_limit_counts: int,
+) -> LockConfig:
+    return LockConfig(
+        kp=max(0, min(8191, int(kp))),
+        ki=max(0, min(8191, int(ki))),
+        polarity=1 if int(polarity) else 0,
+        lock_bias_counts=volts_to_counts(lock_bias_v),
+        lock_limit_counts=max(0, min(8191, int(lock_limit_counts))),
+    )
+
+
 def missing_magic_guidance(magic_text: str) -> str:
     if magic_text.upper() != "0X00000000":
         return (
@@ -115,11 +150,11 @@ def _load_scan_script_module():
     return module
 
 
-def _remote_python_command(base_addr: int, operation: str, config: ScanConfig | None) -> str:
+def _remote_python_command(base_addr: int, operation: str, config: ScanConfig | HoldConfig | LockConfig | None) -> str:
     helper = _load_scan_script_module().REMOTE_HELPER
     helper_b64 = base64.b64encode(helper.encode("utf-8")).decode("ascii")
     remote_args = ["--base-addr", f"0x{int(base_addr):X}", "--op", operation]
-    if config is not None:
+    if isinstance(config, ScanConfig):
         remote_args += [
             "--offset-counts",
             str(config.offset_counts),
@@ -131,6 +166,24 @@ def _remote_python_command(base_addr: int, operation: str, config: ScanConfig | 
             str(config.update_div),
             "--limit-counts",
             str(config.limit_counts),
+        ]
+    elif isinstance(config, HoldConfig):
+        remote_args += [
+            "--hold-counts",
+            str(config.hold_counts),
+        ]
+    elif isinstance(config, LockConfig):
+        remote_args += [
+            "--kp",
+            str(config.kp),
+            "--ki",
+            str(config.ki),
+            "--polarity",
+            str(config.polarity),
+            "--lock-bias-counts",
+            str(config.lock_bias_counts),
+            "--lock-limit-counts",
+            str(config.lock_limit_counts),
         ]
     remote_python = (
         "import base64, sys; "
@@ -194,14 +247,50 @@ class CustomFpgaBackend:
         )
         return self._run("scan", config, allow_nonzero=False)
 
+    def set_mode_hold(self, *, hold_v: float) -> CustomFpgaResponse:
+        config = build_hold_config(hold_v=hold_v)
+        return self._run("hold", config, allow_nonzero=False)
+
+    def set_mode_p_lock(
+        self,
+        *,
+        kp: int,
+        polarity: int,
+        lock_bias_v: float,
+        lock_limit_counts: int,
+    ) -> CustomFpgaResponse:
+        config = build_lock_config(
+            kp=kp,
+            ki=0,
+            polarity=polarity,
+            lock_bias_v=lock_bias_v,
+            lock_limit_counts=lock_limit_counts,
+        )
+        return self._run("p-lock", config, allow_nonzero=False)
+
+    def set_mode_pi_lock(
+        self,
+        *,
+        kp: int,
+        ki: int,
+        polarity: int,
+        lock_bias_v: float,
+        lock_limit_counts: int,
+    ) -> CustomFpgaResponse:
+        config = build_lock_config(
+            kp=kp,
+            ki=ki,
+            polarity=polarity,
+            lock_bias_v=lock_bias_v,
+            lock_limit_counts=lock_limit_counts,
+        )
+        return self._run("pi-lock", config, allow_nonzero=False)
+
     def read_error_snapshot(self) -> CustomFpgaResponse:
         return self.read_status()
 
     def read_control_snapshot(self) -> CustomFpgaResponse:
         return self.read_status()
-
-    def set_mode_hold(self) -> None:
-        raise NotImplementedError("Custom FPGA HOLD mode is not implemented in v1 GUI control")
 
     def set_pid_params(self, *args, **kwargs) -> None:
         del args, kwargs
@@ -214,7 +303,7 @@ class CustomFpgaBackend:
     def _run(
         self,
         operation: str,
-        config: ScanConfig | None,
+        config: ScanConfig | HoldConfig | LockConfig | None,
         *,
         allow_nonzero: bool,
     ) -> CustomFpgaResponse:

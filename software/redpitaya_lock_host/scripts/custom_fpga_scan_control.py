@@ -33,6 +33,15 @@ REGISTERS = {
     "OUT2_LIMIT": 0x20,
     "STATUS": 0x24,
     "OUT2_MONITOR": 0x28,
+    "HOLD_VALUE": 0x2C,
+    "KP": 0x30,
+    "POLARITY": 0x34,
+    "LOCK_BIAS": 0x38,
+    "LOCK_LIMIT": 0x3C,
+    "ERROR_MONITOR": 0x40,
+    "CONTROL_MONITOR": 0x44,
+    "KI": 0x48,
+    "INTEGRAL_RESET": 0x4C,
 }
 
 
@@ -56,6 +65,15 @@ REGISTERS = {
     "OUT2_LIMIT": 0x20,
     "STATUS": 0x24,
     "OUT2_MONITOR": 0x28,
+    "HOLD_VALUE": 0x2C,
+    "KP": 0x30,
+    "POLARITY": 0x34,
+    "LOCK_BIAS": 0x38,
+    "LOCK_LIMIT": 0x3C,
+    "ERROR_MONITOR": 0x40,
+    "CONTROL_MONITOR": 0x44,
+    "KI": 0x48,
+    "INTEGRAL_RESET": 0x4C,
 }
 
 EXPECTED_MAGIC = 0x4D545330
@@ -165,6 +183,8 @@ def read_status(regs):
     version = regs.read(REGISTERS["VERSION"])
     status = regs.read(REGISTERS["STATUS"])
     out2_raw = regs.read(REGISTERS["OUT2_MONITOR"])
+    error_raw = regs.read(REGISTERS["ERROR_MONITOR"])
+    control_raw = regs.read(REGISTERS["CONTROL_MONITOR"])
     return {
         "magic": f"0x{magic:08X}",
         "version": f"0x{version:08X}",
@@ -175,6 +195,10 @@ def read_status(regs):
         "saturated": bool(status & 2),
         "out2_counts": to_signed14(out2_raw),
         "out2_volts": to_signed14(out2_raw) / 8191.0,
+        "error_counts": to_signed14(error_raw),
+        "error_volts": to_signed14(error_raw) / 8191.0,
+        "control_counts": to_signed14(control_raw),
+        "control_volts": to_signed14(control_raw) / 8191.0,
     }
 
 
@@ -215,12 +239,18 @@ def probe_base_addresses():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-addr", default="0x40600000")
-    parser.add_argument("--op", choices=["safe", "scan", "status", "probe"], required=True)
+    parser.add_argument("--op", choices=["safe", "scan", "hold", "p-lock", "pi-lock", "status", "probe"], required=True)
     parser.add_argument("--offset-counts", type=int, default=6962)
     parser.add_argument("--amp-counts", type=int, default=410)
     parser.add_argument("--step-counts", type=int, default=1)
     parser.add_argument("--update-div", type=int, default=1524)
     parser.add_argument("--limit-counts", type=int, default=8191)
+    parser.add_argument("--hold-counts", type=int, default=0)
+    parser.add_argument("--kp", type=int, default=0)
+    parser.add_argument("--ki", type=int, default=0)
+    parser.add_argument("--polarity", type=int, choices=[0, 1], default=0)
+    parser.add_argument("--lock-bias-counts", type=int, default=0)
+    parser.add_argument("--lock-limit-counts", type=int, default=8191)
     args = parser.parse_args()
 
     if args.op == "probe":
@@ -243,6 +273,34 @@ def main():
             regs.write(REGISTERS["OUT2_LIMIT"], args.limit_counts)
             regs.write(REGISTERS["MODE"], 1)
             regs.write(REGISTERS["ENABLE"], 1)
+        elif args.op == "hold":
+            require_magic(regs)
+            regs.write(REGISTERS["ENABLE"], 0)
+            regs.write(REGISTERS["HOLD_VALUE"], args.hold_counts)
+            regs.write(REGISTERS["MODE"], 2)
+            regs.write(REGISTERS["ENABLE"], 1)
+        elif args.op == "p-lock":
+            require_magic(regs)
+            regs.write(REGISTERS["ENABLE"], 0)
+            regs.write(REGISTERS["KP"], args.kp)
+            regs.write(REGISTERS["KI"], 0)
+            regs.write(REGISTERS["POLARITY"], args.polarity)
+            regs.write(REGISTERS["LOCK_BIAS"], args.lock_bias_counts)
+            regs.write(REGISTERS["LOCK_LIMIT"], args.lock_limit_counts)
+            regs.write(REGISTERS["INTEGRAL_RESET"], 1)
+            regs.write(REGISTERS["MODE"], 3)
+            regs.write(REGISTERS["ENABLE"], 1)
+        elif args.op == "pi-lock":
+            require_magic(regs)
+            regs.write(REGISTERS["ENABLE"], 0)
+            regs.write(REGISTERS["KP"], args.kp)
+            regs.write(REGISTERS["KI"], args.ki)
+            regs.write(REGISTERS["POLARITY"], args.polarity)
+            regs.write(REGISTERS["LOCK_BIAS"], args.lock_bias_counts)
+            regs.write(REGISTERS["LOCK_LIMIT"], args.lock_limit_counts)
+            regs.write(REGISTERS["INTEGRAL_RESET"], 1)
+            regs.write(REGISTERS["MODE"], 4)
+            regs.write(REGISTERS["ENABLE"], 1)
         status = read_status(regs)
         if args.op == "status":
             warn_missing_magic(int(status["magic"], 16))
@@ -263,6 +321,20 @@ class ScanConfig:
     step_counts: int
     update_div: int
     limit_counts: int
+
+
+@dataclass
+class HoldConfig:
+    hold_counts: int
+
+
+@dataclass
+class LockConfig:
+    kp: int
+    ki: int
+    polarity: int
+    lock_bias_counts: int
+    lock_limit_counts: int
 
 
 def volts_to_counts(volts: float) -> int:
@@ -289,7 +361,21 @@ def build_scan_config(args: argparse.Namespace) -> ScanConfig:
     )
 
 
-def remote_command(args: argparse.Namespace, op: str, config: ScanConfig | None) -> list[str]:
+def build_hold_config(args: argparse.Namespace) -> HoldConfig:
+    return HoldConfig(hold_counts=volts_to_counts(args.hold_v))
+
+
+def build_lock_config(args: argparse.Namespace, *, pi: bool) -> LockConfig:
+    return LockConfig(
+        kp=max(0, min(8191, int(args.kp))),
+        ki=max(0, min(8191, int(args.ki if pi else 0))),
+        polarity=1 if str(args.polarity).lower() in {"1", "invert", "inverted", "negative"} else 0,
+        lock_bias_counts=volts_to_counts(args.lock_bias_v),
+        lock_limit_counts=max(0, min(8191, int(args.lock_limit_counts))),
+    )
+
+
+def remote_command(args: argparse.Namespace, op: str, config: ScanConfig | HoldConfig | LockConfig | None) -> list[str]:
     helper_b64 = base64.b64encode(REMOTE_HELPER.encode("utf-8")).decode("ascii")
     remote_args = [
         "--base-addr",
@@ -297,7 +383,7 @@ def remote_command(args: argparse.Namespace, op: str, config: ScanConfig | None)
         "--op",
         op,
     ]
-    if config is not None:
+    if isinstance(config, ScanConfig):
         remote_args += [
             "--offset-counts",
             str(config.offset_counts),
@@ -309,6 +395,24 @@ def remote_command(args: argparse.Namespace, op: str, config: ScanConfig | None)
             str(config.update_div),
             "--limit-counts",
             str(config.limit_counts),
+        ]
+    elif isinstance(config, HoldConfig):
+        remote_args += [
+            "--hold-counts",
+            str(config.hold_counts),
+        ]
+    elif isinstance(config, LockConfig):
+        remote_args += [
+            "--kp",
+            str(config.kp),
+            "--ki",
+            str(config.ki),
+            "--polarity",
+            str(config.polarity),
+            "--lock-bias-counts",
+            str(config.lock_bias_counts),
+            "--lock-limit-counts",
+            str(config.lock_limit_counts),
         ]
     remote_python = (
         "import base64, sys; "
@@ -352,6 +456,22 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     scan_parser.add_argument("--step-counts", type=int, default=1)
     scan_parser.add_argument("--limit-counts", type=int, default=8191)
 
+    hold_parser = subparsers.add_parser("hold", help="Set fixed OUT2 voltage and enable HOLD mode")
+    hold_parser.add_argument("--hold-v", type=float, default=0.0)
+
+    p_lock_parser = subparsers.add_parser("p-lock", help="Enable proportional lock mode; Kp defaults to zero")
+    p_lock_parser.add_argument("--kp", type=int, default=0, help="Fixed-point Kp, 256 = gain 1.0")
+    p_lock_parser.add_argument("--polarity", choices=["normal", "invert", "0", "1"], default="normal")
+    p_lock_parser.add_argument("--lock-bias-v", type=float, default=0.0)
+    p_lock_parser.add_argument("--lock-limit-counts", type=int, default=8191)
+
+    pi_lock_parser = subparsers.add_parser("pi-lock", help="Enable PI lock mode; Kp/Ki default to zero")
+    pi_lock_parser.add_argument("--kp", type=int, default=0, help="Fixed-point Kp, 256 = gain 1.0")
+    pi_lock_parser.add_argument("--ki", type=int, default=0, help="Fixed-point Ki, 256 = gain 1.0 per sample")
+    pi_lock_parser.add_argument("--polarity", choices=["normal", "invert", "0", "1"], default="normal")
+    pi_lock_parser.add_argument("--lock-bias-v", type=float, default=0.0)
+    pi_lock_parser.add_argument("--lock-limit-counts", type=int, default=8191)
+
     subparsers.add_parser("status", help="Read magic/version/status/out2 monitor")
     subparsers.add_parser("probe", help="Read magic/version at candidate GP0 base addresses")
     return parser.parse_args(argv)
@@ -359,11 +479,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    config = build_scan_config(args) if args.command == "scan" else None
+    if args.command == "scan":
+        config = build_scan_config(args)
+    elif args.command == "hold":
+        config = build_hold_config(args)
+    elif args.command == "p-lock":
+        config = build_lock_config(args, pi=False)
+    elif args.command == "pi-lock":
+        config = build_lock_config(args, pi=True)
+    else:
+        config = None
     command = remote_command(args, args.command, config)
 
     if args.print_command:
-        if config is not None:
+        if isinstance(config, ScanConfig):
             print(
                 textwrap.dedent(
                     f"""
@@ -373,6 +502,21 @@ def main(argv: list[str] | None = None) -> int:
                     # step_counts={config.step_counts}
                     # update_div={config.update_div}
                     # limit_counts={config.limit_counts}
+                    """
+                ).strip()
+            )
+        elif isinstance(config, HoldConfig):
+            print(f"# computed hold parameter\n# hold_counts={config.hold_counts}")
+        elif isinstance(config, LockConfig):
+            print(
+                textwrap.dedent(
+                    f"""
+                    # computed lock parameters
+                    # kp={config.kp}
+                    # ki={config.ki}
+                    # polarity={config.polarity}
+                    # lock_bias_counts={config.lock_bias_counts}
+                    # lock_limit_counts={config.lock_limit_counts}
                     """
                 ).strip()
             )
