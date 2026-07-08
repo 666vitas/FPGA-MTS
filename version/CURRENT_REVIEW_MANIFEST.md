@@ -7,7 +7,7 @@
 ```text
 Repository: 666vitas/FPGA-MTS
 Primary branch: main
-Current stage: v3REG-0 register-controlled OUT2 SAFE/SCAN
+Current stage: v3REG-0 SAFE/SCAN board-verified; v3REG-1/v3REG-2 HOLD/P_LOCK/PI_LOCK are RTL/software candidates only
 Primary RTL root: v0.94/rtl
 Primary Vivado project: v0.94/project/redpitaya.xpr
 Primary status file: version/STATUS.md
@@ -19,11 +19,16 @@ Root entrypoint: AI_REVIEW_README.md
 
 ```text
 OUT1 = laser_error = mixer + LPF error observation
-OUT2 = selected_out2 = custom_register_bank + ramp_generator SAFE/SCAN
-laser_control / pi_controller_seq = 后续候选，不是当前 OUT2 输出
+OUT2 = selected_out2
+MODE=0 SAFE, MODE=1 SCAN, MODE=2 HOLD, MODE=3 P_LOCK, MODE=4 PI_LOCK are present in current RTL
+laser_control / pi_controller_seq = 内部候选/历史路径，不是当前 DAC B / OUT2 最终输出
 ```
 
-当前阶段只允许示波器验证 OUT2 SAFE/SCAN，不允许接入任何真实激光执行器。
+v3REG-0 SAFE/SCAN 已由用户上板验证：base address `0x40600000`，`MAGIC=0x4D545330`，`VERSION=0x00030000`，GUI/monitor 可控制 OUT2 三角波并可 SAFE 关闭。
+
+HOLD/P_LOCK/PI_LOCK 当前只表示 GitHub main 中的 RTL/software 候选已经存在；尚未完成 Vivado synthesis / implementation / timing / bitstream / 上板验证。
+
+当前阶段只允许示波器验证，不允许接入 PZT、Scan input、激光器电流调制、D2-125 Servo Output 或 D2-125 Aux Output。
 
 ## 3. 当前必须读取的文件
 
@@ -86,7 +91,7 @@ LASER_LOCK_CONTROL_PATH_MODE = 1
 laser_lock_core 实例化存在
 custom_register_bank 实例化存在并接 sys[6]
 ramp_generator 实例化存在
-selected_out2 在 custom_mode == 1 且 enable 时接 scan_out2，否则为 0
+selected_out2 由 out2_lock_controller 根据 MODE/ENABLE 选择 SAFE / SCAN / HOLD / P_LOCK / PI_LOCK
 DAC A / OUT1 接 laser_error
 DAC B / OUT2 接 selected_out2
 ```
@@ -107,6 +112,15 @@ SCAN_UPDATE_DIV
 OUT2_LIMIT
 STATUS
 OUT2_MONITOR
+HOLD_VALUE
+KP
+POLARITY
+LOCK_BIAS
+LOCK_LIMIT
+ERROR_MONITOR
+CONTROL_MONITOR
+KI
+INTEGRAL_RESET
 ```
 
 必须确认默认值：
@@ -119,6 +133,12 @@ amp = 410
 step = 1
 update_div = 1524
 out2_limit = 8191
+hold_value = 0
+kp = 0
+polarity = 0
+lock_bias = 0
+lock_limit = 8191
+ki = 0
 ```
 
 ### ramp_generator.sv
@@ -151,7 +171,7 @@ control_o / pi_controller_seq 仍存在，但不是当前 OUT2 的最终来源
 ```text
 代码层面已经加入 register_bank
 代码层面已经加入 ramp_generator
-代码层面 OUT2 已经改为 selected_out2 SAFE/SCAN
+代码层面 OUT2 已经改为 selected_out2 SAFE/SCAN/HOLD/P_LOCK/PI_LOCK 候选
 ```
 
 ### 只能说“等待验证”的内容
@@ -164,7 +184,8 @@ control_o / pi_controller_seq 仍存在，但不是当前 OUT2 的最终来源
 等待 timing 检查
 等待 bitstream 生成
 等待烧录
-等待 OUT2 示波器 SAFE/SCAN 验证
+v3REG-0 SAFE/SCAN 已有用户上板示波器验证记录
+等待 HOLD/P_LOCK/PI_LOCK 的 Vivado timing / bitstream / 上板示波器验证
 ```
 
 ### 禁止说的内容
@@ -189,9 +210,9 @@ control_o / pi_controller_seq 仍存在，但不是当前 OUT2 的最终来源
 5. 生成 bitstream。
 6. 烧录 Red Pitaya。
 7. 用上位机读 MAGIC / VERSION。
-8. 写 MODE / ENABLE / SCAN 参数。
-9. 只把 OUT2 接示波器，验证 SAFE=0 V、SCAN=0.80~0.90 V 三角波。
-10. 验证通过后再讨论 PZT/Scan 接入评审。
+8. 只把 OUT2 接示波器，先复核 SAFE/SCAN。
+9. 再以 Kp=0 / Ki=0 复核 HOLD/P_LOCK/PI_LOCK 候选模式。
+10. HOLD/P_LOCK/PI_LOCK scope-only 验证通过后，仍需单独安全评审，才能讨论 PZT/Scan 接入。
 ```
 
 ## 8. 审查输出必须包含

@@ -1,5 +1,16 @@
 # Development Log
 
+## 2026-07-08 - v3REG-1 / v3REG-2 状态文档同步与独立仿真确认
+
+- 本次实现/同步内容：只做文档同步和仿真确认，不接真实执行器，不运行 Vivado synthesis / implementation，不生成 bitstream。明确 v3REG-0 SAFE/SCAN 已由用户上板验证；当前 GitHub main RTL/software 已包含 v3REG-1/v3REG-2 候选 `HOLD/P_LOCK/PI_LOCK`，但尚未完成 Vivado/timing/bitstream/上板验证。
+- 修改 Python 文件：无。
+- 修改文档文件：`version/STATUS.md`、`version/CURRENT_REVIEW_MANIFEST.md`、`software/redpitaya_lock_host/docs/CONNECTION_DIAGNOSIS.md`、`software/redpitaya_lock_host/docs/HARDWARE_TEST_SOP.md`、`software/redpitaya_lock_host/docs/CUSTOM_FPGA_LOCK_WORKFLOW.md`、`software/redpitaya_lock_host/docs/DEVELOPMENT_LOG.md`。
+- 修改仿真文件：`v0.94/sim/tb_out2_lock_controller.sv`，补充 `P_LOCK Kp=0 -> lock_bias` 以及 PI 在 `ENABLE=0`、`MODE=SAFE` 下清积分的断言。
+- 验证方式：独立运行 `xvlog / xelab / xsim`，未打开 Vivado 工程。`tb_out2_lock_controller` 结果 `tests=20 pass=20 fail=0`；`tb_custom_register_bank_basic` 结果 `tests=53 pass=53 fail=0`。
+- 是否修改 RTL：否，未修改功能 RTL；只修改 testbench。
+- 是否生成 bitstream：否。
+- 安全边界：OUT2 仍只允许接示波器；禁止接 PZT、Scan input、激光器、D2-125 Servo Output 或 D2-125 Aux Output。
+
 ## 2026-07-08 - v3REG-1 / v3REG-2 最短锁定路径：HOLD、P_LOCK、PI_LOCK 第一版
 
 - 本次实现目标：在 v3REG-0 已验证 `GUI -> SSH -> /dev/mem -> custom_register_bank -> ramp_generator -> selected_out2 -> DAC B / OUT2` 的基础上，继续实现最短手动/半自动锁定路径。新增 `HOLD` 固定输出、`P_LOCK` 比例锁定、`PI_LOCK` 比例积分锁定的第一版硬件寄存器、RTL 输出选择、CLI、GUI 和测试。当前仍保留外部 EOM RF、模拟 BPF 和放大器，不替代模拟前端。

@@ -125,8 +125,8 @@ Before connecting OUT2 to laser scan / PZT:
 When the custom bitstream is loaded, the current RTL routes:
 
 - OUT1 = `laser_error`
-- OUT2 = `laser_control`
+- OUT2 = `selected_out2`
 
-In Custom FPGA Mode, OUT2 remains oscilloscope-only. Do not connect it to laser scan/PZT, D2-125, or Scan/PZT. The V2 host does not currently control custom FPGA parameters; future control requires RTL `register_bank`, `debug_buffer`, or AXI registers.
+In Custom FPGA Mode, OUT2 remains oscilloscope-only. Do not connect it to laser scan/PZT, D2-125, or Scan/PZT. The current host can control the custom FPGA register path for SAFE/SCAN and has HOLD/P_LOCK/PI_LOCK candidate controls, but HOLD/P_LOCK/PI_LOCK have not completed Vivado timing, bitstream, or board validation. Debug buffers, relock automation, and actuator connection SOP remain future work.
 
 Use Custom FPGA Observe Mode to enter manual scope readings for OUT1/OUT2 and check the OUT2/OUT1 ratio. If OUT2 approaches +/-0.8 V, if OUT2 Vpp is too large, or if OUT2 rapidly climbs/jumps, stop the experiment.

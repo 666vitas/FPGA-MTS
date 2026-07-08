@@ -49,4 +49,4 @@ Set-Location E:\new\fpga_lock\v94\software\redpitaya_lock_host
 
 Start `redpitaya_scpi` only when using Official SCPI Mode. Starting it may load the official v0.94 overlay and may overwrite the custom FPGA bitstream.
 
-In Custom FPGA Mode, do not start the SCPI overlay. The current custom RTL routes OUT1 to `laser_error` and OUT2 to `laser_control`, so SCPI ASG output commands are not the custom FPGA output-control path.
+In Custom FPGA Mode, do not start the SCPI overlay. The current custom RTL routes OUT1 to `laser_error` and physical OUT2 to `selected_out2`, so SCPI ASG output commands are not the custom FPGA output-control path. `selected_out2` is controlled through `custom_register_bank` and the SAFE/SCAN/HOLD/P_LOCK/PI_LOCK candidate modes; HOLD/P_LOCK/PI_LOCK are still scope-only until timing, bitstream, and board validation are complete.

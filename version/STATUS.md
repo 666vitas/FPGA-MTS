@@ -2,15 +2,24 @@
 
 ## 当前主线
 
-当前主线 = v3REG-0 register-controlled OUT2 SAFE/SCAN。
+当前主线 = v3REG-0 SAFE/SCAN 已由用户上板验证通过；GitHub main 的 RTL 已包含 v3REG-1 / v3REG-2 候选逻辑，但 HOLD / P_LOCK / PI_LOCK 尚未完成 Vivado synthesis / implementation / timing / bitstream / 上板验证。
 
 ```text
 OUT1 = laser_error = mixer + LPF error observation
-OUT2 = selected_out2 = custom_register_bank + ramp_generator SAFE/SCAN
-laser_control / pi_controller_seq = 后续候选，不是当前 OUT2 输出
+OUT2 = selected_out2
+  MODE=0 SAFE: OUT2 = 0
+  MODE=1 SCAN: OUT2 = ramp_generator
+  MODE=2 HOLD: OUT2 = HOLD_VALUE
+  MODE=3 P_LOCK: OUT2 = clamp(LOCK_BIAS + POLARITY * KP * error, LOCK_LIMIT)
+  MODE=4 PI_LOCK: OUT2 = clamp(LOCK_BIAS + POLARITY * (KP * error + KI * integral), LOCK_LIMIT)
+laser_control / pi_controller_seq = 内部候选/历史路径，不是当前 DAC B / OUT2 最终输出
 ```
 
-本阶段只允许 OUT2 接示波器；不接 Scan/PZT，不接激光器，不声称已经闭环锁定。
+v3REG-0 已验证内容：Red Pitaya 加载 `/root/red_pitaya_top.bit.bin` 后，`0x40600000` 可读到 `MAGIC=0x4D545330`、`VERSION=0x00030000`，GUI/monitor SAFE/SCAN 可控制 OUT2 三角波并可 SAFE 关闭。
+
+v3REG-1 / v3REG-2 当前状态：代码和仿真候选已存在，包含 `HOLD_VALUE / KP / POLARITY / LOCK_BIAS / LOCK_LIMIT / ERROR_MONITOR / CONTROL_MONITOR / KI / INTEGRAL_RESET`。这些模式还没有通过 Vivado timing、没有生成新 bitstream、没有烧录、没有上板验证。
+
+强制安全边界：只允许 OUT2 接示波器；禁止接 PZT、Scan input、激光器电流调制、D2-125 Servo Output、D2-125 Aux Output；禁止声称已经闭环锁定或已经替代 D2-125。
 
 ## 2026-07-05 GUI Custom FPGA Control v1 已接入
 
@@ -331,11 +340,10 @@ PI_LOCK:OUT2 = captured_vlock + Kp * error + Ki * integral(error)
 当前能力边界仍然是：
 
 ```text
-当前 FPGA 只有 mixer + LPF + 简单 P/PI candidate。
-当前还没有 OUT2 scan/lock mode selector。
-当前还没有 register_bank。
-当前上位机不能在 Custom FPGA Mode 下切换 FPGA 内部模式。
-当前不能声称已经实现 PZT 锁定。
+历史记录：当时 FPGA 只有 mixer + LPF + 简单 P/PI candidate。
+当前 main 纠偏：现在已经有 custom_register_bank 和 selected_out2 scan/lock mode selector。
+当前 main 纠偏：上位机已经能在 Custom FPGA Mode 下写 SAFE/SCAN/HOLD/P_LOCK/PI_LOCK 候选寄存器。
+当前仍然不能声称已经实现 PZT 锁定。
 ```
 
 记录文件：
@@ -371,7 +379,7 @@ timing clean != 允许把 OUT2 接到激光器
 
 ```text
 OUT1 -> 示波器：确认 FPGA laser_error / error observation 正常
-OUT2 -> 示波器：确认 FPGA laser_control / sequential PI 候选输出正常
+OUT2 -> 示波器：当前 main 应确认 selected_out2；历史 sequential PI/laser_control 只作为内部候选路径
 当前阶段 OUT2 禁止连接激光器、D2-125 Servo Output、D2-125 Aux/Scan，
 也禁止连接任何真实执行器通道。
 ```
@@ -552,7 +560,7 @@ control_o 不再固定为 0，已接入 pi_controller。
 
 v0.94/rtl/red_pitaya_top.sv：
 OUT1 / DAC A 仍为 laser_error；
-OUT2 / DAC B 已改为 laser_control。
+历史记录：当时 OUT2 / DAC B 曾改为 laser_control。当前 main 中 OUT2 / DAC B 的最终输出为 selected_out2。
 
 v0.94/rtl/pi_controller.sv：
 本次未修改，继续使用 v2A 已完成的 PI 控制器核心。

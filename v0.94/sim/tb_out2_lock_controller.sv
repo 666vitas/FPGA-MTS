@@ -100,8 +100,13 @@ module tb_out2_lock_controller;
 
         mode = MODE_P_LOCK;
         lock_bias = 14'sd100;
-        kp = 14'sd256;
+        kp = 14'sd0;
         polarity = 1'b0;
+        error_i = 14'sd500;
+        wait_cycles(2);
+        check("P_LOCK Kp=0 outputs lock_bias", control_o == 14'sd100);
+
+        kp = 14'sd256;
         error_i = 14'sd50;
         wait_cycles(2);
         check("P_LOCK positive error increases output", control_o == 14'sd150);
@@ -142,6 +147,23 @@ module tb_out2_lock_controller;
         error_i = 14'sd10;
         wait_cycles(4);
         check("PI_LOCK integrates nonzero error", control_o > 14'sd10);
+
+        enable = 1'b0;
+        wait_cycles(2);
+        check("PI_LOCK ENABLE=0 clears output", control_o == 14'sd0);
+        enable = 1'b1;
+        wait_cycles(1);
+        check("PI_LOCK ENABLE=0 clears integral", control_o <= 14'sd10);
+
+        wait_cycles(4);
+        check("PI_LOCK integrates again after re-enable", control_o > 14'sd10);
+
+        mode = MODE_SAFE;
+        wait_cycles(2);
+        check("PI_LOCK MODE=SAFE clears output", control_o == 14'sd0);
+        mode = MODE_PI_LOCK;
+        wait_cycles(1);
+        check("PI_LOCK MODE=SAFE clears integral", control_o <= 14'sd10);
 
         integral_reset = 1'b1;
         wait_cycles(2);
