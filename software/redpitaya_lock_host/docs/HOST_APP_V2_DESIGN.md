@@ -4,7 +4,7 @@
 
 Host App V2 是 Red Pitaya 激光频率锁定项目的上位机。它的职责是：
 
-- 管理 Official SCPI Mode 与 Custom FPGA Mode 的边界。
+- 当前主界面收敛为项目专用 `Custom FPGA Lock Host`，不再把 Official SCPI 操作作为主入口。
 - 通过 GUI 引导用户做安全的示波器验证。
 - 通过 SSH + `/dev/mem` 访问 custom FPGA register bank。
 - 记录实验过程、参数和安全判断。
@@ -30,6 +30,14 @@ SAFE -> SCAN -> HOLD -> P_LOCK -> PI_LOCK
 ```
 
 HOLD/P_LOCK/PI_LOCK 尚未完成 Vivado timing、bitstream、烧录和上板验证。因此这些模式当前只能 scope-only。
+
+2026-07-09 起，上位机主流程改为：
+
+```text
+Probe Registers -> Status -> SAFE -> SCAN -> Capture Bias -> LOCK -> UNLOCK / SAFE
+```
+
+`LOCK` 是 P-only 工作流：先读取 status 并检查 `MAGIC=0x4D545330`，再捕获当前 `OUT2_MONITOR` counts 作为 `LOCK_BIAS`，最后写入 `MODE=3 P_LOCK`、`ENABLE=1`、`KP`、`POLARITY`、`LOCK_LIMIT`。因为已经观察到 OUT2 理想电压和示波器实测之间存在 DAC gain/offset 偏差，`LOCK` 不使用 `lock-bias-v` 电压估算来捕获偏置。
 
 ## Custom FPGA Control 链路
 
@@ -60,8 +68,10 @@ Status
 SAFE
 SCAN
 HOLD
-P_LOCK
-PI_LOCK
+Capture Bias
+LOCK
+UNLOCK / SAFE
+Capture Waveform
 base address
 offset-v
 amp-v
@@ -75,6 +85,8 @@ polarity
 lock-bias-v
 lock-limit-counts
 ```
+
+旧的 `P_LOCK` / `PI_LOCK` 后端命令仍保留用于兼容和测试，但 GUI 主流程只暴露 `LOCK`。当前 `LOCK` 等价于 P-only `MODE=3 P_LOCK`；`Ki/PI` 暂时禁用。
 
 状态显示包含：
 
@@ -131,6 +143,26 @@ MODE 定义：
 
 P_LOCK/PI_LOCK 默认 `Kp=0`、`Ki=0`，GUI 只提供人工逐步增加入口，不做自动闭环调参。
 
+## IN1 / IN2 自定义波形显示状态
+
+当前 GUI 不再把 Official SCPI acquisition 当作 Custom FPGA Lock Host 的主采集方案。`CH1/CH2` 面板只提示 custom debug capture 尚未实现，不能当作真实 custom FPGA IN1/IN2 波形。
+
+后续最小 RTL 方案是增加 `debug_capture` 缓冲和寄存器：
+
+```text
+DEBUG_CTRL
+DEBUG_STATUS
+DEBUG_DECIM
+DEBUG_LENGTH
+DEBUG_INDEX
+DEBUG_IN1_DATA
+DEBUG_IN2_DATA
+DEBUG_ERROR_DATA
+DEBUG_OUT2_DATA
+```
+
+该方案本次只记录设计方向，未修改 RTL、未运行 Vivado、未生成 bitstream。
+
 ## 模块职责
 
 - `connection_probe.py`：解析 hostname，探测 ping、端口 22/80/5000。
@@ -147,6 +179,8 @@ P_LOCK/PI_LOCK 默认 `Kp=0`、`Ki=0`，GUI 只提供人工逐步增加入口，
 
 ## 两层连接模型
 
+旧版两层连接模型如下，当前只作为兼容说明保留，不是 Custom FPGA Lock Host 主流程。
+
 第一层：SSH / 网络管理。
 
 - 解析 host 到 IP。
@@ -154,7 +188,7 @@ P_LOCK/PI_LOCK 默认 `Kp=0`、`Ki=0`，GUI 只提供人工逐步增加入口，
 - Probe SSH port 22。
 - Probe Web port 80。
 - Probe SCPI port 5000。
-- 必要时通过 SSH 启动 SCPI server。
+- 旧版可通过 SSH 启动 SCPI server；当前主界面不再暴露该入口。
 
 第二层：SCPI control。
 
@@ -167,14 +201,15 @@ P_LOCK/PI_LOCK 默认 `Kp=0`、`Ki=0`，GUI 只提供人工逐步增加入口，
 
 ## GUI 模式边界
 
-GUI 分为四个页面：
+当前主界面分为三个页面：
 
-- Hardware Bring-up：Official SCPI 硬件检查和安全 OUT2 scan。
 - Custom FPGA Observe：真实接线的 IN1/IN2/OUT1/OUT2 手动示波器读数，以及 Custom FPGA Control。
 - Lock Workflow：D2-125 替代路径 checklist 和未来 lock/relock 计划。
 - Data Log：导出 Markdown 实验日志。
 
-Official SCPI Mode：
+Official SCPI 代码路径仍保留在仓库中，但不再作为当前主界面入口。它只能用于官方 overlay/ASG 测试，不能用于当前 custom bitstream 的 OUT2 控制。
+
+Official SCPI 兼容路径：
 
 - 可以启动 `redpitaya_scpi`。
 - 可以连接 5000 端口并运行 `*IDN?`。
@@ -195,7 +230,7 @@ Custom FPGA Mode：
 
 ## 输出控制安全规则
 
-Official SCPI Mode 中，每个输出支持：
+旧版 Official SCPI 输出控制中，每个输出支持：
 
 - enable
 - waveform type: sine, square, triangle, sawtooth

@@ -73,6 +73,10 @@ def volts_to_counts(volts: float) -> int:
     return max(-8191, min(8191, counts))
 
 
+def counts_to_volts(counts: int) -> float:
+    return float(int(counts)) / COUNTS_PER_VOLT
+
+
 def build_scan_config(
     *,
     offset_v: float,
@@ -116,6 +120,23 @@ def build_lock_config(
         ki=max(0, min(8191, int(ki))),
         polarity=1 if int(polarity) else 0,
         lock_bias_counts=volts_to_counts(lock_bias_v),
+        lock_limit_counts=max(0, min(8191, int(lock_limit_counts))),
+    )
+
+
+def build_lock_config_from_counts(
+    *,
+    kp: int,
+    ki: int,
+    polarity: int,
+    lock_bias_counts: int,
+    lock_limit_counts: int,
+) -> LockConfig:
+    return LockConfig(
+        kp=max(0, min(8191, int(kp))),
+        ki=max(0, min(8191, int(ki))),
+        polarity=1 if int(polarity) else 0,
+        lock_bias_counts=max(-8191, min(8191, int(lock_bias_counts))),
         lock_limit_counts=max(0, min(8191, int(lock_limit_counts))),
     )
 
@@ -285,6 +306,60 @@ class CustomFpgaBackend:
             lock_limit_counts=lock_limit_counts,
         )
         return self._run("pi-lock", config, allow_nonzero=False)
+
+    def capture_bias(self) -> CustomFpgaResponse:
+        response = self.read_status()
+        if not status_payload_has_expected_magic(response.payload):
+            raise CustomFpgaBackendError(missing_magic_guidance(str(response.payload.get("magic", "--"))))
+        payload = dict(response.payload)
+        out2_counts = int(payload.get("out2_counts", 0))
+        payload["captured_lock_bias_counts"] = out2_counts
+        payload["captured_lock_bias_volts_ideal"] = counts_to_volts(out2_counts)
+        return CustomFpgaResponse(
+            operation="capture-bias",
+            payload=payload,
+            stdout=response.stdout,
+            stderr=response.stderr,
+            exit_code=response.exit_code,
+            remote_command=response.remote_command,
+        )
+
+    def capture_bias_and_p_lock(
+        self,
+        *,
+        kp: int,
+        polarity: int,
+        lock_limit_counts: int,
+    ) -> CustomFpgaResponse:
+        status_response = self.capture_bias()
+        payload = dict(status_response.payload)
+        status_text = payload.get("status_value", payload.get("status_raw", payload.get("status", 0))) or 0
+        status_raw = int(status_text, 0) if isinstance(status_text, str) else int(status_text)
+        if status_raw & ~0x1:
+            raise CustomFpgaBackendError(
+                f"Refusing LOCK because custom FPGA STATUS has error bits set: 0x{status_raw:08X}"
+            )
+        lock_bias_counts = int(payload["captured_lock_bias_counts"])
+        config = build_lock_config_from_counts(
+            kp=kp,
+            ki=0,
+            polarity=polarity,
+            lock_bias_counts=lock_bias_counts,
+            lock_limit_counts=lock_limit_counts,
+        )
+        lock_response = self._run("p-lock", config, allow_nonzero=False)
+        lock_payload = dict(lock_response.payload)
+        lock_payload["captured_lock_bias_counts"] = lock_bias_counts
+        lock_payload["captured_lock_bias_volts_ideal"] = counts_to_volts(lock_bias_counts)
+        lock_payload["lock_bias_source"] = "OUT2_MONITOR counts captured before P_LOCK"
+        return CustomFpgaResponse(
+            operation="lock",
+            payload=lock_payload,
+            stdout=status_response.stdout + "\n" + lock_response.stdout,
+            stderr="\n".join(part for part in (status_response.stderr, lock_response.stderr) if part.strip()),
+            exit_code=lock_response.exit_code,
+            remote_command=status_response.remote_command + "\n" + lock_response.remote_command,
+        )
 
     def read_error_snapshot(self) -> CustomFpgaResponse:
         return self.read_status()

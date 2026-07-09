@@ -135,6 +135,8 @@ class CustomFpgaRegisterWorker(QThread):
                 response = backend.probe_registers()
             elif self.operation == "status":
                 response = backend.read_status()
+            elif self.operation == "capture-bias":
+                response = backend.capture_bias()
             elif self.operation == "safe":
                 response = backend.set_mode_safe()
             elif self.operation == "scan":
@@ -154,6 +156,12 @@ class CustomFpgaRegisterWorker(QThread):
                     kp=int(self.params["kp"]),
                     polarity=int(self.params["polarity"]),
                     lock_bias_v=float(self.params["lock_bias_v"]),
+                    lock_limit_counts=int(self.params["lock_limit_counts"]),
+                )
+            elif self.operation == "lock":
+                response = backend.capture_bias_and_p_lock(
+                    kp=int(self.params["kp"]),
+                    polarity=int(self.params["polarity"]),
                     lock_limit_counts=int(self.params["lock_limit_counts"]),
                 )
             elif self.operation == "pi-lock":

@@ -1,5 +1,27 @@
 # 开发日志
 
+## 2026-07-09 - 上位机收敛为 Custom FPGA Lock Host，并加入一键 P_LOCK 工作流
+
+- 本次实现目标：上位机主界面不再暴露 `Official SCPI Mode`、`Start SCPI Server`、`Connect SCPI` 和 Official ASG OUT1/OUT2 主入口，默认收敛为项目专用 `Custom FPGA Lock Host`。
+- 修改 Python 文件：`software/redpitaya_lock_host/redpitaya_lock_host/custom_fpga_backend.py`、`software/redpitaya_lock_host/redpitaya_lock_host/connection_workers.py`、`software/redpitaya_lock_host/redpitaya_lock_host/main_window.py`、`software/redpitaya_lock_host/tests/test_custom_fpga_backend.py`。
+- GUI 新增主流程按钮：`Capture Bias`、`LOCK`、`UNLOCK / SAFE`、`Capture Waveform`。其中 `LOCK` 为 P-only 工作流：先 `Status` 读取并检查 `MAGIC=0x4D545330`，再用当前 `OUT2_MONITOR` counts 作为 `LOCK_BIAS`，随后写入 `MODE=3 P_LOCK`、`ENABLE=1`、`KP`、`POLARITY`、`LOCK_LIMIT`。
+- 重要约束：`LOCK_BIAS` 捕获不使用 `lock-bias-v` 电压估算，而使用板端 `OUT2_MONITOR` counts；GUI 同时显示理想 volts 仅作寄存器尺度参考，真实 DAC 输出以示波器为准。
+- 当前 `IN1/IN2` 自定义波形采集未实现。GUI 只显示 `debug_capture` 的最小寄存器方案提示：`DEBUG_CTRL`、`DEBUG_STATUS`、`DEBUG_DECIM`、`DEBUG_LENGTH`、`DEBUG_INDEX`、`DEBUG_IN1_DATA`、`DEBUG_IN2_DATA`，后续再扩展 `DEBUG_ERROR_DATA` / `DEBUG_OUT2_DATA`；本次不修改 RTL。
+- 记录当前 OUT2 DAC 实测偏差数据：
+
+| offset-v | amp-v | 理论范围 | 实测 min | 实测 max | 实测 Vpp |
+|---:|---:|---:|---:|---:|---:|
+| 0.50 | 0.05 | 0.45-0.55 V | 513 mV | 636 mV | 123 mV |
+| 0.60 | 0.05 | 0.55-0.65 V | 624 mV | 752 mV | 123 mV |
+| 0.70 | 0.05 | 0.65-0.75 V | 736 mV | 863 mV | 123 mV |
+| 0.60 | 0.10 | 0.50-0.70 V | 569 mV | 803 mV | 235 mV |
+| 0.60 | 0.15 | 0.45-0.75 V | 513 mV | 863 mV | 350 mV |
+
+- 判断：当前偏差更像 DAC 模拟输出链路的 gain/offset 标定问题，而不是寄存器或 ramp 逻辑完全错误。后续需要做 OUT2 校准或继续在 GUI 中保留“理想 volts 与示波器实测不同”的提示。
+- 如何运行/验证：进入 `software/redpitaya_lock_host` 后运行 `.\run.bat`；GUI 路径为 `Probe Registers -> Status -> SAFE -> SCAN -> Capture Bias -> LOCK -> UNLOCK / SAFE`，全程先只接示波器。
+- 是否修改 RTL：否。
+- 是否生成 bitstream：否。
+
 ## 2026-07-09 - v3REG P_LOCK timing 修复：OUT2 锁定控制缩小为 P-only 流水线
 
 - 本次实现目标：针对用户手动 Vivado implementation timing fail（`WNS=-10.361 ns`、`TNS=-16400.330 ns`、`Failing Endpoints=6099`），将 `out2_lock_controller` 从组合式 P/PI 路径改为 timing-friendly 的 P-only 流水线控制器。

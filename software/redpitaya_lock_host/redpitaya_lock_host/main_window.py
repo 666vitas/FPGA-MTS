@@ -233,7 +233,6 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
         layout.addWidget(self._connection_group())
         self.app_mode_tabs = QTabWidget()
-        self.app_mode_tabs.addTab(self._hardware_bringup_page(), "Hardware Bring-up")
         self.app_mode_tabs.addTab(self._custom_fpga_observe_page(), "Custom FPGA Observe")
         self.app_mode_tabs.addTab(self._lock_workflow_page(), "Lock Workflow")
         self.app_mode_tabs.addTab(self._data_log_page(), "Data Log")
@@ -249,7 +248,7 @@ class MainWindow(QMainWindow):
         return scroll
 
     def _connection_group(self) -> QGroupBox:
-        group = QGroupBox("Connection")
+        group = QGroupBox("Custom FPGA Lock Host")
         form = QFormLayout(group)
         self._configure_form(form)
         self.host_edit = QLineEdit()
@@ -260,12 +259,14 @@ class MainWindow(QMainWindow):
         self.ssh_password_edit.setEchoMode(QLineEdit.Password)
         self.mock_check = QCheckBox("Mock Mode")
         self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["Official SCPI Mode", "Custom FPGA Mode"])
+        self.mode_combo.addItems(["Custom FPGA Mode"])
         self.mode_explain_label = QLabel("")
         self.mode_explain_label.setWordWrap(True)
         self.probe_button = QPushButton("Probe")
         self.start_scpi_button = QPushButton("Start SCPI Server")
         self.connect_scpi_button = QPushButton("Connect SCPI")
+        self.start_scpi_button.setVisible(False)
+        self.connect_scpi_button.setVisible(False)
         self.disconnect_button = QPushButton("Disconnect")
         self.connection_status = QTextEdit()
         self.connection_status.setReadOnly(True)
@@ -273,8 +274,8 @@ class MainWindow(QMainWindow):
         self.connection_status.setMinimumHeight(80)
         self.connection_status.setPlainText("SSH -- | Web -- | SCPI -- | IP --")
         self.scpi_warning_label = QLabel(
-            "Starting redpitaya_scpi may load official v0.94 overlay and may "
-            "overwrite the currently loaded custom FPGA bitstream."
+            "Custom FPGA Lock Host only: do not start redpitaya_scpi overlay here. "
+            "Official SCPI/ASG controls are hidden from the main lock workflow."
         )
         self.scpi_warning_label.setWordWrap(True)
         self.scpi_warning_label.setStyleSheet("color: #9a5b00;")
@@ -282,9 +283,7 @@ class MainWindow(QMainWindow):
         button_row.setHorizontalSpacing(8)
         button_row.setVerticalSpacing(6)
         button_row.addWidget(self.probe_button, 0, 0)
-        button_row.addWidget(self.start_scpi_button, 0, 1)
-        button_row.addWidget(self.connect_scpi_button, 1, 0)
-        button_row.addWidget(self.disconnect_button, 1, 1)
+        button_row.addWidget(self.disconnect_button, 0, 1)
         for widget in (
             self.host_edit,
             self.resolved_ip_combo,
@@ -304,7 +303,7 @@ class MainWindow(QMainWindow):
         form.addRow("resolved IP", self.resolved_ip_combo)
         form.addRow("SSH user", self.ssh_user_edit)
         form.addRow("SSH password", self.ssh_password_edit)
-        form.addRow("current mode", self.mode_combo)
+        form.addRow("host mode", self.mode_combo)
         form.addRow(self.mock_check)
         form.addRow(button_row)
         form.addRow(self.connection_status)
@@ -399,9 +398,12 @@ class MainWindow(QMainWindow):
         self.custom_ki = QSpinBox()
         self.custom_ki.setRange(0, 8191)
         self.custom_ki.setValue(0)
+        self.custom_ki.setToolTip("Current LOCK path is P-only; Ki/PI is disabled in the timing-friendly RTL.")
+        self.custom_ki.setEnabled(False)
         self.custom_polarity = QComboBox()
         self.custom_polarity.addItems(["normal", "invert"])
         self.custom_lock_bias_v = self._custom_double_spin(0.0, -1.0, 1.0, 4, " V")
+        self.custom_lock_bias_v.setToolTip("LOCK does not use this voltage estimate; it captures OUT2_MONITOR counts.")
         self.custom_lock_limit_counts = QSpinBox()
         self.custom_lock_limit_counts.setRange(0, 8191)
         self.custom_lock_limit_counts.setValue(8191)
@@ -414,7 +416,6 @@ class MainWindow(QMainWindow):
             self.custom_limit_counts,
             self.custom_hold_v,
             self.custom_kp,
-            self.custom_ki,
             self.custom_polarity,
             self.custom_lock_bias_v,
             self.custom_lock_limit_counts,
@@ -428,10 +429,13 @@ class MainWindow(QMainWindow):
         form.addRow("limit-counts", self.custom_limit_counts)
         form.addRow("hold-v", self.custom_hold_v)
         form.addRow("Kp raw (256=1x)", self.custom_kp)
-        form.addRow("Ki raw (256=1x)", self.custom_ki)
+        form.addRow("Ki raw (disabled)", self.custom_ki)
         form.addRow("polarity", self.custom_polarity)
-        form.addRow("lock-bias-v", self.custom_lock_bias_v)
+        form.addRow("manual lock-bias-v (not used by LOCK)", self.custom_lock_bias_v)
         form.addRow("lock-limit-counts", self.custom_lock_limit_counts)
+        self.captured_bias_label = QLabel("captured lock_bias: -- counts / -- V ideal")
+        self.captured_bias_label.setWordWrap(True)
+        form.addRow("captured bias", self.captured_bias_label)
 
         buttons = QGridLayout()
         buttons.setHorizontalSpacing(8)
@@ -443,6 +447,10 @@ class MainWindow(QMainWindow):
         self.custom_hold_button = QPushButton("HOLD")
         self.custom_p_lock_button = QPushButton("P_LOCK")
         self.custom_pi_lock_button = QPushButton("PI_LOCK")
+        self.custom_capture_bias_button = QPushButton("Capture Bias")
+        self.custom_lock_button = QPushButton("LOCK")
+        self.custom_unlock_button = QPushButton("UNLOCK / SAFE")
+        self.custom_capture_waveform_button = QPushButton("Capture Waveform")
         for button in (
             self.custom_probe_button,
             self.custom_status_button,
@@ -451,15 +459,23 @@ class MainWindow(QMainWindow):
             self.custom_hold_button,
             self.custom_p_lock_button,
             self.custom_pi_lock_button,
+            self.custom_capture_bias_button,
+            self.custom_lock_button,
+            self.custom_unlock_button,
+            self.custom_capture_waveform_button,
         ):
             self._style_button(button)
+        self.custom_p_lock_button.setVisible(False)
+        self.custom_pi_lock_button.setVisible(False)
         buttons.addWidget(self.custom_probe_button, 0, 0)
         buttons.addWidget(self.custom_status_button, 0, 1)
         buttons.addWidget(self.custom_safe_button, 1, 0)
         buttons.addWidget(self.custom_scan_button, 1, 1)
         buttons.addWidget(self.custom_hold_button, 2, 0)
-        buttons.addWidget(self.custom_p_lock_button, 2, 1)
-        buttons.addWidget(self.custom_pi_lock_button, 3, 0, 1, 2)
+        buttons.addWidget(self.custom_capture_bias_button, 2, 1)
+        buttons.addWidget(self.custom_lock_button, 3, 0)
+        buttons.addWidget(self.custom_unlock_button, 3, 1)
+        buttons.addWidget(self.custom_capture_waveform_button, 4, 0, 1, 2)
 
         self.custom_register_summary = QLabel(
             "MAGIC -- | VERSION -- | MODE -- | ENABLE -- | STATUS -- | OUT2 --"
@@ -470,8 +486,9 @@ class MainWindow(QMainWindow):
         self.custom_warning_text.setReadOnly(True)
         self.custom_warning_text.setMinimumHeight(90)
         self.custom_warning_text.setPlainText(
-            "Probe or Status reads registers only. SAFE/SCAN/HOLD/P_LOCK/PI_LOCK require MAGIC=0x4D545330. "
-            "P_LOCK and PI_LOCK default to Kp/Ki=0 and must be scope-only first."
+            "Probe/Status/Capture Bias are read-only. LOCK is P-only: it captures OUT2_MONITOR counts "
+            "as LOCK_BIAS, then writes MODE=3 P_LOCK with Kp/polarity/lock-limit. Ki/PI is disabled. "
+            "Keep OUT2 scope-only until the bias, polarity, limit, and SAFE behavior are verified."
         )
 
         layout.addLayout(form)
@@ -517,11 +534,11 @@ class MainWindow(QMainWindow):
         self.lock_step_detail = QLabel("")
         self.lock_step_detail.setWordWrap(True)
         mapping = QLabel(
-            "D2-125 Ramp -> future FPGA scan generator / current Official SCPI OUT2 Safe Scan\n"
+            "D2-125 Aux Servo Output -> disconnect; Custom FPGA OUT2 provides selected_out2 scope-only first\n"
             "D2-125 Error Input -> FPGA mixer + LPF -> laser_error\n"
-            "D2-125 Servo Output -> keep current external path; FPGA OUT2 is selected_out2 scope-only candidate\n"
-            "D2-125 Lock/Scan switch -> future FPGA FSM + host workflow\n"
-            "D2-125 Relock / Lock Quality -> future host judgment + FPGA state machine"
+            "D2-125 Servo Output -> keep current external path during this stage\n"
+            "SCAN -> GUI writes custom_register_bank/ramp_generator for OUT2 triangle\n"
+            "LOCK -> GUI captures OUT2_MONITOR counts, then writes MODE=3 P_LOCK"
         )
         mapping.setWordWrap(True)
         layout.addWidget(QLabel("Lock Workflow Step"))
@@ -529,7 +546,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.lock_step_detail)
         layout.addWidget(mapping)
         future = QLabel(
-            "Future FPGA controls are not implemented until FPGA register/debug interface is available."
+            "Current LOCK is P-only. Ki/PI and custom IN1/IN2 waveform capture remain disabled until RTL/debug buffer validation."
         )
         future.setWordWrap(True)
         future.setStyleSheet("color: #9a5b00; font-weight: 600;")
@@ -709,8 +726,8 @@ class MainWindow(QMainWindow):
         grid.setRowStretch(1, 1)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
-        self.ch1 = ChannelPanel("CH1: IN1 / ADC measured", "real ACQ:SOUR1:DATA?")
-        self.ch2 = ChannelPanel("CH2: IN2 / ADC measured", "real ACQ:SOUR2:DATA?")
+        self.ch1 = ChannelPanel("CH1: IN1 custom debug capture pending", "not measured by Custom FPGA Lock Host yet")
+        self.ch2 = ChannelPanel("CH2: IN2 custom debug capture pending", "not measured by Custom FPGA Lock Host yet")
         self.ch3 = ChannelPanel("CH3: OUT1 preview (not measured)", "generated preview, not measured")
         self.ch4 = ChannelPanel("CH4: OUT2 preview (not measured)", "generated preview, not measured")
         grid.addWidget(self.ch1, 0, 0)
@@ -733,6 +750,10 @@ class MainWindow(QMainWindow):
         self.custom_hold_button.clicked.connect(lambda: self._start_custom_fpga_operation("hold"))
         self.custom_p_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("p-lock"))
         self.custom_pi_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("pi-lock"))
+        self.custom_capture_bias_button.clicked.connect(lambda: self._start_custom_fpga_operation("capture-bias"))
+        self.custom_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("lock"))
+        self.custom_unlock_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
+        self.custom_capture_waveform_button.clicked.connect(self._show_custom_waveform_capture_plan)
         self.obs_analyze_button.clicked.connect(self._analyze_observe_readings)
         self.lock_step_combo.currentTextChanged.connect(self._update_lock_step_detail)
         self.export_experiment_log_button.clicked.connect(self.export_experiment_log)
@@ -871,7 +892,7 @@ class MainWindow(QMainWindow):
             params = {
                 "hold_v": self.custom_hold_v.value(),
             }
-        elif operation in {"p-lock", "pi-lock"}:
+        elif operation in {"p-lock", "pi-lock", "lock"}:
             params = {
                 "kp": self.custom_kp.value(),
                 "ki": self.custom_ki.value(),
@@ -901,6 +922,20 @@ class MainWindow(QMainWindow):
         worker.failed.connect(self._on_custom_fpga_failed)
         worker.finished.connect(self._clear_worker)
         worker.start()
+
+    def _show_custom_waveform_capture_plan(self) -> None:
+        lines = [
+            "Custom FPGA waveform capture is not implemented in the current bitstream.",
+            "Do not treat CH1/CH2 panels as custom FPGA IN1/IN2 debug waveforms yet.",
+            "",
+            "Minimal future debug_capture register plan:",
+            "DEBUG_CTRL, DEBUG_STATUS, DEBUG_DECIM, DEBUG_LENGTH, DEBUG_INDEX,",
+            "DEBUG_IN1_DATA, DEBUG_IN2_DATA, later DEBUG_ERROR_DATA / DEBUG_OUT2_DATA.",
+            "",
+            "Current measurement source of truth remains the oscilloscope.",
+        ]
+        self.custom_warning_text.setPlainText("\n".join(lines))
+        self.statusBar().showMessage("Custom FPGA waveform capture requires a future debug_capture RTL buffer")
 
     def _on_custom_fpga_finished(self, result: object) -> None:
         data = dict(result)
@@ -1002,6 +1037,14 @@ class MainWindow(QMainWindow):
             f"MAGIC {magic} | VERSION {version} | MODE {mode} | ENABLE {enable} | "
             f"STATUS {status} | OUT2 {out2_counts} counts / {out2_volts_text}"
         )
+        captured_counts = payload.get("captured_lock_bias_counts")
+        captured_volts = payload.get("captured_lock_bias_volts_ideal")
+        if captured_counts is not None:
+            try:
+                captured_text = f"{int(captured_counts)} counts / {float(captured_volts):.6g} V ideal"
+            except (TypeError, ValueError):
+                captured_text = f"{captured_counts} counts / -- V ideal"
+            self.captured_bias_label.setText(f"captured lock_bias: {captured_text}")
         lines = [
             f"{operation.upper()} result",
             f"MAGIC: {magic}",
@@ -1013,8 +1056,12 @@ class MainWindow(QMainWindow):
             f"ERROR_MONITOR: {error_counts} counts / {error_volts_text}",
             f"CONTROL_MONITOR: {control_counts} counts / {control_volts_text}",
         ]
-        if operation in {"p-lock", "pi-lock"}:
-            lines.append("Scope-only: keep Kp/Ki low; do not connect PZT/current/D2-125 before matrix validation.")
+        if captured_counts is not None:
+            lines.append(f"LOCK_BIAS source: captured OUT2_MONITOR = {captured_counts} counts")
+            lines.append("Ideal volts are register-scale estimates only; oscilloscope measurement is the DAC truth.")
+        if operation in {"p-lock", "pi-lock", "lock"}:
+            lines.append("Current LOCK path is P-only; Ki/PI is disabled in the timing-friendly RTL.")
+            lines.append("Scope-only: keep Kp low; do not connect PZT/current/D2-125 before matrix validation.")
         if stderr.strip():
             lines.append("")
             lines.append(stderr.strip())
@@ -1148,12 +1195,12 @@ class MainWindow(QMainWindow):
             self._append_connection_log(result.warning)
         if result.error:
             self._append_connection_log(result.error)
-        if result.port_5000:
-            self._set_connection_state(SCPI_READY)
-            message = "Probe complete: SCPI port 5000 is available. Please click Connect SCPI."
-        elif result.port_22:
+        if result.port_22:
             self._set_connection_state(SSH_AVAILABLE)
-            message = "Probe complete: SSH available, SCPI closed. Start SCPI Server is available."
+            message = "Probe complete: SSH available. Use Probe Registers / Status for Custom FPGA Lock Host."
+        elif result.port_5000:
+            self._set_connection_state(DISCONNECTED)
+            message = "Probe complete: SCPI port is visible, but SSH is unavailable; Custom FPGA Lock Host needs SSH."
         else:
             self._set_connection_state(DISCONNECTED)
             message = "Probe complete: SSH unavailable and SCPI unavailable."
@@ -1346,7 +1393,7 @@ class MainWindow(QMainWindow):
         else:
             self.ch3.set_warning("Custom FPGA Mode: OUT1 is laser_error, not SCPI ASG")
             self.ch4.set_warning(
-                "Custom FPGA Mode: OUT2 is selected_out2; SAFE/SCAN proven, HOLD/P_LOCK/PI_LOCK scope-only candidates"
+                "Custom FPGA Mode: OUT2 is selected_out2; LOCK is P-only and scope-only until validated"
             )
 
     def _observe_measurements(self) -> CustomFpgaMeasurements:
@@ -1406,9 +1453,7 @@ class MainWindow(QMainWindow):
 
     def _on_app_mode_tab_changed(self, index: int) -> None:
         label = self.app_mode_tabs.tabText(index)
-        if label == "Hardware Bring-up":
-            self.mode_combo.setCurrentText("Official SCPI Mode")
-        elif label in {"Custom FPGA Observe", "Lock Workflow"}:
+        if label in {"Custom FPGA Observe", "Lock Workflow", "Data Log"}:
             self.mode_combo.setCurrentText("Custom FPGA Mode")
         self.statusBar().showMessage(f"Mode page: {label}")
 
@@ -1455,6 +1500,10 @@ class MainWindow(QMainWindow):
             self.custom_hold_button,
             self.custom_p_lock_button,
             self.custom_pi_lock_button,
+            self.custom_capture_bias_button,
+            self.custom_lock_button,
+            self.custom_unlock_button,
+            self.custom_capture_waveform_button,
         ):
             button.setEnabled(custom_enabled)
         for widget in (
@@ -1490,15 +1539,14 @@ class MainWindow(QMainWindow):
             self.ch4.subtitle_label.setText("official ASG generated preview, not measured")
         else:
             self.mode_explain_label.setText(
-                "Custom FPGA Mode: do not start redpitaya_scpi overlay. "
+                "Custom FPGA Lock Host: do not start redpitaya_scpi overlay. "
                 "OUT1=laser_error (mixer+LPF). OUT2=selected_out2 from register-controlled "
-                "SAFE/SCAN/HOLD/P_LOCK/PI_LOCK candidate modes. Use Custom FPGA Observe -> "
-                "Probe Registers -> Status -> SAFE/SCAN first; HOLD/P_LOCK/PI_LOCK remain "
-                "scope-only candidates. SCPI ASG output commands do not drive physical OUT2 in the "
-                "current custom bitstream."
+                "SAFE/SCAN/HOLD/P_LOCK modes. Main flow: Probe Registers -> Status -> SAFE -> SCAN -> "
+                "Capture Bias -> LOCK -> UNLOCK/SAFE. Current LOCK=P-only; Ki/PI disabled. "
+                "SCPI ASG output commands do not drive physical OUT2 in the current custom bitstream."
             )
             self.ch3.subtitle_label.setText("Custom FPGA OUT1 = laser_error; not ADC measured")
-            self.ch4.subtitle_label.setText("Custom FPGA OUT2 = selected_out2 modes; scope-only")
+            self.ch4.subtitle_label.setText("Custom FPGA OUT2 = selected_out2; scope-only")
         self._set_connected_state(self.client is not None and self.client.connected)
         self._redraw_from_last_waveforms()
 

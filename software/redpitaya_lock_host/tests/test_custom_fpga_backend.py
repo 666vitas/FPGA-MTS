@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 from redpitaya_lock_host.custom_fpga_backend import (
+    build_lock_config_from_counts,
     status_payload_has_expected_magic,
     missing_magic_guidance,
 )
@@ -83,6 +84,22 @@ def test_remote_helper_safe_and_scan_read_back_status_after_writes() -> None:
     assert pi_lock_start < readback_start
 
 
+def test_one_click_lock_bias_uses_out2_monitor_counts_not_voltage_estimate() -> None:
+    config = build_lock_config_from_counts(
+        kp=256,
+        ki=123,
+        polarity=1,
+        lock_bias_counts=4522,
+        lock_limit_counts=8191,
+    )
+
+    assert config.lock_bias_counts == 4522
+    assert config.kp == 256
+    assert config.ki == 123
+    assert config.polarity == 1
+    assert config.lock_limit_counts == 8191
+
+
 def test_custom_fpga_cli_exposes_hold_p_lock_and_pi_lock_without_default_gain() -> None:
     custom_fpga_scan_control = load_scan_control_module()
 
@@ -103,9 +120,12 @@ def test_gui_text_separates_scpi_and_custom_fpga_out2_paths() -> None:
     assert "OUT2 = FPGA laser_control" not in source
     assert "OUT2=laser_control" not in source
     assert "OUT2 is laser_control" not in source
-    assert "OUT2 = selected_out2 (SAFE/SCAN proven; HOLD/P_LOCK/PI_LOCK candidates) -> oscilloscope only" in source
-    assert "SCPI Output Control is only for official ASG/overlay testing" in source
-    assert "SCPI OUT2 commands may succeed" in source
-    assert "will not drive physical OUT2" in source
-    assert "Custom FPGA Observe -> " in source
-    assert "SAFE/SCAN first; HOLD/P_LOCK/PI_LOCK remain" in source
+    assert "Custom FPGA Lock Host" in source
+    assert "Official SCPI/ASG controls are hidden from the main lock workflow" in source
+    assert "Capture Bias" in source
+    assert "UNLOCK / SAFE" in source
+    assert "Current LOCK=P-only; Ki/PI disabled" in source
+    assert "LOCK_BIAS source: captured OUT2_MONITOR" in source
+    assert "SCPI ASG output commands do not drive physical OUT2" in source
+    assert "CH1: IN1 custom debug capture pending" in source
+    assert "DEBUG_CTRL, DEBUG_STATUS, DEBUG_DECIM, DEBUG_LENGTH, DEBUG_INDEX" in source

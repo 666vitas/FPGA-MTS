@@ -1,5 +1,12 @@
 # STATUS
 
+## 2026-07-09 上位机主线收敛为 Custom FPGA Lock Host
+
+上位机主界面不再暴露 Official SCPI/ASG 操作入口，默认流程改为 `Probe Registers -> Status -> SAFE -> SCAN -> Capture Bias -> LOCK -> UNLOCK/SAFE`。
+`LOCK` 当前为 P-only：先读取 `OUT2_MONITOR` counts 作为 `LOCK_BIAS`，再写入 `MODE=3 P_LOCK`；不使用 `lock-bias-v` 理想电压估算捕获偏置。
+`IN1/IN2` 自定义波形显示仍未实现，只记录 `debug_capture` 寄存器方案；本次未修改 RTL、未运行 Vivado、未生成 bitstream。
+OUT2 仍然只允许示波器验证，禁止连接 PZT/Scan/激光器电流调制/D2-125 输出。
+
 ## 2026-07-09 v3REG P-only timing 修复，等待用户手动 Vivado 验证
 
 用户手动 Vivado implementation 报告当前候选存在严重 timing fail：`WNS=-10.361 ns`、`TNS=-16400.330 ns`、`Failing Endpoints=6099`，疑似来自 `out2_lock_controller` 的 error->P/PI->clamp 长组合路径。
