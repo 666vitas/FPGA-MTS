@@ -1,5 +1,13 @@
 # STATUS
 
+## 2026-07-09 v3REG P-only timing 修复，等待用户手动 Vivado 验证
+
+用户手动 Vivado implementation 报告当前候选存在严重 timing fail：`WNS=-10.361 ns`、`TNS=-16400.330 ns`、`Failing Endpoints=6099`，疑似来自 `out2_lock_controller` 的 error->P/PI->clamp 长组合路径。
+本次将当前 LOCK 目标缩小为 P_LOCK：`MODE=3` 为流水线 P-only；`MODE=4 PI_LOCK` 暂时退化为 P_LOCK，`KI / integral` 在当前 RTL 中禁用。
+Register map 和上位机命令保持不变；上位机仍可写 `KI`，但当前 RTL 不使用 `KI`。
+Codex 本次不运行 Vivado，不运行 synthesis / implementation，不生成 bitstream，不声称 timing 通过。
+OUT2 仍必须先只接示波器验证 SAFE/SCAN/HOLD/P_LOCK；未完成示波器验证和接线 SOP 前禁止接 Scan/PZT、激光器电流调制或 D2-125 输出。
+
 ## 当前主线
 
 当前主线 = v3REG-0 SAFE/SCAN 已由用户上板验证通过；GitHub main 的 RTL 已包含 v3REG-1 / v3REG-2 候选逻辑，但 HOLD / P_LOCK / PI_LOCK 尚未完成 Vivado synthesis / implementation / timing / bitstream / 上板验证。

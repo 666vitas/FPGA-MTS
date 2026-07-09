@@ -7,6 +7,7 @@ module tb_out2_lock_controller;
     localparam logic [31:0] MODE_HOLD   = 32'd2;
     localparam logic [31:0] MODE_P_LOCK = 32'd3;
     localparam logic [31:0] MODE_PI_LOCK = 32'd4;
+    localparam int P_LOCK_LATENCY = 6;
 
     logic clk = 1'b0;
     always #5 clk = ~clk;
@@ -103,28 +104,28 @@ module tb_out2_lock_controller;
         kp = 14'sd0;
         polarity = 1'b0;
         error_i = 14'sd500;
-        wait_cycles(2);
+        wait_cycles(P_LOCK_LATENCY);
         check("P_LOCK Kp=0 outputs lock_bias", control_o == 14'sd100);
 
         kp = 14'sd256;
         error_i = 14'sd50;
-        wait_cycles(2);
+        wait_cycles(P_LOCK_LATENCY);
         check("P_LOCK positive error increases output", control_o == 14'sd150);
 
         error_i = -14'sd50;
-        wait_cycles(2);
+        wait_cycles(P_LOCK_LATENCY);
         check("P_LOCK negative error decreases output", control_o == 14'sd50);
 
         polarity = 1'b1;
         error_i = 14'sd50;
-        wait_cycles(2);
+        wait_cycles(P_LOCK_LATENCY);
         check("P_LOCK polarity flip reverses direction", control_o == 14'sd50);
 
         polarity = 1'b0;
         lock_bias = 14'sd100;
         error_i = 14'sd100;
         lock_limit = 14'sd120;
-        wait_cycles(2);
+        wait_cycles(P_LOCK_LATENCY);
         check("P_LOCK limit clamps positive output", control_o == 14'sd120);
         check("P_LOCK saturation flag asserts at limit", saturated_o == 1'b1);
 
@@ -139,37 +140,40 @@ module tb_out2_lock_controller;
         check("MODE=SAFE has highest priority and clears output", control_o == 14'sd0);
 
         mode = MODE_PI_LOCK;
-        lock_bias = 14'sd0;
+        lock_bias = 14'sd100;
         lock_limit = 14'sd8191;
         kp = 14'sd0;
         ki = 14'sd256;
         polarity = 1'b0;
         error_i = 14'sd10;
-        wait_cycles(4);
-        check("PI_LOCK integrates nonzero error", control_o > 14'sd10);
+        wait_cycles(P_LOCK_LATENCY);
+        check("PI_LOCK Kp=0 ignores Ki and outputs lock_bias", control_o == 14'sd100);
 
         enable = 1'b0;
         wait_cycles(2);
         check("PI_LOCK ENABLE=0 clears output", control_o == 14'sd0);
         enable = 1'b1;
-        wait_cycles(1);
-        check("PI_LOCK ENABLE=0 clears integral", control_o <= 14'sd10);
+        wait_cycles(P_LOCK_LATENCY);
+        check("PI_LOCK remains P-only after re-enable", control_o == 14'sd100);
 
-        wait_cycles(4);
-        check("PI_LOCK integrates again after re-enable", control_o > 14'sd10);
+        kp = 14'sd256;
+        ki = 14'sd8191;
+        error_i = 14'sd20;
+        wait_cycles(P_LOCK_LATENCY);
+        check("PI_LOCK ignores Ki but keeps P direction", control_o == 14'sd120);
 
         mode = MODE_SAFE;
         wait_cycles(2);
         check("PI_LOCK MODE=SAFE clears output", control_o == 14'sd0);
         mode = MODE_PI_LOCK;
-        wait_cycles(1);
-        check("PI_LOCK MODE=SAFE clears integral", control_o <= 14'sd10);
+        wait_cycles(P_LOCK_LATENCY);
+        check("PI_LOCK recovers as P-only after SAFE", control_o == 14'sd120);
 
         integral_reset = 1'b1;
         wait_cycles(2);
         integral_reset = 1'b0;
-        wait_cycles(1);
-        check("integral reset clears PI contribution", control_o <= 14'sd10);
+        wait_cycles(P_LOCK_LATENCY);
+        check("integral reset is accepted but no integral exists", control_o == 14'sd120);
 
         $display("SUMMARY tb_out2_lock_controller tests=%0d pass=%0d fail=%0d", tests, pass_count, fail_count);
         if (fail_count != 0) begin

@@ -333,7 +333,7 @@ class MainWindow(QMainWindow):
             "IN1 = PD/MTS after analog BPF + amplifier, < +/-1 V\n"
             "IN2 = 4.6 MHz REF, < +/-1 V\n"
             "OUT1 = FPGA laser_error -> oscilloscope\n"
-            "OUT2 = selected_out2 (SAFE/SCAN from custom_register_bank + ramp_generator) -> oscilloscope only\n"
+            "OUT2 = selected_out2 (SAFE/SCAN proven; HOLD/P_LOCK/PI_LOCK candidates) -> oscilloscope only\n"
             "Do not connect OUT2 to laser scan/PZT or D2-125 yet."
         )
         wiring.setWordWrap(True)
@@ -519,7 +519,7 @@ class MainWindow(QMainWindow):
         mapping = QLabel(
             "D2-125 Ramp -> future FPGA scan generator / current Official SCPI OUT2 Safe Scan\n"
             "D2-125 Error Input -> FPGA mixer + LPF -> laser_error\n"
-            "D2-125 Servo Output -> future lock controller; current OUT2 is selected_out2 SAFE/SCAN\n"
+            "D2-125 Servo Output -> keep current external path; FPGA OUT2 is selected_out2 scope-only candidate\n"
             "D2-125 Lock/Scan switch -> future FPGA FSM + host workflow\n"
             "D2-125 Relock / Lock Quality -> future host judgment + FPGA state machine"
         )
@@ -1023,7 +1023,7 @@ class MainWindow(QMainWindow):
     def apply_output(self, channel: int, control: OutputControl) -> None:
         if not self._official_mode() and not isinstance(self.client, MockRedPitayaClient):
             self.statusBar().showMessage(
-                "Custom FPGA Mode: OUT2 is selected_out2 SAFE/SCAN, not SCPI ASG"
+                "Custom FPGA Mode: OUT2 is selected_out2, not SCPI ASG; use scope-only Custom FPGA Control"
             )
             return
         try:
@@ -1345,7 +1345,9 @@ class MainWindow(QMainWindow):
             self.ch4.set_warning("Official SCPI ASG preview, not measured")
         else:
             self.ch3.set_warning("Custom FPGA Mode: OUT1 is laser_error, not SCPI ASG")
-            self.ch4.set_warning("Custom FPGA Mode: OUT2 is selected_out2 SAFE/SCAN triangle, scope-only")
+            self.ch4.set_warning(
+                "Custom FPGA Mode: OUT2 is selected_out2; SAFE/SCAN proven, HOLD/P_LOCK/PI_LOCK scope-only candidates"
+            )
 
     def _observe_measurements(self) -> CustomFpgaMeasurements:
         return CustomFpgaMeasurements(
@@ -1490,12 +1492,13 @@ class MainWindow(QMainWindow):
             self.mode_explain_label.setText(
                 "Custom FPGA Mode: do not start redpitaya_scpi overlay. "
                 "OUT1=laser_error (mixer+LPF). OUT2=selected_out2 from register-controlled "
-                "SAFE/SCAN. Use Custom FPGA Observe -> Probe Registers -> Status -> SAFE/SCAN "
-                "to control OUT2. SCPI ASG output commands do not drive physical OUT2 in the "
+                "SAFE/SCAN/HOLD/P_LOCK/PI_LOCK candidate modes. Use Custom FPGA Observe -> "
+                "Probe Registers -> Status -> SAFE/SCAN first; HOLD/P_LOCK/PI_LOCK remain "
+                "scope-only candidates. SCPI ASG output commands do not drive physical OUT2 in the "
                 "current custom bitstream."
             )
             self.ch3.subtitle_label.setText("Custom FPGA OUT1 = laser_error; not ADC measured")
-            self.ch4.subtitle_label.setText("Custom FPGA OUT2 = selected_out2 SAFE/SCAN; scope-only")
+            self.ch4.subtitle_label.setText("Custom FPGA OUT2 = selected_out2 modes; scope-only")
         self._set_connected_state(self.client is not None and self.client.connected)
         self._redraw_from_last_waveforms()
 
@@ -1515,7 +1518,7 @@ class MainWindow(QMainWindow):
             ),
             "3. Control Output Observe": (
                 "Wiring: OUT2 -> oscilloscope only.\n"
-                "Scope: selected_out2 SAFE/SCAN triangle on OUT2.\n"
+                "Scope: selected_out2 SAFE/SCAN first, then HOLD/P_LOCK/PI_LOCK candidate output on OUT2.\n"
                 "Pass: OUT2 within safe limit and not rapidly climbing/jumping. Stop: OUT2 near +/-1 V.\n"
                 "Next: Direction / Polarity Check."
             ),

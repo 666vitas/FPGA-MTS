@@ -1,5 +1,17 @@
 # 开发日志
 
+## 2026-07-09 - v3REG P_LOCK timing 修复：OUT2 锁定控制缩小为 P-only 流水线
+
+- 本次实现目标：针对用户手动 Vivado implementation timing fail（`WNS=-10.361 ns`、`TNS=-16400.330 ns`、`Failing Endpoints=6099`），将 `out2_lock_controller` 从组合式 P/PI 路径改为 timing-friendly 的 P-only 流水线控制器。
+- 修改 RTL 文件：`v0.94/rtl/custom_register_bank.sv`。保持 module 端口和 register map 不变；`MODE=3 P_LOCK` 执行 `OUT2 = clamp(LOCK_BIAS + POLARITY * KP * error, LOCK_LIMIT)`；`MODE=4 PI_LOCK` 暂时退化为同样的 P_LOCK。
+- 修改仿真文件：`v0.94/sim/tb_out2_lock_controller.sv`。测试更新为等待 P_LOCK 流水线 latency，并确认 `PI_LOCK` 在 `Ki` 非零时仍输出 P-only 结果，证明 `Ki/integrator` 当前被禁用。
+- 当前处理：删除 `out2_lock_controller` 内部 `integral_acc`、`Ki` 乘法、I term 和 error->Ki->integral->clamp 长组合路径；`ki_i` 和 `integral_reset_i` 端口保留但当前 RTL 不使用。
+- 修改 Python 文件：无。上位机 `p-lock` / `pi-lock` 操作和寄存器地址保持不变；上位机仍可写 `KI`，但当前 RTL 不使用 `KI`。
+- 验证方式：未运行 Vivado、未运行 synthesis / implementation、未生成 bitstream、未上板；本次只做非 Vivado 静态检查与 host 侧 Python 检查。
+- 是否修改 RTL：是，仅修改 `v0.94/rtl/custom_register_bank.sv` 中 `out2_lock_controller`。
+- 是否生成 bitstream：否。
+- 安全边界：当前 LOCK 目标缩小为 P_LOCK；OUT2 仍必须先只接示波器验证 SAFE/SCAN/HOLD/P_LOCK 行为，不能直接接 PZT、Scan input、激光器电流调制或 D2-125 输出。
+
 ## 2026-07-09 - 项目文档中文化与永久语言规则记录
 
 - 本次任务：将当前入口文档、version 规则文档和上位机 docs 中明显英文说明改为中文，并在根目录 `README.md` 与 `version/rules/00_DOCUMENT_LANGUAGE_AND_STYLE_RULES.md` 中记录后续项目文档默认使用中文。

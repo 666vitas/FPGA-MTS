@@ -103,8 +103,9 @@ def test_gui_text_separates_scpi_and_custom_fpga_out2_paths() -> None:
     assert "OUT2 = FPGA laser_control" not in source
     assert "OUT2=laser_control" not in source
     assert "OUT2 is laser_control" not in source
-    assert "OUT2 = selected_out2 (SAFE/SCAN from custom_register_bank + ramp_generator) -> oscilloscope only" in source
+    assert "OUT2 = selected_out2 (SAFE/SCAN proven; HOLD/P_LOCK/PI_LOCK candidates) -> oscilloscope only" in source
     assert "SCPI Output Control is only for official ASG/overlay testing" in source
     assert "SCPI OUT2 commands may succeed" in source
     assert "will not drive physical OUT2" in source
-    assert "Custom FPGA Observe -> Probe Registers -> Status -> SAFE/SCAN" in source
+    assert "Custom FPGA Observe -> " in source
+    assert "SAFE/SCAN first; HOLD/P_LOCK/PI_LOCK remain" in source
