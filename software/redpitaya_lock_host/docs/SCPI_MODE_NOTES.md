@@ -1,6 +1,6 @@
-# SCPI Mode Notes
+# SCPI 模式说明
 
-## SCPI Ports
+## SCPI 端口
 
 ```text
 SCPI server port: 5000
@@ -8,15 +8,15 @@ SSH port: 22
 Web port: 80
 ```
 
-Ping success does not mean SCPI is available.
+能 ping 通 Red Pitaya 不代表 SCPI 可用。
 
-SSH True does not mean SCPI True.
+`SSH True` 不代表 `SCPI True`。
 
-Web False does not necessarily affect host-app use.
+`Web False` 不一定影响上位机使用。
 
-## Start SCPI Server
+## 启动 SCPI Server
 
-Run these commands on the Red Pitaya board:
+在 Red Pitaya 板端运行：
 
 ```bash
 systemctl stop redpitaya_nginx
@@ -25,33 +25,35 @@ systemctl status redpitaya_scpi --no-pager
 ss -lntp | grep 5000
 ```
 
-## Manual OUT2 Test
+注意：启动 `redpitaya_scpi` 可能加载官方 overlay，可能覆盖当前 custom FPGA bitstream。Custom FPGA Mode 下如果目标是保留当前自定义 bitstream，不要启动 `redpitaya_scpi`。
 
-PowerShell minimum test command:
+## 手动 OUT2 测试
+
+PowerShell 最小测试命令：
 
 ```powershell
 python -c "import socket,time; h='192.168.137.180'; s=socket.create_connection((h,5000),5); cmds=['GEN:RST','SOUR2:FUNC TRIANGLE','SOUR2:FREQ:FIX 50','SOUR2:VOLT 0.05','SOUR2:VOLT:OFFS 0','OUTPUT2:STATE ON','SOUR2:TRig:INT']; [s.sendall((c+'\r\n').encode()) or time.sleep(0.1) for c in cmds]; s.close()"
 ```
 
-Replace `192.168.137.180` with the current Red Pitaya IP address.
+把 `192.168.137.180` 替换为当前 Red Pitaya IP 地址。
 
-For a `50 Hz` triangle wave, the period is:
+`50 Hz` 三角波周期为：
 
 ```text
 1 / 50 Hz = 20 ms
 ```
 
-The GUI CH4 panel is a generated preview, not a measured OUT2 signal. It now uses a dedicated preview time axis so low-frequency output settings such as `triangle / 50 Hz / 0.05 V / offset 0` show complete cycles. Real OUT2 must still be verified with an oscilloscope, or with a carefully limited physical loopback from OUT2 to IN1. Keep IN1/IN2 within ±1 V.
+GUI 的 CH4 面板是软件生成的预览，不是实测 OUT2。真实 OUT2 必须用示波器确认；如果做 OUT2 -> IN1 物理回环，必须保证 IN1/IN2 在 +/-1 V 范围内。
 
-## Stop Output
+## 停止输出
 
 ```powershell
 python -c "import socket,time; h='192.168.137.180'; s=socket.create_connection((h,5000),5); cmds=['SOUR1:VOLT 0','SOUR2:VOLT 0','OUTPUT1:STATE OFF','OUTPUT2:STATE OFF','GEN:STOP']; [s.sendall((c+'\r\n').encode()) or time.sleep(0.1) for c in cmds]; s.close()"
 ```
 
-## SCPI Output Command Order
+## SCPI 输出命令顺序
 
-The V2 client applies OUT1/OUT2 settings in this order:
+V2 client 按下面顺序应用 OUT1/OUT2 设置：
 
 ```text
 SOURn:FUNC
@@ -62,4 +64,4 @@ OUTPUTn:STATE ON/OFF
 SOURn:TRig:INT
 ```
 
-Do not use the old `SOUR2:TRIG:IMM` command path for V2 OUT2 apply.
+V2 OUT2 apply 不使用旧的 `SOUR2:TRIG:IMM` 路径。

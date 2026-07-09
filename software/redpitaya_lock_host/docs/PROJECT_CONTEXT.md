@@ -1,33 +1,35 @@
-# Project Context
+# 项目上下文
 
-## Fixed Project Boundary
+## 固定项目边界
 
-- FPGA project code directory: `E:\new\fpga_lock\v94\v0.94`
-- Host application development directory: `E:\new\fpga_lock\v94\software\redpitaya_lock_host`
-- The old standalone host-app directory is no longer used; `software/redpitaya_lock_host` is the canonical host-app development directory.
-- No directory containing `weifang` is used, referenced, or modified.
-- First-stage work is host software only. FPGA RTL, Vivado project files, and bitstream generation are out of scope.
+- FPGA 工程目录：`E:\new\fpga_lock\v94\v0.94`
+- 上位机开发目录：`E:\new\fpga_lock\v94\software\redpitaya_lock_host`
+- 旧的独立上位机目录不再使用；`software/redpitaya_lock_host` 是唯一上位机开发目录。
+- 不使用、不引用、不修改任何包含 `weifang` 的目录。
+- 除非用户明确授权，Codex 不运行 Vivado，不生成 bitstream，不烧录 Red Pitaya。
 
-## Hardware Platform
+## 硬件平台
 
 - Red Pitaya STEMlab 125-14
-- Host software stack: Python 3.10+, PySide6, pyqtgraph, numpy, pandas, pyyaml, socket
-- SCPI endpoint: default `rp-f0cb13.local:5000`, manually editable in the GUI
+- 上位机软件栈：Python 3.10+、PySide6、pyqtgraph、numpy、pandas、pyyaml、socket
+- SCPI 默认目标：`rp-f0cb13.local:5000`，GUI 中可手动修改
 
-## Current Experimental Chain
+## 当前实验链路
 
-1. PD signal goes through an analog band-pass filter and amplifier, then enters Red Pitaya IN1.
-2. External 4.6 MHz REF enters Red Pitaya IN2.
-3. FPGA project is located at `E:\new\fpga_lock\v94\v0.94`.
-4. The current FPGA is used as a digital mixer plus LPF; OUT1 outputs an error-like signal.
-5. OUT2 is used for unlocked scan and outputs a triangle wave to the laser scan / PZT input.
-6. The host application controls OUT2 triangle frequency, amplitude, and offset so scan changes do not require rebuilding or reflashing the FPGA.
+1. PD 信号经过模拟 BPF 和放大器后进入 Red Pitaya IN1。
+2. 外部 4.6 MHz REF 进入 Red Pitaya IN2。
+3. FPGA 工程位于 `E:\new\fpga_lock\v94\v0.94`。
+4. 当前 FPGA 用作 digital mixer + LPF；OUT1 输出 error-like signal，即 `laser_error`。
+5. OUT2 当前为 `selected_out2`，由 `custom_register_bank`、`ramp_generator` 和 `out2_lock_controller` 候选模式控制。
+6. v3REG-0 SAFE/SCAN 已完成用户上板验证；HOLD/P_LOCK/PI_LOCK 尚未完成 timing、bitstream 和上板验证。
 
-## V2 Mode Boundary
+## V2 模式边界
 
-The host app now separates two modes:
+上位机分为两条路径：
 
-- Official SCPI Mode: may start `redpitaya_scpi`, connect to port 5000, control official ASG OUT1/OUT2, and acquire IN1/IN2 through SCPI. Starting `redpitaya_scpi` may load the official v0.94 overlay and overwrite the currently loaded custom FPGA bitstream.
-- Custom FPGA Mode: preserves the current custom bitstream. In the reviewed RTL, `USE_LASER_LOCK_CORE = 1`, OUT1 / DAC A is `laser_error`, OUT2 / DAC B is `laser_control`, and official ASG data no longer directly drives OUT1/OUT2.
+- Official SCPI Mode：可以启动 `redpitaya_scpi`，连接 5000 端口，控制官方 ASG OUT1/OUT2，并通过 SCPI 采集 IN1/IN2。启动 `redpitaya_scpi` 可能加载官方 v0.94 overlay，并覆盖当前 custom FPGA bitstream。
+- Custom FPGA Mode：保留当前 custom bitstream。当前 RTL 中 `USE_LASER_LOCK_CORE = 1`，OUT1 / DAC A 是 `laser_error`，OUT2 / DAC B 是 `selected_out2`，官方 ASG data 不再直接驱动物理 OUT1/OUT2。
 
-In Custom FPGA Mode, OUT2 remains oscilloscope-only and must not be connected to laser scan/PZT or D2-125. V2 does not read FPGA internal `error_internal`; that requires a later debug buffer, register bank, or AXI-accessible capture path.
+Custom FPGA Mode 下，OUT2 当前仍只允许接示波器，不能连接 laser scan/PZT、D2-125 或任何真实执行器。
+
+上位机当前可以通过 SSH + `/dev/mem` 写 custom FPGA 寄存器；但 HOLD/P_LOCK/PI_LOCK 仍需后续 timing、bitstream 和 scope-only 上板验证。

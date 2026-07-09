@@ -308,7 +308,7 @@ GUI OUT2 读回值 `0.552069 V` 接近理论下限 `0.55 V`，说明 `OUT2_MONIT
 
 ```text
 TEC set/work      = 22.66 C / 22.46 C
-Current set/work  = 40.07 mA / 57.42 mA
+电流设置/工作值  = 40.07 mA / 57.42 mA
 PZT set/work      = 34.99 V / 42.52 V
 ```
 

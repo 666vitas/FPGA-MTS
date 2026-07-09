@@ -1,46 +1,60 @@
-# Current Mainline Review
+# 当前主线审查说明
 
-## Current Mainline
+## 当前主线
 
-当前主线 = v3REG-0 register-controlled OUT2 SAFE/SCAN。
+当前主线以 `version/STATUS.md` 和 `version/CURRENT_REVIEW_MANIFEST.md` 为准：
 
 ```text
-上位机
+v3REG-0 SAFE/SCAN 已由用户上板验证。
+当前 RTL / software 已包含 v3REG-1 / v3REG-2 候选：HOLD / P_LOCK / PI_LOCK。
+HOLD / P_LOCK / PI_LOCK 尚未完成 Vivado timing、bitstream、烧录和上板验证。
+```
+
+当前控制链路：
+
+```text
+GUI / CLI
 -> Red Pitaya Linux /dev/mem
 -> custom_register_bank
--> ramp_generator
+-> out2_lock_controller / ramp_generator
+-> selected_out2
 -> OUT2
 ```
 
-当前阶段只验证 OUT2 示波器三角波，不验证锁定，不接 Scan/PZT，不接激光器。
+当前阶段只允许 OUT2 接示波器。不验证真实闭环锁定，不接 Scan/PZT，不接激光器，不接 D2-125 输出。
 
-## Current Signal Meaning
+## 当前信号含义
 
 ```text
 OUT1 = laser_error = mixer + LPF error observation
-OUT2 = selected_out2 = custom_register_bank + ramp_generator SAFE/SCAN
-laser_control / pi_controller_seq = 后续候选，不是当前 OUT2 输出
+OUT2 = selected_out2
+MODE=0 SAFE
+MODE=1 SCAN
+MODE=2 HOLD
+MODE=3 P_LOCK
+MODE=4 PI_LOCK
+laser_control / pi_controller_seq = 内部候选或历史路径，不是当前 OUT2 最终输出
 ```
 
-不要把历史 v2B3 sequential PI / Shadow PI 注释误判为当前 OUT2 主线。当前 OUT2 由 `selected_out2` 驱动，`selected_out2` 的 v3REG-0 来源是 `custom_register_bank` 和 `ramp_generator`。
+不要把历史 v2B3 sequential PI / Shadow PI 注释误判为当前 OUT2 主线。当前 OUT2 由 `selected_out2` 驱动。
 
-## Current Mainline Files
+## 当前主线文件
 
-优先读取以下文件判断当前状态：
+判断当前状态时优先读取：
 
 - `README.md`
-- `GPT_README.md`
+- `AI_REVIEW_README.md`
 - `version/STATUS.md`
-- `version/v3/V3REG0_HOST_CONTROLLED_SCAN_PLAN.md`
+- `version/CURRENT_REVIEW_MANIFEST.md`
 - `version/v3/V3REG0_SCOPE_TEST_CHECKLIST.md`
 - `v0.94/rtl/red_pitaya_top.sv`
 - `v0.94/rtl/custom_register_bank.sv`
 - `v0.94/rtl/ramp_generator.sv`
 - `v0.94/sim/tb_custom_register_bank_basic.sv`
-- `v0.94/sim/tb_ramp_generator.sv`
+- `v0.94/sim/tb_out2_lock_controller.sv`
 - `software/redpitaya_lock_host/scripts/custom_fpga_scan_control.py`
 
-## Historical Or Non-Mainline Areas To Avoid
+## 历史或非主线目录
 
 不要把以下目录或历史材料作为当前 mainline 依据：
 
@@ -52,7 +66,7 @@ laser_control / pi_controller_seq = 后续候选，不是当前 OUT2 输出
 
 这些目录可能包含历史实验、外部审查、官方基线或禁止读取材料。除非用户明确授权当前任务需要，否则不要读取、引用或修改它们。
 
-## Review Rule
+## 审查规则
 
 审查当前 main 分支时，先确认：
 
@@ -60,6 +74,7 @@ laser_control / pi_controller_seq = 后续候选，不是当前 OUT2 输出
 2. `selected_out2` 进入 DAC B / OUT2。
 3. OUT1 保持 `laser_error`。
 4. SAFE / disabled / reset 时 OUT2 为 0。
-5. SCAN 默认约为 `0.85 V +/-0.05 V`、约 `50 Hz`。
-6. `laser_control` 和 `pi_controller_seq` 只作为后续候选存在，不是当前 OUT2 输出。
+5. SCAN 默认参数、HOLD、P_LOCK、PI_LOCK 是否只停留在当前允许阶段。
+6. `laser_control` 和 `pi_controller_seq` 只作为内部候选或历史路径，不是当前 OUT2 最终输出。
 
+审查结论必须用中文写明“已确认、未确认、禁止动作、下一步最小安全动作”。

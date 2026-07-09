@@ -1,13 +1,13 @@
 # CURRENT_REVIEW_MANIFEST
 
-本文件定义当前 GitHub main 分支的唯一审查清单。AI 审查时必须先读本文件，再审查当前 RTL。
+本文件定义当前 GitHub `main` 分支的审查清单。AI 审查时必须先读本文件，再审查当前 RTL、上位机和实验记录。
 
 ## 1. 仓库与主线
 
 ```text
 Repository: 666vitas/FPGA-MTS
 Primary branch: main
-Current stage: v3REG-0 SAFE/SCAN board-verified; v3REG-1/v3REG-2 HOLD/P_LOCK/PI_LOCK are RTL/software candidates only
+Current stage: v3REG-0 SAFE/SCAN 已上板验证；v3REG-1/v3REG-2 HOLD/P_LOCK/PI_LOCK 仅为 RTL/software 候选
 Primary RTL root: v0.94/rtl
 Primary Vivado project: v0.94/project/redpitaya.xpr
 Primary status file: version/STATUS.md
@@ -20,36 +20,39 @@ Root entrypoint: AI_REVIEW_README.md
 ```text
 OUT1 = laser_error = mixer + LPF error observation
 OUT2 = selected_out2
-MODE=0 SAFE, MODE=1 SCAN, MODE=2 HOLD, MODE=3 P_LOCK, MODE=4 PI_LOCK are present in current RTL
-laser_control / pi_controller_seq = 内部候选/历史路径，不是当前 DAC B / OUT2 最终输出
+MODE=0 SAFE
+MODE=1 SCAN
+MODE=2 HOLD
+MODE=3 P_LOCK
+MODE=4 PI_LOCK
+laser_control / pi_controller_seq = 内部候选或历史路径，不是当前 DAC B / OUT2 最终输出
 ```
 
-v3REG-0 SAFE/SCAN 已由用户上板验证：base address `0x40600000`，`MAGIC=0x4D545330`，`VERSION=0x00030000`，GUI/monitor 可控制 OUT2 三角波并可 SAFE 关闭。
+v3REG-0 SAFE/SCAN 已由用户上板验证：base address `0x40600000`，`MAGIC=0x4D545330`，`VERSION=0x00030000`，GUI/monitor 可控制 OUT2 三角波，并可用 SAFE 关闭。
 
 HOLD/P_LOCK/PI_LOCK 当前只表示 GitHub main 中的 RTL/software 候选已经存在；尚未完成 Vivado synthesis / implementation / timing / bitstream / 上板验证。
 
-当前阶段只允许示波器验证，不允许接入 PZT、Scan input、激光器电流调制、D2-125 Servo Output 或 D2-125 Aux Output。
+当前阶段只允许示波器验证；不允许接入 PZT、Scan input、激光器电流调制、D2-125 Servo Output 或 D2-125 Aux Output。
 
 ## 3. 当前必须读取的文件
 
-### 状态与规则
+状态与规则：
 
 ```text
 AI_REVIEW_README.md
 version/AI_STRICT_REVIEW_ENTRY.md
 version/CURRENT_REVIEW_MANIFEST.md
 version/STATUS.md
+version/rules/00_DOCUMENT_LANGUAGE_AND_STYLE_RULES.md
 ```
 
-### Vivado 工程
+Vivado 工程：
 
 ```text
 v0.94/project/redpitaya.xpr
 ```
 
-审查目标：确认当前新增 RTL 是否已经加入 synthesis / implementation / simulation 文件集。
-
-### 当前 RTL
+当前 RTL：
 
 ```text
 v0.94/rtl/red_pitaya_top.sv
@@ -63,7 +66,7 @@ v0.94/rtl/pi_controller_seq.sv
 v0.94/rtl/pi_controller.sv
 ```
 
-## 4. 默认禁止读取为当前依据的路径
+## 4. 默认禁止作为当前依据的路径
 
 ```text
 v-weifang/**
@@ -164,31 +167,28 @@ control_o / pi_controller_seq 仍存在，但不是当前 OUT2 的最终来源
 
 ## 6. 实验与工程状态判定规则
 
-### 可以说“已经实现”的内容
-
-只有当 RTL 直接存在并且 xpr 已加入时，才可以说：
+可以说“已经实现”的内容：
 
 ```text
-代码层面已经加入 register_bank
+代码层面已经加入 custom_register_bank
 代码层面已经加入 ramp_generator
+代码层面已经加入 out2_lock_controller
 代码层面 OUT2 已经改为 selected_out2 SAFE/SCAN/HOLD/P_LOCK/PI_LOCK 候选
+v3REG-0 SAFE/SCAN 已有用户上板验证记录
 ```
 
-### 只能说“等待验证”的内容
-
-没有 Vivado / bitstream / 上板记录时，只能说：
+只能说“等待验证”的内容：
 
 ```text
-等待 Vivado synthesis
-等待 implementation
-等待 timing 检查
-等待 bitstream 生成
-等待烧录
-v3REG-0 SAFE/SCAN 已有用户上板示波器验证记录
-等待 HOLD/P_LOCK/PI_LOCK 的 Vivado timing / bitstream / 上板示波器验证
+HOLD/P_LOCK/PI_LOCK 等待 Vivado synthesis
+HOLD/P_LOCK/PI_LOCK 等待 implementation
+HOLD/P_LOCK/PI_LOCK 等待 timing 检查
+HOLD/P_LOCK/PI_LOCK 等待 bitstream 生成
+HOLD/P_LOCK/PI_LOCK 等待烧录
+HOLD/P_LOCK/PI_LOCK 等待上板示波器验证
 ```
 
-### 禁止说的内容
+禁止说的内容：
 
 ```text
 已经可以接 PZT
@@ -198,21 +198,18 @@ v3REG-0 SAFE/SCAN 已有用户上板示波器验证记录
 已经完成 D2-125 替代
 ```
 
-除非出现明确实验记录和安全评审文件。
+除非出现明确实验记录和安全评审文件，否则不得推进这些结论。
 
 ## 7. 下一步最小安全动作
 
 ```text
-1. 不继续大改 RTL。
-2. 先运行 Vivado synthesis。
-3. 再运行 implementation。
-4. 检查 timing，尤其是 WNS/TNS/Failing Endpoints。
-5. 生成 bitstream。
-6. 烧录 Red Pitaya。
-7. 用上位机读 MAGIC / VERSION。
-8. 只把 OUT2 接示波器，先复核 SAFE/SCAN。
-9. 再以 Kp=0 / Ki=0 复核 HOLD/P_LOCK/PI_LOCK 候选模式。
-10. HOLD/P_LOCK/PI_LOCK scope-only 验证通过后，仍需单独安全评审，才能讨论 PZT/Scan 接入。
+1. 不继续扩大 RTL。
+2. 用户明确授权后，才允许手动进入 Vivado synthesis / implementation / timing 检查。
+3. timing 通过后，才允许生成 bitstream。
+4. 烧录后先用上位机读 MAGIC / VERSION。
+5. 只把 OUT2 接示波器，先复核 SAFE/SCAN。
+6. 再以 Kp=0 / Ki=0 复核 HOLD/P_LOCK/PI_LOCK 候选模式。
+7. HOLD/P_LOCK/PI_LOCK scope-only 验证通过后，仍需单独安全评审，才能讨论 PZT/Scan 接入。
 ```
 
 ## 8. 审查输出必须包含
@@ -227,3 +224,7 @@ F. 旧版本污染风险
 G. 禁止动作
 H. 下一步安全动作
 ```
+
+## 9. 文档语言
+
+审查输出默认使用中文。代码标识符、文件路径、命令、寄存器名、模块名、信号名和英文缩写保留英文原文。

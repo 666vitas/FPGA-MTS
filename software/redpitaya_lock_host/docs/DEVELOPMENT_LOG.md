@@ -1,4 +1,14 @@
-# Development Log
+# 开发日志
+
+## 2026-07-09 - 项目文档中文化与永久语言规则记录
+
+- 本次任务：将当前入口文档、version 规则文档和上位机 docs 中明显英文说明改为中文，并在根目录 `README.md` 与 `version/rules/00_DOCUMENT_LANGUAGE_AND_STYLE_RULES.md` 中记录后续项目文档默认使用中文。
+- 修改 Python 文件：无。
+- 修改 RTL 文件：无。
+- 修改文档文件：`README.md`、`AI_REVIEW_README.md`、`CURRENT_MAINLINE_REVIEW.md`、`version/CURRENT_REVIEW_MANIFEST.md`、`version/PROJECT_DIRECTORY_AND_WORKFLOW_RULES.md`、`version/rules/00_DOCUMENT_LANGUAGE_AND_STYLE_RULES.md`、`version/rules/00_PROJECT_ROOT_AND_AGENT_ROLES.md`、`software/redpitaya_lock_host/README.md` 以及 `software/redpitaya_lock_host/docs/` 下多份说明文档。
+- 验证方式：运行 Markdown 英文关键词自查；保留命令、路径、寄存器名、模块名、模式名、英文缩写和历史 review 中的英文引用。
+- 是否修改 RTL：否。
+- 是否生成 bitstream：否。
 
 ## 2026-07-08 - v3REG-1 / v3REG-2 状态文档同步与独立仿真确认
 
@@ -63,33 +73,33 @@
 - 是否生成 bitstream：否。
 - 安全边界不变：OUT2 仅接示波器观察；不要将 OUT2 接到 laser PZT、laser current、D2-125 Servo Output 或 Scan input。
 
-## 2026-07-05 - GUI OUT2 path boundary wording fix
+## 2026-07-05 - GUI OUT2 路径边界文案修复
 
-- Implemented a minimal GUI wording/defaults fix so users distinguish Official SCPI OUT2 from Custom FPGA `selected_out2` SAFE/SCAN.
-- Python files changed: `redpitaya_lock_host/main_window.py`, `tests/test_custom_fpga_backend.py`, `tests/test_custom_fpga_workflow.py`.
-- Verification: `python -m py_compile redpitaya_lock_host\main_window.py redpitaya_lock_host\custom_fpga_backend.py`; `python -m pytest tests`.
-- Modified RTL: no.
-- Generated bitstream: no.
+- 完成最小 GUI 文案和默认参数修复，让用户明确区分 Official SCPI OUT2 和 Custom FPGA `selected_out2` SAFE/SCAN。
+- 修改 Python 文件：`redpitaya_lock_host/main_window.py`、`tests/test_custom_fpga_backend.py`、`tests/test_custom_fpga_workflow.py`。
+- 验证：`python -m py_compile redpitaya_lock_host\main_window.py redpitaya_lock_host\custom_fpga_backend.py`；`python -m pytest tests`。
+- 是否修改 RTL：否。
+- 是否生成 bitstream：否。
 
-## 2026-07-05 - Custom FPGA missing-register GUI status guard
+## 2026-07-05 - Custom FPGA 缺失寄存器 GUI 状态保护
 
-- Implemented a GUI/status guard so `MAGIC != 0x4D545330` renders `custom_register_bank not found` instead of fake zero register state.
-- Python files changed: `redpitaya_lock_host/custom_fpga_backend.py`, `redpitaya_lock_host/main_window.py`, `tests/test_custom_fpga_backend.py`.
-- Verification: `python -m pytest tests\test_custom_fpga_backend.py`; `python -m py_compile redpitaya_lock_host\custom_fpga_backend.py redpitaya_lock_host\main_window.py`.
-- Modified RTL: no.
-- Generated bitstream: no.
+- 新增 GUI/status 保护：当 `MAGIC != 0x4D545330` 时显示 `custom_register_bank not found`，不再显示假的全零寄存器状态。
+- 修改 Python 文件：`redpitaya_lock_host/custom_fpga_backend.py`、`redpitaya_lock_host/main_window.py`、`tests/test_custom_fpga_backend.py`。
+- 验证：`python -m pytest tests\test_custom_fpga_backend.py`；`python -m py_compile redpitaya_lock_host\custom_fpga_backend.py redpitaya_lock_host\main_window.py`。
+- 是否修改 RTL：否。
+- 是否生成 bitstream：否。
 
 ## 2026-07-05 - GUI Custom FPGA Control v1
 
-- Implemented first GUI Custom FPGA Control panel in Custom FPGA Mode.
-- Added SSH + `/dev/mem` register operations for Probe Registers, Status, SAFE, and SCAN without starting `redpitaya_scpi`.
-- Python files changed: `redpitaya_lock_host/custom_fpga_backend.py`, `redpitaya_lock_host/connection_workers.py`, `redpitaya_lock_host/main_window.py`.
-- Verification: `python -m py_compile` passed for `custom_fpga_backend.py`, `connection_workers.py`, `main_window.py`, and `scripts/custom_fpga_scan_control.py`.
-- GUI run path: `.\run.bat`, then Custom FPGA Mode -> Probe Registers -> Status -> SAFE -> SCAN.
-- Modified RTL: no.
-- Generated bitstream: no.
+- 在 Custom FPGA Mode 中实现第一版 GUI Custom FPGA Control 面板。
+- 新增 SSH + `/dev/mem` 寄存器操作：Probe Registers、Status、SAFE、SCAN，不启动 `redpitaya_scpi`。
+- 修改 Python 文件：`redpitaya_lock_host/custom_fpga_backend.py`、`redpitaya_lock_host/connection_workers.py`、`redpitaya_lock_host/main_window.py`。
+- 验证：`python -m py_compile` 已通过 `custom_fpga_backend.py`、`connection_workers.py`、`main_window.py`、`scripts/custom_fpga_scan_control.py`。
+- GUI 运行路径：`.\run.bat`，然后 Custom FPGA Mode -> Probe Registers -> Status -> SAFE -> SCAN。
+- 是否修改 RTL：否。
+- 是否生成 bitstream：否。
 
-## 2026-06-30 - Four-mode GUI workflow structure
+## 2026-06-30 - 四模式 GUI 工作流结构
 
 - Reorganized the host GUI around four mode pages:
   Hardware Bring-up, Custom FPGA Observe, Lock Workflow, and Data Log.

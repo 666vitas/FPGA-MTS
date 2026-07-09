@@ -1,14 +1,39 @@
-# Host App V2 Design
+# Host App V2 设计说明
 
-## 2026-07-08 v3REG-1 / v3REG-2 Custom FPGA Control 第一版
+## 当前定位
 
-当前 Custom FPGA Control 已经从 v3REG-0 的 `SAFE/SCAN` 扩展到最短手动/半自动锁定路径：
+Host App V2 是 Red Pitaya 激光频率锁定项目的上位机。它的职责是：
+
+- 管理 Official SCPI Mode 与 Custom FPGA Mode 的边界。
+- 通过 GUI 引导用户做安全的示波器验证。
+- 通过 SSH + `/dev/mem` 访问 custom FPGA register bank。
+- 记录实验过程、参数和安全判断。
+
+它不是通用 signal generator GUI，也不是已经完成的自动锁定控制器。
+
+## 当前主线状态
+
+v3REG-0 SAFE/SCAN 已由用户上板验证：
+
+```text
+base address = 0x40600000
+MAGIC = 0x4D545330
+VERSION = 0x00030000
+GUI / monitor 可控制 OUT2 三角波
+GUI / monitor SAFE 可关闭 OUT2
+```
+
+当前 RTL / software 已包含 v3REG-1 / v3REG-2 候选：
 
 ```text
 SAFE -> SCAN -> HOLD -> P_LOCK -> PI_LOCK
 ```
 
-上位机链路仍然是：
+HOLD/P_LOCK/PI_LOCK 尚未完成 Vivado timing、bitstream、烧录和上板验证。因此这些模式当前只能 scope-only。
+
+## Custom FPGA Control 链路
+
+GUI 到 FPGA 的链路：
 
 ```text
 main_window.py
@@ -21,30 +46,73 @@ main_window.py
 -> selected_out2
 ```
 
-新增 GUI 控件：
+该路径不启动 `redpitaya_scpi`，也不使用 Official SCPI ASG 控制 Custom FPGA OUT2。
+
+`Probe Registers` 和 `Status` 只读。SAFE/SCAN/HOLD/P_LOCK/PI_LOCK 写寄存器前必须通过 `MAGIC=0x4D545330` 检查。
+
+## GUI 控件
+
+Custom FPGA Control 当前包含：
 
 ```text
-HOLD button
-P_LOCK button
-PI_LOCK button
+Probe Registers
+Status
+SAFE
+SCAN
+HOLD
+P_LOCK
+PI_LOCK
+base address
+offset-v
+amp-v
+freq-hz
+step-counts
+limit-counts
 hold-v
-Kp raw, Ki raw
+Kp raw
+Ki raw
 polarity
 lock-bias-v
 lock-limit-counts
-ERROR_MONITOR / CONTROL_MONITOR readback
 ```
 
-新增寄存器：
+状态显示包含：
 
 ```text
+MAGIC
+VERSION
+MODE
+ENABLE
+STATUS
+OUT2_MONITOR
+ERROR_MONITOR
+CONTROL_MONITOR
+错误/警告信息
+```
+
+## 寄存器和 MODE
+
+新增/当前关键寄存器：
+
+```text
+0x00 MAGIC
+0x04 VERSION
+0x08 MODE
+0x0C ENABLE
+0x10 SCAN_OFFSET
+0x14 SCAN_AMP
+0x18 SCAN_STEP
+0x1C SCAN_UPDATE_DIV
+0x20 OUT2_LIMIT
+0x24 STATUS
+0x28 OUT2_MONITOR
 0x2C HOLD_VALUE
 0x30 KP
 0x34 POLARITY
 0x38 LOCK_BIAS
 0x3C LOCK_LIMIT
-0x40 ERROR_MONITOR    read-only
-0x44 CONTROL_MONITOR  read-only
+0x40 ERROR_MONITOR
+0x44 CONTROL_MONITOR
 0x48 KI
 0x4C INTEGRAL_RESET
 ```
@@ -59,191 +127,75 @@ MODE 定义：
 4 PI_LOCK
 ```
 
-`SAFE` 仍然是最高优先级：`ENABLE=0` 或 `MODE=0` 时 OUT2 必须为 0。`Probe Registers` 和 `Status` 只读；`SAFE/SCAN/HOLD/P_LOCK/PI_LOCK` 写寄存器前都必须通过 `MAGIC=0x4D545330` 检查。P_LOCK/PI_LOCK 的默认增益为 `Kp=0`、`Ki=0`，GUI 只提供人工逐步增加入口，不做自动闭环调参。
+`SAFE` 是最高优先级：`ENABLE=0` 或 `MODE=0` 时 OUT2 必须为 0。
 
-当前阶段边界：上位机已经能写 HOLD/P/PI 参数，但上板验证必须先 scope-only。不要把 OUT2 默认接到 PZT、激光电流、D2-125 Servo Output 或 Scan input。debug buffer、relock、自动找峰、执行器连接 SOP 仍是后续工作。
+P_LOCK/PI_LOCK 默认 `Kp=0`、`Ki=0`，GUI 只提供人工逐步增加入口，不做自动闭环调参。
 
-## 2026-07-05 GUI Custom FPGA Control v1
+## 模块职责
 
-The PySide6 GUI now has a first Custom FPGA Control panel on the Custom FPGA Observe page. It supports:
+- `connection_probe.py`：解析 hostname，探测 ping、端口 22/80/5000。
+- `ssh_client.py`：通过 Paramiko 执行 Red Pitaya service-management 命令。
+- `scpi_client.py`：底层 TCP SCPI transport，使用 CRLF 命令结尾。
+- `rp_scpi_client.py`：Red Pitaya SCPI 业务封装，用于官方输出和 acquisition。
+- `acquisition_worker.py`：后台 `QThread` acquisition loop。
+- `waveform_preview.py`：生成 OUT1/OUT2 preview time axis 和 waveform。
+- `custom_fpga_workflow.py`：Custom FPGA Observe 页面中的手动示波器读数分析和安全判断。
+- `custom_fpga_backend.py`：通过 SSH + `/dev/mem` 执行 Probe Registers、Status、SAFE、SCAN、HOLD、P_LOCK、PI_LOCK。
+- `main_window.py`：V2 GUI，包含连接管理、输出控制、acquisition 和四通道显示。
+- `data_logger.py`：CSV metadata 和 PNG export。
+- `safety.py`：输出安全检查和退出时 best-effort shutdown。
 
-```text
-Probe Registers: read-only scan of candidate GP0 base addresses
-Status: read-only MAGIC/VERSION/MODE/ENABLE/STATUS/OUT2 monitor
-SAFE: require MAGIC=0x4D545330, then write ENABLE=0 and MODE=0
-SCAN: require MAGIC=0x4D545330, then write scan parameters and enable MODE=1
-```
+## 两层连接模型
 
-The implementation path is:
+第一层：SSH / 网络管理。
 
-```text
-main_window.py
--> CustomFpgaRegisterWorker in connection_workers.py
--> CustomFpgaBackend in custom_fpga_backend.py
--> SSH
--> remote Python /dev/mem helper
--> custom_register_bank
-```
+- 解析 host 到 IP。
+- Probe ping。
+- Probe SSH port 22。
+- Probe Web port 80。
+- Probe SCPI port 5000。
+- 必要时通过 SSH 启动 SCPI server。
 
-This path does not start `redpitaya_scpi` and does not use Official SCPI ASG control for Custom FPGA OUT2. Probe and Status are read-only. SAFE and SCAN are blocked by the remote helper unless `MAGIC = 0x4D545330`. If `MAGIC = 0x00000000`, the GUI tells the user that no `custom_register_bank` was read and points to Program Device, old bit file, base address, or timing-pass bitstream reload as the likely fixes.
+第二层：SCPI control。
 
-## 2026-07-04 v3REG-0 Custom FPGA register client
+- 连接选定 host/IP 的 5000 端口。
+- 运行 `*IDN?`。
+- 配置 OUT1 / OUT2。
+- 通过 `ACQ:*` 命令采集 IN1 / IN2。
 
-新增最小命令行脚本：
+该两层模型只适用于 Official SCPI Mode。Custom FPGA Mode 中仍可以做网络 probe，但应避免启动 `redpitaya_scpi`，因为它可能加载官方 overlay。
 
-```text
-software/redpitaya_lock_host/scripts/custom_fpga_scan_control.py
-```
+## GUI 模式边界
 
-用途是控制 Custom FPGA Mode 下的最小 SAFE/SCAN register bank。它不启动 `redpitaya_scpi`，不使用 official SCPI ASG，而是通过 SSH 在 Red Pitaya Linux 端运行临时 Python `/dev/mem` helper。
+GUI 分为四个页面：
 
-示例：
+- Hardware Bring-up：Official SCPI 硬件检查和安全 OUT2 scan。
+- Custom FPGA Observe：真实接线的 IN1/IN2/OUT1/OUT2 手动示波器读数，以及 Custom FPGA Control。
+- Lock Workflow：D2-125 替代路径 checklist 和未来 lock/relock 计划。
+- Data Log：导出 Markdown 实验日志。
 
-```powershell
-python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local safe
-python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local scan --offset-v 0.85 --amp-v 0.05 --freq-hz 50
-python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local status
-```
+Official SCPI Mode：
 
-只打印 SSH 命令、不执行：
+- 可以启动 `redpitaya_scpi`。
+- 可以连接 5000 端口并运行 `*IDN?`。
+- 控制官方 ASG OUT1/OUT2。
+- 通过官方 SCPI ACQ 采集 IN1/IN2。
+- 可能覆盖当前加载的 custom FPGA bitstream。
 
-```powershell
-python .\scripts\custom_fpga_scan_control.py --host rp-f0cb13.local --print-command scan --offset-v 0.85 --amp-v 0.05 --freq-hz 50
-```
+Custom FPGA Mode：
 
-默认寄存器物理基地址为 `0x40600000`，对应 GP0 base `0x40000000` + `sys[6]` 区域 `0x00600000`。烧录后必须先用 `status` 读取 `REG_MAGIC = 0x4D545330` 确认接口存在。
+- 不启动 SCPI overlay。
+- 把当前 custom bitstream 视为有效硬件路径。
+- 当前 RTL 中 `USE_LASER_LOCK_CORE = 1`。
+- OUT1 / DAC A = `laser_error`。
+- OUT2 / DAC B = `selected_out2`。
+- official `asg_dat[0]` / `asg_dat[1]` 不直接驱动物理 OUT1/OUT2。
+- 上位机可通过 SSH `/dev/mem` 读写 SAFE/SCAN/HOLD/P_LOCK/PI_LOCK 候选寄存器。
+- debug-buffer read、automatic lock/relock 和 actuator connection SOP 仍是后续工作。
 
-本脚本当前没有在真实 Red Pitaya 上执行验证；它是 v3REG-0 的最小 host-side 控制入口。第一阶段仍然只接 OUT2 到示波器，不接 Scan/PZT，不接激光器，不接 D2-125 Aux Output。
+## 输出控制安全规则
 
-## 2026-07-01 Custom FPGA Lock Panel 规划边界
-
-根据最新 Aux/PZT 数据，未来上位机 Custom FPGA Lock Panel 的职责应是“写模式和参数、记录状态”，而不是在 PC 上做高速实时 PID。
-
-未来 FPGA 负责：
-
-```text
-实时 mixer
-LPF
-triangle scan
-HOLD
-P/PI control
-OUT2 limit
-polarity
-reset_integrator
-```
-
-未来上位机负责：
-
-```text
-切换 SAFE / SCAN / HOLD / P_LOCK / PI_LOCK / RESCAN
-写 scan_offset、scan_amp、Kp、Ki、polarity、output_limit
-记录 error/control/Vlock
-显示状态
-后续 AI 识峰和调参
-```
-
-当前 V2 上位机仍然不能在 Custom FPGA Mode 下写 FPGA 内部参数，因为 RTL 侧还没有 `register_bank`。Official SCPI Mode 可以单独测试 OUT2 三角波和采集 IN1/IN2，但不能控制 custom FPGA OUT2；Custom FPGA Mode 后续必须通过 `register_bank` 切换 `SCAN / HOLD / P_LOCK / PI_LOCK`。
-
-安全边界：
-
-```text
-Red Pitaya OUT2 不能和 D2-125 Aux Output 同时并联到 Scan/PZT。
-Red Pitaya OUT2 不能和 D2-125 Servo Output 并联。
-OUT2 初始必须先接示波器。
-上位机不做高速实时 PID。
-AI 不直接参与 125 MHz 实时控制。
-```
-
-## Scope
-
-V2 is a stable Red Pitaya host app for experiment-room use. It does not modify FPGA RTL, does not generate bitstreams, and does not read internal FPGA `error_internal`.
-
-V2 explicitly separates Official SCPI Mode from Custom FPGA Mode so the GUI does not imply that SCPI ASG control is valid while the custom FPGA bitstream owns OUT1/OUT2.
-
-The app is not a generic signal-generator GUI. Its main purpose is to support the D2-125 replacement path:
-
-```text
-Red Pitaya IN1 + IN2
--> FPGA mixer_core
--> FPGA lpf_core
--> FPGA laser_error / OUT1
--> FPGA laser_control / OUT2
--> future low-gain laser lock
-```
-
-The canonical host-app development directory is:
-
-```text
-E:\new\fpga_lock\v94\software\redpitaya_lock_host
-```
-
-Markdown docs, SOPs, stage records, and small reports should stay under `docs/`. Do not keep generating large Word reports in the software root.
-
-## Modules
-
-- `connection_probe.py`: resolves hostnames, probes ping, and checks ports 22/80/5000.
-- `ssh_client.py`: uses Paramiko to run Red Pitaya service-management commands.
-- `scpi_client.py`: low-level TCP SCPI transport with CRLF command endings.
-- `rp_scpi_client.py`: Red Pitaya SCPI business layer for outputs and acquisition.
-- `acquisition_worker.py`: background `QThread` acquisition loop.
-- `waveform_preview.py`: generated OUT1/OUT2 preview time axis and waveform helpers.
-- `custom_fpga_workflow.py`: manual oscilloscope reading analysis for observe-mode safety decisions.
-- `custom_fpga_backend.py`: Custom FPGA Control backend for SSH + `/dev/mem` Probe Registers, Status, SAFE, SCAN, HOLD, P_LOCK, and PI_LOCK. Debug buffers, automatic lock/relock, and actuator connection SOP remain future work.
-- `main_window.py`: V2 GUI with connection management, output control, acquisition, and four-channel display.
-- `data_logger.py`: CSV metadata and PNG export.
-- `safety.py`: output safety validation and best-effort exit shutdown hooks.
-
-## Two-Layer Connection
-
-Layer 1: SSH / network management.
-
-- Resolve host to IP.
-- Probe ping.
-- Probe SSH port 22.
-- Probe Web port 80.
-- Probe SCPI port 5000.
-- Start SCPI server over SSH when needed.
-
-Layer 2: SCPI control.
-
-- Connect to selected host/IP on port 5000.
-- Run `*IDN?`.
-- Configure OUT1 / OUT2.
-- Acquire IN1 / IN2 with `ACQ:*` commands.
-
-This two-layer flow applies to Official SCPI Mode. In Custom FPGA Mode, probing is still useful, but starting `redpitaya_scpi` is intentionally avoided because it may load the official overlay.
-
-## Mode Boundary
-
-The GUI is organized into four mode pages:
-
-- Hardware Bring-up: Official SCPI hardware checks and safe OUT2 scan.
-- Custom FPGA Observe: manual scope readings for IN1/IN2/OUT1/OUT2 experiment wiring.
-- Lock Workflow: D2-125 replacement checklist and future lock/relock planning.
-- Data Log: Markdown experiment log export.
-
-Official SCPI Mode:
-
-- May start `redpitaya_scpi`.
-- May connect to port 5000 and run `*IDN?`.
-- Controls official ASG OUT1/OUT2.
-- Acquires IN1/IN2 through official SCPI ACQ.
-- May overwrite the currently loaded custom FPGA bitstream.
-
-Custom FPGA Mode:
-
-- Does not start the SCPI overlay.
-- Treats the current custom bitstream as the active hardware route.
-- Current RTL has `USE_LASER_LOCK_CORE = 1`.
-- OUT1 / DAC A = `laser_error`.
-- OUT2 / DAC B = `selected_out2`.
-- Official `asg_dat[0]` / `asg_dat[1]` do not directly drive OUT1/OUT2.
-- The host app can now read the custom register bank and write SAFE/SCAN/HOLD/P_LOCK/PI_LOCK controls through SSH `/dev/mem`.
-- The host app still does not implement debug-buffer reads, automatic lock/relock, or a safe actuator connection workflow.
-
-## Output Control
-
-Each output supports:
+Official SCPI Mode 中，每个输出支持：
 
 - enable
 - waveform type: sine, square, triangle, sawtooth
@@ -252,14 +204,14 @@ Each output supports:
 - offset_v
 - phase_deg
 
-Safety rules:
+安全规则：
 
 - `amplitude_v >= 0`
 - `abs(offset_v) + amplitude_v <= output_range_v`
-- default `output_range_v = 1.0 V`
-- default `amplitude_v = 0.05 V`
+- 默认 `output_range_v = 1.0 V`
+- 默认 `amplitude_v = 0.05 V`
 
-Shutdown sequence:
+关闭顺序：
 
 ```text
 SOUR1:VOLT 0
@@ -269,39 +221,19 @@ OUTPUT2:STATE OFF
 GEN:STOP
 ```
 
-## Acquisition
+## 安全边界
 
-The acquisition worker runs:
+当前阶段必须遵守：
 
 ```text
-ACQ:RST
-ACQ:DATA:FORMAT ASCII
-ACQ:DATA:UNITS VOLTS
-ACQ:DEC <N>
-ACQ:TRIG:DLY 0
-ACQ:START
-ACQ:TRIG NOW
-poll ACQ:TRIG:FILL?
-ACQ:SOUR1:DATA?
-ACQ:SOUR2:DATA?
-ACQ:STOP
+OUT2 只允许接示波器。
+禁止接 PZT。
+禁止接 Scan input。
+禁止接 laser current modulation。
+禁止接 D2-125 Servo Output。
+禁止接 D2-125 Aux Output。
+不能声称已经闭环锁定。
+不能声称已经替代 D2-125。
 ```
 
-Blocking SCPI reads occur in `AcquisitionWorker`, not the GUI thread. Numpy arrays are emitted to the main thread with Qt signals, and pyqtgraph is updated only in the main thread.
-
-## Four-Channel Display
-
-- CH1: IN1 / ADC measured from `ACQ:SOUR1:DATA?`.
-- CH2: IN2 / ADC measured from `ACQ:SOUR2:DATA?`.
-- CH3: OUT1 generated preview, not measured.
-- CH4: OUT2 generated preview, not measured.
-
-OUT1 and OUT2 are output ports. The host app cannot directly measure their actual voltage unless the user physically loops them back into IN1 or IN2.
-
-CH3/CH4 use an independent generated preview time axis. They do not reuse the IN1/IN2 acquisition time axis. A 50 Hz triangle wave has a 20 ms period; the preview defaults to two cycles so it shows at least 40 ms. Real OUT2 must still be verified with an oscilloscope, or with a safe physical loopback into IN1/IN2 while keeping the input below ±1 V.
-
-In Custom FPGA Mode, CH3/CH4 labels switch to remind the user that actual OUT1/OUT2 are `laser_error` and `laser_control`. The plotted traces remain previews or placeholders, not measured custom FPGA outputs.
-
-## FPGA Internal Signals
-
-`error_internal`, mixer output, LPF output, HOLD/P_LOCK/PI_LOCK, PID tuning, and high-rate snapshots still require later FPGA RTL support such as debug buffers or expanded AXI registers. V2 now implements only the first real Custom FPGA register control path for status/probe/safe/scan; it does not fake unavailable internal FPGA signals.
+任何真实执行器连接都必须另写 SOP，记录接线方式、幅度范围、偏置范围、停止条件和通过标准。
