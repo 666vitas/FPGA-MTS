@@ -1,5 +1,11 @@
 # STATUS
 
+## 2026-07-09 Custom FPGA Lock Host GUI 启动修复
+
+本次只修复上位机 GUI：移除主界面对旧 Official SCPI `self.out1/self.out2` 控件的无条件依赖，解决 `run_mock.bat` 启动 `AttributeError`。
+主界面仍保持 Custom FPGA Lock Host，不恢复 Official SCPI/ASG 主工作流。
+未修改 RTL，未运行 Vivado，未生成 bitstream；OUT2 仍只允许示波器验证。
+
 ## 2026-07-09 上位机主线收敛为 Custom FPGA Lock Host
 
 上位机主界面不再暴露 Official SCPI/ASG 操作入口，默认流程改为 `Probe Registers -> Status -> SAFE -> SCAN -> Capture Bias -> LOCK -> UNLOCK/SAFE`。

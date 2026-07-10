@@ -757,32 +757,37 @@ class MainWindow(QMainWindow):
         self.obs_analyze_button.clicked.connect(self._analyze_observe_readings)
         self.lock_step_combo.currentTextChanged.connect(self._update_lock_step_detail)
         self.export_experiment_log_button.clicked.connect(self.export_experiment_log)
-        self.out1.apply_button.clicked.connect(lambda: self.apply_output(1, self.out1))
-        self.out2.apply_button.clicked.connect(lambda: self.apply_output(2, self.out2))
-        self.out1.disable_button.clicked.connect(lambda: self.disable_output(1, self.out1))
-        self.out2.disable_button.clicked.connect(lambda: self.disable_output(2, self.out2))
-        for control in (self.out1, self.out2):
-            control.waveform.currentTextChanged.connect(self._redraw_from_last_waveforms)
-            control.frequency.valueChanged.connect(self._redraw_from_last_waveforms)
-            control.amplitude.valueChanged.connect(self._redraw_from_last_waveforms)
-            control.offset.valueChanged.connect(self._redraw_from_last_waveforms)
-            control.phase.valueChanged.connect(self._redraw_from_last_waveforms)
-            control.amplitude.valueChanged.connect(lambda _=0, c=control: self._update_offset_range(c))
-        self.start_acq_button.clicked.connect(self.start_acquisition)
-        self.stop_acq_button.clicked.connect(self.stop_acquisition)
-        self.decimation_combo.currentTextChanged.connect(self._update_sample_rate_label)
-        self.save_csv_button.clicked.connect(self.save_csv)
-        self.save_png_button.clicked.connect(self.save_png)
+        if self._scpi_controls_available():
+            self.out1.apply_button.clicked.connect(lambda: self.apply_output(1, self.out1))
+            self.out2.apply_button.clicked.connect(lambda: self.apply_output(2, self.out2))
+            self.out1.disable_button.clicked.connect(lambda: self.disable_output(1, self.out1))
+            self.out2.disable_button.clicked.connect(lambda: self.disable_output(2, self.out2))
+            for control in (self.out1, self.out2):
+                control.waveform.currentTextChanged.connect(self._redraw_from_last_waveforms)
+                control.frequency.valueChanged.connect(self._redraw_from_last_waveforms)
+                control.amplitude.valueChanged.connect(self._redraw_from_last_waveforms)
+                control.offset.valueChanged.connect(self._redraw_from_last_waveforms)
+                control.phase.valueChanged.connect(self._redraw_from_last_waveforms)
+                control.amplitude.valueChanged.connect(lambda _=0, c=control: self._update_offset_range(c))
+        if hasattr(self, "start_acq_button"):
+            self.start_acq_button.clicked.connect(self.start_acquisition)
+            self.stop_acq_button.clicked.connect(self.stop_acquisition)
+            self.decimation_combo.currentTextChanged.connect(self._update_sample_rate_label)
+        if hasattr(self, "save_csv_button"):
+            self.save_csv_button.clicked.connect(self.save_csv)
+            self.save_png_button.clicked.connect(self.save_png)
         self._update_lock_step_detail()
 
     def _load_defaults(self) -> None:
         rp = self.config.get("red_pitaya", {})
         self.host_edit.setText(str(rp.get("host", "rp-f0cb13.local")))
         self.mock_check.setChecked(bool(self.start_mock))
-        self.decimation_combo.setCurrentText(str(self.config.get("acquisition", {}).get("decimation", 1024)))
+        if hasattr(self, "decimation_combo"):
+            self.decimation_combo.setCurrentText(str(self.config.get("acquisition", {}).get("decimation", 1024)))
         self.resolved_ip_combo.addItem(str(rp.get("host", "rp-f0cb13.local")))
-        self._update_offset_range(self.out1)
-        self._update_offset_range(self.out2)
+        if self._scpi_controls_available():
+            self._update_offset_range(self.out1)
+            self._update_offset_range(self.out2)
         self._on_mode_changed()
 
     def probe_connection(self) -> None:
@@ -1363,8 +1368,14 @@ class MainWindow(QMainWindow):
         t = self.last_waveforms["time_s"]
         in1 = self.last_waveforms["in1_v"]
         in2 = self.last_waveforms["in2_v"]
-        out1_t, out1 = self._preview_for_control(self.out1)
-        out2_t, out2 = self._preview_for_control(self.out2)
+        if self._scpi_controls_available():
+            out1_t, out1 = self._preview_for_control(self.out1)
+            out2_t, out2 = self._preview_for_control(self.out2)
+        else:
+            out1_t = t
+            out2_t = t
+            out1 = np.zeros_like(t)
+            out2 = np.zeros_like(t)
         self.ch1.set_data(t, in1)
         self.ch2.set_data(t, in2)
         self.ch3.set_data(out1_t, out1)
@@ -1485,12 +1496,14 @@ class MainWindow(QMainWindow):
         self.disconnect_button.setEnabled(connected and not acquiring)
         self.mock_check.setEnabled(not worker_running and not connected)
         self.mode_combo.setEnabled(not worker_running and not connected)
-        self.start_acq_button.setEnabled(connected and not acquiring and official_or_mock)
-        self.stop_acq_button.setEnabled(acquiring)
-        self.decimation_combo.setEnabled(not acquiring)
-        for control in (self.out1, self.out2):
-            control.apply_button.setEnabled(connected and not acquiring and official_or_mock)
-            control.disable_button.setEnabled(connected and not acquiring and official_or_mock)
+        if hasattr(self, "start_acq_button"):
+            self.start_acq_button.setEnabled(connected and not acquiring and official_or_mock)
+            self.stop_acq_button.setEnabled(acquiring)
+            self.decimation_combo.setEnabled(not acquiring)
+        if self._scpi_controls_available():
+            for control in (self.out1, self.out2):
+                control.apply_button.setEnabled(connected and not acquiring and official_or_mock)
+                control.disable_button.setEnabled(connected and not acquiring and official_or_mock)
         custom_enabled = (not custom_busy) and (not connected) and (not self.mock_check.isChecked())
         for button in (
             self.custom_probe_button,
@@ -1524,6 +1537,9 @@ class MainWindow(QMainWindow):
 
     def _official_mode(self) -> bool:
         return self.mode_combo.currentText() == "Official SCPI Mode"
+
+    def _scpi_controls_available(self) -> bool:
+        return hasattr(self, "out1") and hasattr(self, "out2")
 
     def _on_mode_changed(self) -> None:
         if self._official_mode():
@@ -1600,6 +1616,8 @@ class MainWindow(QMainWindow):
         self.lock_step_detail.setText(details.get(self.lock_step_combo.currentText(), ""))
 
     def _decimation(self) -> int:
+        if not hasattr(self, "decimation_combo"):
+            return int(self.config.get("acquisition", {}).get("decimation", 1024))
         return int(self.decimation_combo.currentText())
 
     def _sample_rate(self) -> float:
@@ -1607,14 +1625,15 @@ class MainWindow(QMainWindow):
 
     def _update_sample_rate_label(self) -> None:
         self.current_sample_rate = self._sample_rate()
-        self.sample_rate_label.setText(f"{self.current_sample_rate:.6g} Sa/s")
+        if hasattr(self, "sample_rate_label"):
+            self.sample_rate_label.setText(f"{self.current_sample_rate:.6g} Sa/s")
         self._update_warnings()
 
     def _update_refresh_rate(self) -> None:
         now = time.monotonic()
         if self._last_frame_time is not None:
             dt = now - self._last_frame_time
-            if dt > 0:
+            if dt > 0 and hasattr(self, "refresh_rate_label"):
                 self.refresh_rate_label.setText(f"actual refresh_rate: {1.0 / dt:.2f} Hz")
         self._last_frame_time = now
 
@@ -1628,25 +1647,31 @@ class MainWindow(QMainWindow):
         self._redraw_from_last_waveforms()
 
     def _csv_metadata(self) -> dict[str, Any]:
-        return {
+        metadata = {
             "mock_mode": self.mock_check.isChecked(),
             "mode": self.mode_combo.currentText(),
             "target_host": self._target_host(),
             "decimation": self._decimation(),
             "sample_rate": self.current_sample_rate,
-            "out1_waveform": self.out1.waveform.currentText(),
-            "out1_frequency_hz": self.out1.frequency.value(),
-            "out1_amplitude_v": self.out1.amplitude.value(),
-            "out1_offset_v": self.out1.offset.value(),
-            "out2_waveform": self.out2.waveform.currentText(),
-            "out2_frequency_hz": self.out2.frequency.value(),
-            "out2_amplitude_v": self.out2.amplitude.value(),
-            "out2_offset_v": self.out2.offset.value(),
             "preview_cycles": self.preview_config.cycles,
             "preview_max_points": self.preview_config.max_points,
-            "preview_note": "OUT1/OUT2 previews use an independent generated time axis; they are not measured",
+            "preview_note": "Custom FPGA Lock Host does not use Official SCPI OUT1/OUT2 preview controls",
             "error_internal": "not implemented; requires FPGA debug buffer",
         }
+        if self._scpi_controls_available():
+            metadata.update(
+                {
+                    "out1_waveform": self.out1.waveform.currentText(),
+                    "out1_frequency_hz": self.out1.frequency.value(),
+                    "out1_amplitude_v": self.out1.amplitude.value(),
+                    "out1_offset_v": self.out1.offset.value(),
+                    "out2_waveform": self.out2.waveform.currentText(),
+                    "out2_frequency_hz": self.out2.frequency.value(),
+                    "out2_amplitude_v": self.out2.amplitude.value(),
+                    "out2_offset_v": self.out2.offset.value(),
+                }
+            )
+        return metadata
 
     def _register_safe_shutdown(self) -> None:
         if not self._safe_shutdown_registered:

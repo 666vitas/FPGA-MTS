@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -129,3 +130,31 @@ def test_gui_text_separates_scpi_and_custom_fpga_out2_paths() -> None:
     assert "SCPI ASG output commands do not drive physical OUT2" in source
     assert "CH1: IN1 custom debug capture pending" in source
     assert "DEBUG_CTRL, DEBUG_STATUS, DEBUG_DECIM, DEBUG_LENGTH, DEBUG_INDEX" in source
+
+
+def test_gui_startup_does_not_require_legacy_scpi_output_controls() -> None:
+    source = (ROOT / "redpitaya_lock_host" / "main_window.py").read_text(encoding="utf-8")
+
+    assert 'addTab(self._hardware_bringup_page(), "Hardware Bring-up")' not in source
+    assert "def _scpi_controls_available(self)" in source
+    assert "if self._scpi_controls_available():" in source
+
+
+def test_main_window_constructs_without_legacy_scpi_output_controls() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        assert not hasattr(window, "out1")
+        assert not hasattr(window, "out2")
+        assert window.custom_probe_button.text() == "Probe Registers"
+        assert window.custom_lock_button.text() == "LOCK"
+    finally:
+        window.close()
+        app.processEvents()

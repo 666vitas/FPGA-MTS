@@ -1,5 +1,16 @@
 # 开发日志
 
+## 2026-07-09 - 修复 Custom FPGA Lock Host GUI 启动失败
+
+- 本次实现目标：修复 `.\run_mock.bat` 启动时报 `AttributeError: 'MainWindow' object has no attribute 'out1'` 的问题。根因是主界面已收敛为 `Custom FPGA Lock Host`，不再创建 Official SCPI OUT1/OUT2 控件，但 `main_window.py` 中仍有旧的 `self.out1` / `self.out2` 信号绑定、预览、按钮状态和 CSV metadata 引用。
+- 修改 Python 文件：`software/redpitaya_lock_host/redpitaya_lock_host/main_window.py`、`software/redpitaya_lock_host/tests/test_custom_fpga_backend.py`。
+- 修复方式：新增 legacy SCPI 控件存在性保护；`_connect_signals()`、`_load_defaults()`、`_redraw_from_last_waveforms()`、`_apply_button_state()`、`_csv_metadata()` 在未创建 `self.out1/self.out2` 时不再访问它们。CH3/CH4 在 Custom FPGA 主界面下使用零线占位，不依赖 Official SCPI preview 控件。
+- 当前方向：主界面继续收敛为 `Custom FPGA Lock Host`，保留 `Probe Registers`、`Status`、`SAFE`、`SCAN`、`HOLD`、`Capture Bias`、`LOCK`、`UNLOCK / SAFE`，不恢复 Official SCPI 主界面。
+- 如何运行/验证：`py_compile` 通过；系统 Python `python -m pytest tests` 通过；`run_mock.bat` 启动后 5 秒仍运行；直接运行 `python -m redpitaya_lock_host.main` 5 秒仍运行且无 stderr。
+- 是否修改 RTL：否。
+- 是否运行 Vivado：否。
+- 是否生成 bitstream：否。
+
 ## 2026-07-09 - 上位机收敛为 Custom FPGA Lock Host，并加入一键 P_LOCK 工作流
 
 - 本次实现目标：上位机主界面不再暴露 `Official SCPI Mode`、`Start SCPI Server`、`Connect SCPI` 和 Official ASG OUT1/OUT2 主入口，默认收敛为项目专用 `Custom FPGA Lock Host`。
