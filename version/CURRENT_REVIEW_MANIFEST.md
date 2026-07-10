@@ -7,7 +7,7 @@
 ```text
 Repository: 666vitas/FPGA-MTS
 Primary branch: main
-Current stage: v3REG-0 SAFE/SCAN 已上板验证；v3REG-1/v3REG-2 HOLD/P_LOCK/PI_LOCK 仅为 RTL/software 候选
+Current stage: v3REG-0 SAFE/SCAN 已上板验证；v3REG-1/v3REG-2 HOLD/P_LOCK/PI_LOCK 仅为 RTL/software 候选，尚未完成最新 Vivado/timing/bitstream/上板验证
 Primary RTL root: v0.94/rtl
 Primary Vivado project: v0.94/project/redpitaya.xpr
 Primary status file: version/STATUS.md
@@ -23,14 +23,14 @@ OUT2 = selected_out2
 MODE=0 SAFE
 MODE=1 SCAN
 MODE=2 HOLD
-MODE=3 P_LOCK
-MODE=4 PI_LOCK
+MODE=3 P_LOCK，下一步验证重点，当前 LOCK 目标缩小为 P-only
+MODE=4 PI_LOCK，当前暂时退化为 P_LOCK，KI / integral 当前不要恢复
 laser_control / pi_controller_seq = 内部候选或历史路径，不是当前 DAC B / OUT2 最终输出
 ```
 
 v3REG-0 SAFE/SCAN 已由用户上板验证：base address `0x40600000`，`MAGIC=0x4D545330`，`VERSION=0x00030000`，GUI/monitor 可控制 OUT2 三角波，并可用 SAFE 关闭。
 
-HOLD/P_LOCK/PI_LOCK 当前只表示 GitHub main 中的 RTL/software 候选已经存在；尚未完成 Vivado synthesis / implementation / timing / bitstream / 上板验证。
+HOLD/P_LOCK/PI_LOCK 当前只表示 GitHub main 中的 RTL/software 候选已经存在；尚未完成最新 Vivado synthesis / implementation / timing / bitstream / 烧录 / 上板示波器验证。当前 LOCK 目标缩小为 P-only；`MODE=3 P_LOCK` 是下一步验证重点，`MODE=4 PI_LOCK` 暂时退化为 P_LOCK。
 
 当前阶段只允许示波器验证；不允许接入 PZT、Scan input、激光器电流调制、D2-125 Servo Output 或 D2-125 Aux Output。
 
@@ -180,12 +180,13 @@ v3REG-0 SAFE/SCAN 已有用户上板验证记录
 只能说“等待验证”的内容：
 
 ```text
-HOLD/P_LOCK/PI_LOCK 等待 Vivado synthesis
-HOLD/P_LOCK/PI_LOCK 等待 implementation
-HOLD/P_LOCK/PI_LOCK 等待 timing 检查
+HOLD/P_LOCK/PI_LOCK 等待最新 Vivado synthesis
+HOLD/P_LOCK/PI_LOCK 等待最新 implementation
+HOLD/P_LOCK/PI_LOCK 等待最新 timing 检查
 HOLD/P_LOCK/PI_LOCK 等待 bitstream 生成
 HOLD/P_LOCK/PI_LOCK 等待烧录
 HOLD/P_LOCK/PI_LOCK 等待上板示波器验证
+KI / integral 当前不要恢复
 ```
 
 禁止说的内容：

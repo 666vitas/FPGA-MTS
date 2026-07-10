@@ -1,5 +1,12 @@
 # STATUS
 
+## 2026-07-10 当前 main 主线同步
+
+v3REG-0 SAFE/SCAN 已由用户上板验证：base address `0x40600000`，`MAGIC=0x4D545330`，`VERSION=0x00030000`，GUI / monitor 已可控制 OUT2 三角波并可 SAFE 关闭。
+GitHub main 已包含 HOLD / P_LOCK / PI_LOCK 候选，但这些候选尚未完成最新 Vivado synthesis / implementation / timing / bitstream / 烧录 / 上板示波器验证。
+当前 LOCK 目标缩小为 P-only：`MODE=3 P_LOCK` 是下一步验证重点；`MODE=4 PI_LOCK` 暂时退化为 P_LOCK，`KI / integral` 当前不要恢复。
+OUT2 仍只允许接示波器；禁止接 PZT / Scan input / 激光器 / D2-125 Servo Output / D2-125 Aux Output；禁止声称 FPGA 已经闭环锁定或替代 D2-125。
+
 ## 2026-07-09 Custom FPGA Lock Host GUI 启动修复
 
 本次只修复上位机 GUI：移除主界面对旧 Official SCPI `self.out1/self.out2` 控件的无条件依赖，解决 `run_mock.bat` 启动 `AttributeError`。
@@ -32,7 +39,7 @@ OUT2 = selected_out2
   MODE=1 SCAN: OUT2 = ramp_generator
   MODE=2 HOLD: OUT2 = HOLD_VALUE
   MODE=3 P_LOCK: OUT2 = clamp(LOCK_BIAS + POLARITY * KP * error, LOCK_LIMIT)
-  MODE=4 PI_LOCK: OUT2 = clamp(LOCK_BIAS + POLARITY * (KP * error + KI * integral), LOCK_LIMIT)
+  MODE=4 PI_LOCK: 当前暂时退化为 P_LOCK；KI / integral 当前不要恢复
 laser_control / pi_controller_seq = 内部候选/历史路径，不是当前 DAC B / OUT2 最终输出
 ```
 

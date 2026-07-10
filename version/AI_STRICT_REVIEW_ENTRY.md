@@ -76,18 +76,33 @@ AI 审查必须按下面顺序读取：
 
 ## 3. 当前主线判定
 
-截至本规则文件创建时，当前主线为：
+截至 2026-07-10，当前主线为：
 
 ```text
-v3REG-0 register-controlled OUT2 SAFE/SCAN
+v3REG-0 register-controlled OUT2 SAFE/SCAN 已由用户上板验证；
+GitHub main 已包含 HOLD / P_LOCK / PI_LOCK 候选，但尚未完成最新 Vivado synthesis / implementation / timing / bitstream / 烧录 / 上板示波器验证。
 ```
 
 必须使用下面判断：
 
 ```text
 OUT1 = laser_error = mixer + LPF error observation
-OUT2 = selected_out2 = custom_register_bank + ramp_generator SAFE/SCAN
-laser_control / pi_controller_seq = 后续候选，不是当前 OUT2 输出
+OUT2 = selected_out2
+MODE=0 SAFE: OUT2 = 0
+MODE=1 SCAN: OUT2 = custom_register_bank + ramp_generator
+MODE=2 HOLD: GitHub main 候选，尚未完成最新 Vivado 和上板验证
+MODE=3 P_LOCK: 下一步验证重点，当前 LOCK 目标缩小为 P-only
+MODE=4 PI_LOCK: 当前暂时退化为 P_LOCK，KI / integral 当前不要恢复
+laser_control / pi_controller_seq = 内部候选或历史路径，不是当前 DAC B / OUT2 最终输出
+```
+
+v3REG-0 已验证基线：
+
+```text
+base address = 0x40600000
+MAGIC = 0x4D545330
+VERSION = 0x00030000
+GUI / monitor 已可控制 OUT2 三角波并 SAFE 关闭
 ```
 
 如果某个旧文档写着“还没有 register_bank”或“OUT2 仍是 PI shadow control”，只能判定为历史阶段描述，不能覆盖当前主线。
@@ -106,7 +121,8 @@ laser_control / pi_controller_seq = 后续候选，不是当前 OUT2 输出
 禁止声称已经闭环锁定。
 ```
 
-只有在 Vivado synthesis、implementation、timing、bitstream、烧录、示波器 SAFE/SCAN 验证都有证据后，才允许进入下一阶段评审。
+HOLD / P_LOCK / PI_LOCK 只有在最新 Vivado synthesis、implementation、timing、bitstream、烧录、示波器验证都有证据后，才允许进入下一阶段评审。
+禁止声称 FPGA 已经闭环锁定或已经替代 D2-125。
 
 ## 5. 审查输出模板
 

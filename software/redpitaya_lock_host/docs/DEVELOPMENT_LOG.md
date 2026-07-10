@@ -1,5 +1,13 @@
 # 开发日志
 
+## 2026-07-10 - 当前 main 主线文档同步
+
+- 本次只同步文档，不修改 RTL、不修改 testbench、不修改 Vivado project、不运行 Vivado、不生成 bitstream、不烧录、不连接 Red Pitaya。
+- 当前主线：v3REG-0 SAFE/SCAN 已由用户上板验证；base address `0x40600000`，`MAGIC=0x4D545330`，`VERSION=0x00030000`；GUI / monitor 已可控制 OUT2 三角波并可 SAFE 关闭。
+- GitHub main 已包含 HOLD / P_LOCK / PI_LOCK 候选，但尚未完成最新 Vivado synthesis / implementation / timing / bitstream / 烧录 / 上板示波器验证。
+- 当前 LOCK 目标缩小为 P-only：`MODE=3 P_LOCK` 是下一步验证重点；`MODE=4 PI_LOCK` 暂时退化为 P_LOCK，`KI / integral` 当前不要恢复。
+- OUT2 仍只允许接示波器；禁止接 PZT / Scan input / 激光器 / D2-125 Servo Output / D2-125 Aux Output；禁止声称 FPGA 已经闭环锁定或替代 D2-125。
+
 ## 2026-07-09 - 修复 Custom FPGA Lock Host GUI 启动失败
 
 - 本次实现目标：修复 `.\run_mock.bat` 启动时报 `AttributeError: 'MainWindow' object has no attribute 'out1'` 的问题。根因是主界面已收敛为 `Custom FPGA Lock Host`，不再创建 Official SCPI OUT1/OUT2 控件，但 `main_window.py` 中仍有旧的 `self.out1` / `self.out2` 信号绑定、预览、按钮状态和 CSV metadata 引用。
