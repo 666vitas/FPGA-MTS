@@ -7,7 +7,7 @@ module tb_out2_lock_controller;
     localparam logic [31:0] MODE_HOLD   = 32'd2;
     localparam logic [31:0] MODE_P_LOCK = 32'd3;
     localparam logic [31:0] MODE_PI_LOCK = 32'd4;
-    localparam int P_LOCK_LATENCY = 6;
+    localparam int P_LOCK_LATENCY = 7;
 
     logic clk = 1'b0;
     always #5 clk = ~clk;
@@ -24,6 +24,7 @@ module tb_out2_lock_controller;
     logic polarity;
     logic signed [13:0] lock_bias;
     logic signed [13:0] lock_limit;
+    logic signed [13:0] lock_correction_limit;
     logic integral_reset;
     logic signed [13:0] control_o;
     logic saturated_o;
@@ -62,6 +63,7 @@ module tb_out2_lock_controller;
         .polarity_i(polarity),
         .lock_bias_i(lock_bias),
         .lock_limit_i(lock_limit),
+        .lock_correction_limit_i(lock_correction_limit),
         .integral_reset_i(integral_reset),
         .control_o(control_o),
         .saturated_o(saturated_o)
@@ -80,6 +82,7 @@ module tb_out2_lock_controller;
         polarity = 1'b0;
         lock_bias = 14'sd100;
         lock_limit = 14'sd8191;
+        lock_correction_limit = 14'sd128;
         integral_reset = 1'b0;
 
         wait_cycles(4);
@@ -123,11 +126,40 @@ module tb_out2_lock_controller;
 
         polarity = 1'b0;
         lock_bias = 14'sd100;
+        error_i = 14'sd1000;
+        lock_correction_limit = 14'sd128;
+        lock_limit = 14'sd8191;
+        wait_cycles(P_LOCK_LATENCY);
+        check("P_LOCK positive correction clamps before bias", control_o == 14'sd228);
+        check("P_LOCK positive correction clamp asserts saturation", saturated_o == 1'b1);
+
+        error_i = -14'sd1000;
+        wait_cycles(P_LOCK_LATENCY);
+        check("P_LOCK negative correction clamps before bias", control_o == -14'sd28);
+        check("P_LOCK negative correction clamp asserts saturation", saturated_o == 1'b1);
+
         error_i = 14'sd100;
         lock_limit = 14'sd120;
         wait_cycles(P_LOCK_LATENCY);
-        check("P_LOCK limit clamps positive output", control_o == 14'sd120);
-        check("P_LOCK saturation flag asserts at limit", saturated_o == 1'b1);
+        check("P_LOCK absolute limit clamps positive output", control_o == 14'sd120);
+        check("P_LOCK absolute saturation flag asserts at limit", saturated_o == 1'b1);
+
+        lock_bias = 14'sd8100;
+        lock_limit = 14'sd8191;
+        error_i = 14'sd1000;
+        wait_cycles(P_LOCK_LATENCY);
+        check("P_LOCK output never exceeds positive DAC limit", control_o == 14'sd8191);
+        check("P_LOCK positive DAC limit asserts saturation", saturated_o == 1'b1);
+
+        lock_bias = -14'sd8100;
+        error_i = -14'sd1000;
+        wait_cycles(P_LOCK_LATENCY);
+        check("P_LOCK output never exceeds negative DAC limit", control_o == -14'sd8191);
+        check("P_LOCK negative DAC limit asserts saturation", saturated_o == 1'b1);
+
+        lock_bias = 14'sd100;
+        lock_limit = 14'sd8191;
+        error_i = 14'sd0;
 
         enable = 1'b0;
         wait_cycles(2);

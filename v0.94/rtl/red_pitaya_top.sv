@@ -256,12 +256,23 @@ logic signed [14-1:0] lock_ki;
 logic                 lock_polarity;
 logic signed [14-1:0] lock_bias;
 logic signed [14-1:0] lock_limit;
+logic signed [14-1:0] lock_correction_limit;
 logic                 integral_reset;
 logic signed [14-1:0] scan_out2;
 logic signed [14-1:0] selected_out2;
 logic                 scan_saturated;
 logic                 lock_saturated;
 logic                 out2_saturated;
+logic                 capture_start;
+logic        [32-1:0] capture_decimation;
+logic        [32-1:0] capture_length;
+logic        [32-1:0] capture_read_index;
+logic                 capture_busy;
+logic                 capture_done;
+logic signed [14-1:0] capture_data_ch1;
+logic signed [14-1:0] capture_data_ch2;
+logic signed [14-1:0] capture_data_ch3;
+logic signed [14-1:0] capture_data_ch4;
 
 // ASG
 SBG_T [2-1:0]            asg_dat;
@@ -502,9 +513,39 @@ custom_register_bank i_custom_register_bank (
   .polarity_o      (lock_polarity  ),
   .lock_bias_o     (lock_bias      ),
   .lock_limit_o    (lock_limit     ),
+  .lock_correction_limit_o(lock_correction_limit),
   .ki_o            (lock_ki        ),
   .integral_reset_o(integral_reset ),
+  .capture_start_o (capture_start  ),
+  .capture_decimation_o(capture_decimation),
+  .capture_length_o(capture_length ),
+  .capture_read_index_o(capture_read_index),
+  .capture_busy_i  (capture_busy   ),
+  .capture_done_i  (capture_done   ),
+  .capture_data_ch1_i(capture_data_ch1),
+  .capture_data_ch2_i(capture_data_ch2),
+  .capture_data_ch3_i(capture_data_ch3),
+  .capture_data_ch4_i(capture_data_ch4),
   .bus             (sys[6]         )
+);
+
+custom_debug_capture i_custom_debug_capture (
+  .clk_i        (adc_clk           ),
+  .rstn_i       (adc_rstn          ),
+  .start_i      (capture_start     ),
+  .decimation_i (capture_decimation),
+  .length_i     (capture_length    ),
+  .read_index_i (capture_read_index),
+  .ch1_i        (adc_dat[0]        ),
+  .ch2_i        (adc_dat[1]        ),
+  .ch3_i        (laser_error       ),
+  .ch4_i        (selected_out2     ),
+  .busy_o       (capture_busy      ),
+  .done_o       (capture_done      ),
+  .data_ch1_o   (capture_data_ch1  ),
+  .data_ch2_o   (capture_data_ch2  ),
+  .data_ch3_o   (capture_data_ch3  ),
+  .data_ch4_o   (capture_data_ch4  )
 );
 
 ramp_generator i_ramp_generator (
@@ -534,6 +575,7 @@ out2_lock_controller i_out2_lock_controller (
   .polarity_i       (lock_polarity  ),
   .lock_bias_i      (lock_bias      ),
   .lock_limit_i     (lock_limit     ),
+  .lock_correction_limit_i(lock_correction_limit),
   .integral_reset_i (integral_reset ),
   .control_o        (selected_out2  ),
   .saturated_o      (lock_saturated )

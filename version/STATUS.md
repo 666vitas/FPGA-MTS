@@ -1,5 +1,12 @@
 # STATUS
 
+## 2026-07-10 Auto Lock candidate 与单窗口 debug capture 第一版
+
+本轮进入 Auto Lock candidate：新增 P-only `LOCK_CORRECTION_LIMIT`，默认 `128 counts`，`MODE=3 P_LOCK` 的 correction 先被限制后再叠加 `LOCK_BIAS`，最终仍受绝对 DAC limit 保护；`MODE=4 PI_LOCK` 继续退化为 P_LOCK，`KI / integral` 不恢复。
+上位机新增 `ARM AUTO LOCK` / `ABORT AUTO LOCK` 候选流程：必须先处于 SCAN，自动寻找 error 过零点，写 `LOCK_BIAS` 和 correction limit，强制 `Kp=0`、`Ki=0` 后进入 `MODE=3 P_LOCK`，再只允许自动小步 `Kp=4/8/16/32`；失败立即 SAFE。
+GUI 右侧改为单窗口 `Custom FPGA Scope`，新增 `custom_debug_capture` 候选寄存器读取 IN1 / IN2 / OUT1 / OUT2；没有新 bitstream 或 capture 数据时显示 `custom_debug_capture not available`，不画 0 误导用户。
+OUT2 当前已接 PZT / Scan，因此 correction limit 是安全必要条件；本轮未运行 Vivado synthesis / implementation，未生成 bitstream，未烧录，未上板验证，禁止声称已完成激光稳频或 FPGA 已替代 D2-125。
+
 ## 2026-07-10 当前 main 主线同步
 
 v3REG-0 SAFE/SCAN 已由用户上板验证：base address `0x40600000`，`MAGIC=0x4D545330`，`VERSION=0x00030000`，GUI / monitor 已可控制 OUT2 三角波并可 SAFE 关闭。

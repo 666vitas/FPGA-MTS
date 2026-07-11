@@ -92,6 +92,7 @@ def test_one_click_lock_bias_uses_out2_monitor_counts_not_voltage_estimate() -> 
         polarity=1,
         lock_bias_counts=4522,
         lock_limit_counts=8191,
+        correction_limit_counts=128,
     )
 
     assert config.lock_bias_counts == 4522
@@ -99,6 +100,7 @@ def test_one_click_lock_bias_uses_out2_monitor_counts_not_voltage_estimate() -> 
     assert config.ki == 123
     assert config.polarity == 1
     assert config.lock_limit_counts == 8191
+    assert config.correction_limit_counts == 128
 
 
 def test_custom_fpga_cli_exposes_hold_p_lock_and_pi_lock_without_default_gain() -> None:
@@ -110,9 +112,13 @@ def test_custom_fpga_cli_exposes_hold_p_lock_and_pi_lock_without_default_gain() 
 
     p_args = custom_fpga_scan_control.parse_args(["--host", "rp.local", "p-lock"])
     pi_args = custom_fpga_scan_control.parse_args(["--host", "rp.local", "pi-lock"])
+    auto_args = custom_fpga_scan_control.parse_args(["--host", "rp.local", "auto-lock"])
     assert p_args.kp == 0
     assert pi_args.kp == 0
     assert pi_args.ki == 0
+    assert p_args.correction_limit_counts == 128
+    assert auto_args.command == "auto-lock"
+    assert auto_args.correction_limit_counts == 128
 
 
 def test_gui_text_separates_scpi_and_custom_fpga_out2_paths() -> None:
@@ -128,8 +134,11 @@ def test_gui_text_separates_scpi_and_custom_fpga_out2_paths() -> None:
     assert "Current LOCK=P-only; Ki/PI disabled" in source
     assert "LOCK_BIAS source: captured OUT2_MONITOR" in source
     assert "SCPI ASG output commands do not drive physical OUT2" in source
-    assert "CH1: IN1 custom debug capture pending" in source
-    assert "DEBUG_CTRL, DEBUG_STATUS, DEBUG_DECIM, DEBUG_LENGTH, DEBUG_INDEX" in source
+    assert "Custom FPGA Scope" in source
+    assert "custom_debug_capture not available" in source
+    assert "CAPTURE_CTRL, CAPTURE_STATUS, CAPTURE_DECIMATION" in source
+    assert "ARM AUTO LOCK" in source
+    assert "ABORT AUTO LOCK" in source
 
 
 def test_gui_startup_does_not_require_legacy_scpi_output_controls() -> None:
@@ -155,6 +164,8 @@ def test_main_window_constructs_without_legacy_scpi_output_controls() -> None:
         assert not hasattr(window, "out2")
         assert window.custom_probe_button.text() == "Probe Registers"
         assert window.custom_lock_button.text() == "LOCK"
+        assert window.custom_arm_auto_lock_button.text() == "ARM AUTO LOCK"
+        assert window.custom_correction_limit_counts.value() == 128
     finally:
         window.close()
         app.processEvents()

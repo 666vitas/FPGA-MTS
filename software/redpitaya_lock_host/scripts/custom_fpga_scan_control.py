@@ -42,6 +42,16 @@ REGISTERS = {
     "CONTROL_MONITOR": 0x44,
     "KI": 0x48,
     "INTEGRAL_RESET": 0x4C,
+    "LOCK_CORRECTION_LIMIT": 0x50,
+    "CAPTURE_CTRL": 0x80,
+    "CAPTURE_STATUS": 0x84,
+    "CAPTURE_DECIMATION": 0x88,
+    "CAPTURE_LENGTH": 0x8C,
+    "CAPTURE_READ_INDEX": 0x90,
+    "CAPTURE_DATA_CH1": 0x94,
+    "CAPTURE_DATA_CH2": 0x98,
+    "CAPTURE_DATA_CH3": 0x9C,
+    "CAPTURE_DATA_CH4": 0xA0,
 }
 
 
@@ -52,6 +62,7 @@ import mmap
 import os
 import struct
 import sys
+import time
 
 REGISTERS = {
     "MAGIC": 0x00,
@@ -74,6 +85,16 @@ REGISTERS = {
     "CONTROL_MONITOR": 0x44,
     "KI": 0x48,
     "INTEGRAL_RESET": 0x4C,
+    "LOCK_CORRECTION_LIMIT": 0x50,
+    "CAPTURE_CTRL": 0x80,
+    "CAPTURE_STATUS": 0x84,
+    "CAPTURE_DECIMATION": 0x88,
+    "CAPTURE_LENGTH": 0x8C,
+    "CAPTURE_READ_INDEX": 0x90,
+    "CAPTURE_DATA_CH1": 0x94,
+    "CAPTURE_DATA_CH2": 0x98,
+    "CAPTURE_DATA_CH3": 0x9C,
+    "CAPTURE_DATA_CH4": 0xA0,
 }
 
 EXPECTED_MAGIC = 0x4D545330
@@ -199,7 +220,166 @@ def read_status(regs):
         "error_volts": to_signed14(error_raw) / 8191.0,
         "control_counts": to_signed14(control_raw),
         "control_volts": to_signed14(control_raw) / 8191.0,
+        "lock_correction_limit_counts": to_signed14(regs.read(REGISTERS["LOCK_CORRECTION_LIMIT"])),
     }
+
+
+def capture_waveform(regs, length, decimation):
+    length = max(1, min(4096, int(length)))
+    decimation = max(1, int(decimation))
+    regs.write(REGISTERS["CAPTURE_DECIMATION"], decimation)
+    regs.write(REGISTERS["CAPTURE_LENGTH"], length)
+    regs.write(REGISTERS["CAPTURE_CTRL"], 1)
+    for _ in range(2000):
+        status = regs.read(REGISTERS["CAPTURE_STATUS"])
+        if status & 0x2:
+            break
+        time.sleep(0.002)
+    status = regs.read(REGISTERS["CAPTURE_STATUS"])
+    if not (status & 0x2):
+        raise SystemExit("capture timeout: custom_debug_capture did not report done")
+    points = []
+    for index in range(length):
+        regs.write(REGISTERS["CAPTURE_READ_INDEX"], index)
+        points.append({
+            "index": index,
+            "ch1_counts": to_signed14(regs.read(REGISTERS["CAPTURE_DATA_CH1"])),
+            "ch2_counts": to_signed14(regs.read(REGISTERS["CAPTURE_DATA_CH2"])),
+            "ch3_counts": to_signed14(regs.read(REGISTERS["CAPTURE_DATA_CH3"])),
+            "ch4_counts": to_signed14(regs.read(REGISTERS["CAPTURE_DATA_CH4"])),
+        })
+    return {
+        "capture_status": f"0x{status:08X}",
+        "capture_length": length,
+        "capture_decimation": decimation,
+        "ref_alias_warning": "4.6 MHz REF may alias when decimation is high.",
+        "points": points,
+    }
+
+
+def sample_status_series(regs, sample_count, interval_s):
+    samples = []
+    for index in range(max(2, int(sample_count))):
+        status = read_status(regs)
+        status["sample_index"] = index
+        samples.append(status)
+        time.sleep(max(0.001, float(interval_s)))
+    return samples
+
+
+def select_zero_crossing(samples, threshold, edge_margin_counts):
+    candidates = []
+    threshold = max(1, int(threshold))
+    edge_margin_counts = max(0, int(edge_margin_counts))
+    for prev, cur in zip(samples, samples[1:]):
+        prev_error = int(prev["error_counts"])
+        cur_error = int(cur["error_counts"])
+        prev_out2 = int(prev["out2_counts"])
+        cur_out2 = int(cur["out2_counts"])
+        crosses_down = prev_error > threshold and cur_error <= 0
+        crosses_up = prev_error < -threshold and cur_error >= 0
+        if not (crosses_down or crosses_up):
+            continue
+        if abs(cur_out2) >= (8191 - edge_margin_counts):
+            continue
+        delta_out2 = cur_out2 - prev_out2
+        delta_error = cur_error - prev_error
+        slope = 0.0 if delta_out2 == 0 else abs(float(delta_error) / float(delta_out2))
+        candidates.append({
+            "sample_index": cur["sample_index"],
+            "out2_counts": cur_out2,
+            "out2_volts": cur_out2 / 8191.0,
+            "error_counts": cur_error,
+            "slope_abs_d_error_d_out2": slope,
+        })
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: item["slope_abs_d_error_d_out2"], reverse=True)[0]
+
+
+def run_auto_lock(regs, args):
+    require_magic(regs)
+    status = read_status(regs)
+    if status["version"] != "0x00030000":
+        raise SystemExit(f"VERSION mismatch: expected 0x00030000, got {status['version']}")
+    if int(status["mode"]) != 1:
+        raise SystemExit("AUTO LOCK requires MODE=1 SCAN first")
+    if float(args.scan_freq_hz) > 1.0:
+        print("WARNING: AUTO LOCK is safer at scan freq 0.2~1 Hz.", file=sys.stderr)
+
+    samples = sample_status_series(regs, args.sample_count, args.sample_interval_s)
+    zero = select_zero_crossing(samples, args.zero_threshold, args.edge_margin_counts)
+    if zero is None:
+        return {
+            "auto_lock_state": "LOCK_FAILED",
+            "abort_reason": "no qualifying error zero-crossing found",
+            "sample_count": len(samples),
+        }
+
+    correction_limit = max(0, min(8191, int(args.correction_limit_counts)))
+    regs.write(REGISTERS["ENABLE"], 0)
+    regs.write(REGISTERS["LOCK_BIAS"], int(zero["out2_counts"]))
+    regs.write(REGISTERS["LOCK_CORRECTION_LIMIT"], correction_limit)
+    regs.write(REGISTERS["LOCK_LIMIT"], max(0, min(8191, int(args.lock_limit_counts))))
+    regs.write(REGISTERS["KP"], 0)
+    regs.write(REGISTERS["KI"], 0)
+    regs.write(REGISTERS["POLARITY"], args.polarity)
+    regs.write(REGISTERS["INTEGRAL_RESET"], 1)
+    regs.write(REGISTERS["MODE"], 3)
+    regs.write(REGISTERS["ENABLE"], 1)
+    time.sleep(max(0.1, float(args.settle_s)))
+    readback = read_status(regs)
+    if int(readback["mode"]) != 3:
+        regs.write(REGISTERS["KP"], 0)
+        regs.write(REGISTERS["ENABLE"], 0)
+        regs.write(REGISTERS["MODE"], 0)
+        raise SystemExit("AUTO LOCK failed: MODE did not read back as 3")
+
+    trend = []
+    previous_abs_error = abs(int(readback["error_counts"]))
+    for kp in (4, 8, 16, 32):
+        regs.write(REGISTERS["KP"], kp)
+        time.sleep(max(0.1, float(args.kp_step_s)))
+        step_status = read_status(regs)
+        abs_error = abs(int(step_status["error_counts"]))
+        trend.append({
+            "kp": kp,
+            "abs_error_counts": abs_error,
+            "out2_counts": int(step_status["out2_counts"]),
+            "saturated": bool(step_status["saturated"]),
+        })
+        if step_status["saturated"] or abs(int(step_status["out2_counts"])) > int(args.abort_out2_counts):
+            regs.write(REGISTERS["KP"], 0)
+            regs.write(REGISTERS["ENABLE"], 0)
+            regs.write(REGISTERS["MODE"], 0)
+            return {
+                "auto_lock_state": "LOCK_FAILED",
+                "abort_reason": "saturated or OUT2 too close to limit; polarity may be wrong",
+                "selected_zero_crossing": zero,
+                "error_trend": trend,
+            }
+        if abs_error > max(previous_abs_error + int(args.error_growth_counts), int(previous_abs_error * 1.5)):
+            regs.write(REGISTERS["KP"], 0)
+            regs.write(REGISTERS["ENABLE"], 0)
+            regs.write(REGISTERS["MODE"], 0)
+            return {
+                "auto_lock_state": "LOCK_FAILED",
+                "abort_reason": "error increased during Kp ramp; polarity may be wrong",
+                "selected_zero_crossing": zero,
+                "error_trend": trend,
+            }
+        previous_abs_error = min(previous_abs_error, abs_error)
+
+    final_status = read_status(regs)
+    final_status.update({
+        "auto_lock_state": "LOCK_HOLDING",
+        "selected_zero_crossing": zero,
+        "current_kp": 32,
+        "correction_limit_counts": correction_limit,
+        "error_trend": trend,
+        "abort_reason": "",
+    })
+    return final_status
 
 
 def probe_base_addresses():
@@ -239,7 +419,7 @@ def probe_base_addresses():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-addr", default="0x40600000")
-    parser.add_argument("--op", choices=["safe", "scan", "hold", "p-lock", "pi-lock", "status", "probe"], required=True)
+    parser.add_argument("--op", choices=["safe", "scan", "hold", "p-lock", "pi-lock", "status", "probe", "capture", "auto-lock"], required=True)
     parser.add_argument("--offset-counts", type=int, default=6962)
     parser.add_argument("--amp-counts", type=int, default=410)
     parser.add_argument("--step-counts", type=int, default=1)
@@ -251,6 +431,18 @@ def main():
     parser.add_argument("--polarity", type=int, choices=[0, 1], default=0)
     parser.add_argument("--lock-bias-counts", type=int, default=0)
     parser.add_argument("--lock-limit-counts", type=int, default=8191)
+    parser.add_argument("--correction-limit-counts", type=int, default=128)
+    parser.add_argument("--capture-length", type=int, default=2048)
+    parser.add_argument("--capture-decimation", type=int, default=1024)
+    parser.add_argument("--sample-count", type=int, default=256)
+    parser.add_argument("--sample-interval-s", type=float, default=0.02)
+    parser.add_argument("--zero-threshold", type=int, default=10)
+    parser.add_argument("--edge-margin-counts", type=int, default=256)
+    parser.add_argument("--scan-freq-hz", type=float, default=0.5)
+    parser.add_argument("--settle-s", type=float, default=0.5)
+    parser.add_argument("--kp-step-s", type=float, default=1.0)
+    parser.add_argument("--abort-out2-counts", type=int, default=7800)
+    parser.add_argument("--error-growth-counts", type=int, default=20)
     args = parser.parse_args()
 
     if args.op == "probe":
@@ -286,6 +478,7 @@ def main():
             regs.write(REGISTERS["KI"], 0)
             regs.write(REGISTERS["POLARITY"], args.polarity)
             regs.write(REGISTERS["LOCK_BIAS"], args.lock_bias_counts)
+            regs.write(REGISTERS["LOCK_CORRECTION_LIMIT"], args.correction_limit_counts)
             regs.write(REGISTERS["LOCK_LIMIT"], args.lock_limit_counts)
             regs.write(REGISTERS["INTEGRAL_RESET"], 1)
             regs.write(REGISTERS["MODE"], 3)
@@ -297,10 +490,21 @@ def main():
             regs.write(REGISTERS["KI"], args.ki)
             regs.write(REGISTERS["POLARITY"], args.polarity)
             regs.write(REGISTERS["LOCK_BIAS"], args.lock_bias_counts)
+            regs.write(REGISTERS["LOCK_CORRECTION_LIMIT"], args.correction_limit_counts)
             regs.write(REGISTERS["LOCK_LIMIT"], args.lock_limit_counts)
             regs.write(REGISTERS["INTEGRAL_RESET"], 1)
             regs.write(REGISTERS["MODE"], 4)
             regs.write(REGISTERS["ENABLE"], 1)
+        elif args.op == "capture":
+            require_magic(regs)
+            status = read_status(regs)
+            status.update(capture_waveform(regs, args.capture_length, args.capture_decimation))
+            print(json.dumps(status, indent=2, sort_keys=True))
+            return
+        elif args.op == "auto-lock":
+            status = run_auto_lock(regs, args)
+            print(json.dumps(status, indent=2, sort_keys=True))
+            return
         status = read_status(regs)
         if args.op == "status":
             warn_missing_magic(int(status["magic"], 16))
@@ -335,6 +539,7 @@ class LockConfig:
     polarity: int
     lock_bias_counts: int
     lock_limit_counts: int
+    correction_limit_counts: int
 
 
 def volts_to_counts(volts: float) -> int:
@@ -372,6 +577,7 @@ def build_lock_config(args: argparse.Namespace, *, pi: bool) -> LockConfig:
         polarity=1 if str(args.polarity).lower() in {"1", "invert", "inverted", "negative"} else 0,
         lock_bias_counts=volts_to_counts(args.lock_bias_v),
         lock_limit_counts=max(0, min(8191, int(args.lock_limit_counts))),
+        correction_limit_counts=max(0, min(8191, int(args.correction_limit_counts))),
     )
 
 
@@ -413,6 +619,43 @@ def remote_command(args: argparse.Namespace, op: str, config: ScanConfig | HoldC
             str(config.lock_bias_counts),
             "--lock-limit-counts",
             str(config.lock_limit_counts),
+            "--correction-limit-counts",
+            str(config.correction_limit_counts),
+        ]
+    elif op == "capture":
+        remote_args += [
+            "--capture-length",
+            str(args.capture_length),
+            "--capture-decimation",
+            str(args.capture_decimation),
+        ]
+    elif op == "auto-lock":
+        polarity = 1 if str(args.polarity).lower() in {"1", "invert", "inverted", "negative"} else 0
+        remote_args += [
+            "--sample-count",
+            str(args.sample_count),
+            "--sample-interval-s",
+            str(args.sample_interval_s),
+            "--zero-threshold",
+            str(args.zero_threshold),
+            "--edge-margin-counts",
+            str(args.edge_margin_counts),
+            "--scan-freq-hz",
+            str(args.scan_freq_hz),
+            "--polarity",
+            str(polarity),
+            "--lock-limit-counts",
+            str(args.lock_limit_counts),
+            "--correction-limit-counts",
+            str(args.correction_limit_counts),
+            "--settle-s",
+            str(args.settle_s),
+            "--kp-step-s",
+            str(args.kp_step_s),
+            "--abort-out2-counts",
+            str(args.abort_out2_counts),
+            "--error-growth-counts",
+            str(args.error_growth_counts),
         ]
     remote_python = (
         "import base64, sys; "
@@ -464,6 +707,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p_lock_parser.add_argument("--polarity", choices=["normal", "invert", "0", "1"], default="normal")
     p_lock_parser.add_argument("--lock-bias-v", type=float, default=0.0)
     p_lock_parser.add_argument("--lock-limit-counts", type=int, default=8191)
+    p_lock_parser.add_argument("--correction-limit-counts", type=int, default=128)
 
     pi_lock_parser = subparsers.add_parser("pi-lock", help="Enable PI lock mode; Kp/Ki default to zero")
     pi_lock_parser.add_argument("--kp", type=int, default=0, help="Fixed-point Kp, 256 = gain 1.0")
@@ -471,9 +715,26 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     pi_lock_parser.add_argument("--polarity", choices=["normal", "invert", "0", "1"], default="normal")
     pi_lock_parser.add_argument("--lock-bias-v", type=float, default=0.0)
     pi_lock_parser.add_argument("--lock-limit-counts", type=int, default=8191)
+    pi_lock_parser.add_argument("--correction-limit-counts", type=int, default=128)
 
     subparsers.add_parser("status", help="Read magic/version/status/out2 monitor")
     subparsers.add_parser("probe", help="Read magic/version at candidate GP0 base addresses")
+    capture_parser = subparsers.add_parser("capture", help="Capture custom_debug_capture waveform data")
+    capture_parser.add_argument("--capture-length", type=int, default=2048)
+    capture_parser.add_argument("--capture-decimation", type=int, default=1024)
+    auto_parser = subparsers.add_parser("auto-lock", help="Candidate P-only auto lock from SCAN zero crossing")
+    auto_parser.add_argument("--sample-count", type=int, default=256)
+    auto_parser.add_argument("--sample-interval-s", type=float, default=0.02)
+    auto_parser.add_argument("--zero-threshold", type=int, default=10)
+    auto_parser.add_argument("--edge-margin-counts", type=int, default=256)
+    auto_parser.add_argument("--scan-freq-hz", type=float, default=0.5)
+    auto_parser.add_argument("--polarity", choices=["normal", "invert", "0", "1"], default="normal")
+    auto_parser.add_argument("--lock-limit-counts", type=int, default=8191)
+    auto_parser.add_argument("--correction-limit-counts", type=int, default=128)
+    auto_parser.add_argument("--settle-s", type=float, default=0.5)
+    auto_parser.add_argument("--kp-step-s", type=float, default=1.0)
+    auto_parser.add_argument("--abort-out2-counts", type=int, default=7800)
+    auto_parser.add_argument("--error-growth-counts", type=int, default=20)
     return parser.parse_args(argv)
 
 
@@ -517,6 +778,7 @@ def main(argv: list[str] | None = None) -> int:
                     # polarity={config.polarity}
                     # lock_bias_counts={config.lock_bias_counts}
                     # lock_limit_counts={config.lock_limit_counts}
+                    # correction_limit_counts={config.correction_limit_counts}
                     """
                 ).strip()
             )

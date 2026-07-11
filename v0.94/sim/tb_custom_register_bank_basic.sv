@@ -22,6 +22,16 @@ module tb_custom_register_bank_basic;
     localparam logic [5:0] REG_CONTROL_MONITOR = 6'h11;
     localparam logic [5:0] REG_KI              = 6'h12;
     localparam logic [5:0] REG_INTEGRAL_RESET  = 6'h13;
+    localparam logic [5:0] REG_LOCK_CORRECTION_LIMIT = 6'h14;
+    localparam logic [5:0] REG_CAPTURE_CTRL       = 6'h20;
+    localparam logic [5:0] REG_CAPTURE_STATUS     = 6'h21;
+    localparam logic [5:0] REG_CAPTURE_DECIMATION = 6'h22;
+    localparam logic [5:0] REG_CAPTURE_LENGTH     = 6'h23;
+    localparam logic [5:0] REG_CAPTURE_READ_INDEX = 6'h24;
+    localparam logic [5:0] REG_CAPTURE_DATA_CH1   = 6'h25;
+    localparam logic [5:0] REG_CAPTURE_DATA_CH2   = 6'h26;
+    localparam logic [5:0] REG_CAPTURE_DATA_CH3   = 6'h27;
+    localparam logic [5:0] REG_CAPTURE_DATA_CH4   = 6'h28;
 
     logic clk = 1'b0;
     always #5 clk = ~clk;
@@ -43,8 +53,19 @@ module tb_custom_register_bank_basic;
     logic polarity;
     logic signed [13:0] lock_bias;
     logic signed [13:0] lock_limit;
+    logic signed [13:0] lock_correction_limit;
     logic signed [13:0] ki;
     logic integral_reset;
+    logic capture_start;
+    logic [31:0] capture_decimation;
+    logic [31:0] capture_length;
+    logic [31:0] capture_read_index;
+    logic capture_busy;
+    logic capture_done;
+    logic signed [13:0] capture_data_ch1;
+    logic signed [13:0] capture_data_ch2;
+    logic signed [13:0] capture_data_ch3;
+    logic signed [13:0] capture_data_ch4;
 
     sys_bus_if bus (.clk(clk), .rstn(rstn));
 
@@ -115,8 +136,19 @@ module tb_custom_register_bank_basic;
         .polarity_o(polarity),
         .lock_bias_o(lock_bias),
         .lock_limit_o(lock_limit),
+        .lock_correction_limit_o(lock_correction_limit),
         .ki_o(ki),
         .integral_reset_o(integral_reset),
+        .capture_start_o(capture_start),
+        .capture_decimation_o(capture_decimation),
+        .capture_length_o(capture_length),
+        .capture_read_index_o(capture_read_index),
+        .capture_busy_i(capture_busy),
+        .capture_done_i(capture_done),
+        .capture_data_ch1_i(capture_data_ch1),
+        .capture_data_ch2_i(capture_data_ch2),
+        .capture_data_ch3_i(capture_data_ch3),
+        .capture_data_ch4_i(capture_data_ch4),
         .bus(bus)
     );
 
@@ -126,6 +158,12 @@ module tb_custom_register_bank_basic;
         error_monitor = 14'sd0;
         control_monitor = 14'sd0;
         saturated = 1'b0;
+        capture_busy = 1'b0;
+        capture_done = 1'b0;
+        capture_data_ch1 = 14'sd11;
+        capture_data_ch2 = -14'sd22;
+        capture_data_ch3 = 14'sd33;
+        capture_data_ch4 = -14'sd44;
         bus.wen = 1'b0;
         bus.ren = 1'b0;
         bus.addr = 32'd0;
@@ -147,7 +185,10 @@ module tb_custom_register_bank_basic;
         check("reset POLARITY is normal", polarity == 1'b0);
         check("reset LOCK_BIAS is 0", lock_bias == 14'sd0);
         check("reset LOCK_LIMIT is 8191", lock_limit == 14'sd8191);
+        check("reset LOCK_CORRECTION_LIMIT is 128", lock_correction_limit == 14'sd128);
         check("reset KI is 0", ki == 14'sd0);
+        check("reset CAPTURE_DECIMATION is 1024", capture_decimation == 32'd1024);
+        check("reset CAPTURE_LENGTH is 2048", capture_length == 32'd2048);
 
         bus_read(REG_MAGIC, read_data);
         check("read MAGIC", read_data == 32'h4D545330);
@@ -166,8 +207,12 @@ module tb_custom_register_bank_basic;
         bus_write(REG_POLARITY, 32'd1);
         bus_write(REG_LOCK_BIAS, 32'd1234);
         bus_write(REG_LOCK_LIMIT, 32'd6000);
+        bus_write(REG_LOCK_CORRECTION_LIMIT, 32'd128);
         bus_write(REG_KI, 32'd8);
         bus_write(REG_INTEGRAL_RESET, 32'd1);
+        bus_write(REG_CAPTURE_DECIMATION, 32'd64);
+        bus_write(REG_CAPTURE_LENGTH, 32'd4096);
+        bus_write(REG_CAPTURE_READ_INDEX, 32'd7);
 
         check("write MODE=1 reaches output", mode == 32'd1);
         check("write ENABLE=1 reaches output", enable == 1'b1);
@@ -181,9 +226,15 @@ module tb_custom_register_bank_basic;
         check("write POLARITY=1 reaches output", polarity == 1'b1);
         check("write LOCK_BIAS=1234 reaches output", lock_bias == 14'sd1234);
         check("write LOCK_LIMIT=6000 reaches output", lock_limit == 14'sd6000);
+        check("write LOCK_CORRECTION_LIMIT=128 reaches output", lock_correction_limit == 14'sd128);
         check("write KI=8 reaches output", ki == 14'sd8);
+        check("write CAPTURE_DECIMATION=64 reaches output", capture_decimation == 32'd64);
+        check("write CAPTURE_LENGTH=4096 reaches output", capture_length == 32'd4096);
+        check("write CAPTURE_READ_INDEX=7 reaches output", capture_read_index == 32'd7);
         wait_cycles(2);
         check("INTEGRAL_RESET self clears", integral_reset == 1'b0);
+        bus_write(REG_CAPTURE_CTRL, 32'd1);
+        check("CAPTURE_CTRL self clears after write", capture_start == 1'b0);
 
         bus_read(REG_MODE, read_data);
         check("read back MODE=1", read_data == 32'd1);
@@ -222,8 +273,29 @@ module tb_custom_register_bank_basic;
         check("read back LOCK_BIAS=1234", $signed(read_data) == 32'sd1234);
         bus_read(REG_LOCK_LIMIT, read_data);
         check("read back LOCK_LIMIT=6000", $signed(read_data) == 32'sd6000);
+        bus_read(REG_LOCK_CORRECTION_LIMIT, read_data);
+        check("read back LOCK_CORRECTION_LIMIT=128", $signed(read_data) == 32'sd128);
         bus_read(REG_KI, read_data);
         check("read back KI=8", $signed(read_data) == 32'sd8);
+        bus_read(REG_CAPTURE_DECIMATION, read_data);
+        check("read back CAPTURE_DECIMATION=64", read_data == 32'd64);
+        bus_read(REG_CAPTURE_LENGTH, read_data);
+        check("read back CAPTURE_LENGTH=4096", read_data == 32'd4096);
+        bus_read(REG_CAPTURE_READ_INDEX, read_data);
+        check("read back CAPTURE_READ_INDEX=7", read_data == 32'd7);
+        capture_busy = 1'b1;
+        capture_done = 1'b1;
+        bus_read(REG_CAPTURE_STATUS, read_data);
+        check("read CAPTURE_STATUS busy", read_data[0] == 1'b1);
+        check("read CAPTURE_STATUS done", read_data[1] == 1'b1);
+        bus_read(REG_CAPTURE_DATA_CH1, read_data);
+        check("read CAPTURE_DATA_CH1", $signed(read_data) == 32'sd11);
+        bus_read(REG_CAPTURE_DATA_CH2, read_data);
+        check("read CAPTURE_DATA_CH2", $signed(read_data) == -32'sd22);
+        bus_read(REG_CAPTURE_DATA_CH3, read_data);
+        check("read CAPTURE_DATA_CH3", $signed(read_data) == 32'sd33);
+        bus_read(REG_CAPTURE_DATA_CH4, read_data);
+        check("read CAPTURE_DATA_CH4", $signed(read_data) == -32'sd44);
 
         out2_monitor = 14'sd111;
         error_monitor = -14'sd222;

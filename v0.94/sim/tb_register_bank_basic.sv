@@ -7,6 +7,8 @@ module tb_register_bank_basic;
 
     logic rstn;
     logic signed [13:0] out2_monitor;
+    logic signed [13:0] error_monitor;
+    logic signed [13:0] control_monitor;
     logic saturated;
     logic [31:0] mode;
     logic enable;
@@ -15,6 +17,18 @@ module tb_register_bank_basic;
     logic signed [13:0] scan_step;
     logic [31:0] scan_update_div;
     logic signed [13:0] out2_limit;
+    logic signed [13:0] hold_value;
+    logic signed [13:0] kp;
+    logic polarity;
+    logic signed [13:0] lock_bias;
+    logic signed [13:0] lock_limit;
+    logic signed [13:0] lock_correction_limit;
+    logic signed [13:0] ki;
+    logic integral_reset;
+    logic capture_start;
+    logic [31:0] capture_decimation;
+    logic [31:0] capture_length;
+    logic [31:0] capture_read_index;
 
     sys_bus_if bus (.clk(clk), .rstn(rstn));
 
@@ -70,6 +84,8 @@ module tb_register_bank_basic;
         .clk_i(clk),
         .rstn_i(rstn),
         .out2_monitor_i(out2_monitor),
+        .error_monitor_i(error_monitor),
+        .control_monitor_i(control_monitor),
         .saturated_i(saturated),
         .mode_o(mode),
         .enable_o(enable),
@@ -78,12 +94,32 @@ module tb_register_bank_basic;
         .scan_step_o(scan_step),
         .scan_update_div_o(scan_update_div),
         .out2_limit_o(out2_limit),
+        .hold_value_o(hold_value),
+        .kp_o(kp),
+        .polarity_o(polarity),
+        .lock_bias_o(lock_bias),
+        .lock_limit_o(lock_limit),
+        .lock_correction_limit_o(lock_correction_limit),
+        .ki_o(ki),
+        .integral_reset_o(integral_reset),
+        .capture_start_o(capture_start),
+        .capture_decimation_o(capture_decimation),
+        .capture_length_o(capture_length),
+        .capture_read_index_o(capture_read_index),
+        .capture_busy_i(1'b0),
+        .capture_done_i(1'b0),
+        .capture_data_ch1_i(14'sd0),
+        .capture_data_ch2_i(14'sd0),
+        .capture_data_ch3_i(14'sd0),
+        .capture_data_ch4_i(14'sd0),
         .bus(bus)
     );
 
     initial begin
         rstn = 1'b0;
         out2_monitor = 14'sd0;
+        error_monitor = 14'sd0;
+        control_monitor = 14'sd0;
         saturated = 1'b0;
         bus.wen = 1'b0;
         bus.ren = 1'b0;

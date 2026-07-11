@@ -30,9 +30,9 @@ laser_control / pi_controller_seq = 内部候选或历史路径，不是当前 D
 
 v3REG-0 SAFE/SCAN 已由用户上板验证：base address `0x40600000`，`MAGIC=0x4D545330`，`VERSION=0x00030000`，GUI/monitor 可控制 OUT2 三角波，并可用 SAFE 关闭。
 
-HOLD/P_LOCK/PI_LOCK 当前只表示 GitHub main 中的 RTL/software 候选已经存在；尚未完成最新 Vivado synthesis / implementation / timing / bitstream / 烧录 / 上板示波器验证。当前 LOCK 目标缩小为 P-only；`MODE=3 P_LOCK` 是下一步验证重点，`MODE=4 PI_LOCK` 暂时退化为 P_LOCK。
+HOLD/P_LOCK/PI_LOCK 当前只表示 GitHub main 中的 RTL/software 候选已经存在；尚未完成最新 Vivado synthesis / implementation / timing / bitstream / 烧录 / 上板示波器验证。当前 LOCK 目标缩小为 P-only；`MODE=3 P_LOCK` 是下一步验证重点，`MODE=4 PI_LOCK` 暂时退化为 P_LOCK。2026-07-10 起 Auto Lock 只是 candidate：只做 SCAN 后自动寻找 error 过零点、写 `LOCK_BIAS`、小步增加 P-only Kp，并保留 SAFE / ABORT。
 
-当前阶段只允许示波器验证；不允许接入 PZT、Scan input、激光器电流调制、D2-125 Servo Output 或 D2-125 Aux Output。
+当前 OUT2 已接 PZT / Scan 做谱线扫描，因此所有 P_LOCK / Auto Lock 候选必须默认小 Kp、小 `LOCK_CORRECTION_LIMIT`，失败必须 SAFE；不允许接入激光器电流调制、D2-125 Servo Output 或 D2-125 Aux Output，也不允许声称已完成激光稳频。
 
 ## 3. 当前必须读取的文件
 
@@ -124,6 +124,16 @@ ERROR_MONITOR
 CONTROL_MONITOR
 KI
 INTEGRAL_RESET
+LOCK_CORRECTION_LIMIT
+CAPTURE_CTRL
+CAPTURE_STATUS
+CAPTURE_DECIMATION
+CAPTURE_LENGTH
+CAPTURE_READ_INDEX
+CAPTURE_DATA_CH1
+CAPTURE_DATA_CH2
+CAPTURE_DATA_CH3
+CAPTURE_DATA_CH4
 ```
 
 必须确认默认值：
@@ -142,6 +152,9 @@ polarity = 0
 lock_bias = 0
 lock_limit = 8191
 ki = 0
+lock_correction_limit = 128
+capture_decimation = 1024
+capture_length = 2048
 ```
 
 ### ramp_generator.sv
@@ -174,6 +187,9 @@ control_o / pi_controller_seq 仍存在，但不是当前 OUT2 的最终来源
 代码层面已经加入 ramp_generator
 代码层面已经加入 out2_lock_controller
 代码层面 OUT2 已经改为 selected_out2 SAFE/SCAN/HOLD/P_LOCK/PI_LOCK 候选
+代码层面已经加入 P_LOCK correction limit
+代码层面已经加入 custom_debug_capture 候选
+上位机代码层面已经加入 ARM AUTO LOCK / ABORT AUTO LOCK 候选
 v3REG-0 SAFE/SCAN 已有用户上板验证记录
 ```
 
@@ -186,6 +202,8 @@ HOLD/P_LOCK/PI_LOCK 等待最新 timing 检查
 HOLD/P_LOCK/PI_LOCK 等待 bitstream 生成
 HOLD/P_LOCK/PI_LOCK 等待烧录
 HOLD/P_LOCK/PI_LOCK 等待上板示波器验证
+Auto Lock candidate 等待 Vivado timing / bitstream / 烧录 / 上板验证
+custom_debug_capture 单窗口波形等待 Vivado timing / bitstream / 烧录 / 上板验证
 KI / integral 当前不要恢复
 ```
 

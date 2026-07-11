@@ -105,6 +105,17 @@ VERSION = 0x00030000
 GUI / monitor 已可控制 OUT2 三角波并 SAFE 关闭
 ```
 
+2026-07-10 后的 Auto Lock / waveform 结论必须这样表述：
+
+```text
+Auto Lock = candidate，不是已完成稳频。
+OUT2 当前已接 PZT / Scan，因此 P_LOCK 必须默认小 Kp、小 correction limit。
+MODE=3 P_LOCK 是 P-only；MODE=4 PI_LOCK 暂时退化为 P_LOCK。
+KI / integral 当前不要恢复。
+GUI 单窗口波形依赖 custom_debug_capture 和新 bitstream；没有 capture 数据时必须显示 custom_debug_capture not available，不得画 0 冒充真实波形。
+没有通过 Vivado synthesis / implementation / timing / bitstream / 烧录 / 上板验证前，不得声称 Auto Lock 或 debug_capture 功能通过。
+```
+
 如果某个旧文档写着“还没有 register_bank”或“OUT2 仍是 PI shadow control”，只能判定为历史阶段描述，不能覆盖当前主线。
 
 ## 4. 当前安全边界
@@ -119,6 +130,7 @@ GUI / monitor 已可控制 OUT2 三角波并 SAFE 关闭
 禁止 OUT2 接 D2-125 Aux Output。
 禁止 OUT2 与任何 D2-125 输出并联。
 禁止声称已经闭环锁定。
+禁止把 Auto Lock candidate 说成已经完成激光稳频。
 ```
 
 HOLD / P_LOCK / PI_LOCK 只有在最新 Vivado synthesis、implementation、timing、bitstream、烧录、示波器验证都有证据后，才允许进入下一阶段评审。

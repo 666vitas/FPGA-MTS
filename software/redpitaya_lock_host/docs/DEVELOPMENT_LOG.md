@@ -1,5 +1,16 @@
 # 开发日志
 
+## 2026-07-10 - Auto Lock candidate 与单窗口波形显示第一版
+
+- 本轮目标：实现 Auto Lock candidate 和单窗口 `Custom FPGA Scope`，不是完整 AI 自动锁定，也不是已完成激光稳频。
+- RTL 修改：`custom_register_bank.sv` 中新增 `LOCK_CORRECTION_LIMIT`，默认 `128 counts`；`out2_lock_controller` 的 P-only correction 先按该 limit 限幅，再叠加 `LOCK_BIAS`，最终仍按绝对 DAC limit 限幅。`MODE=4 PI_LOCK` 继续退化为 P_LOCK，`KI / integral` 不恢复。
+- RTL 新增：`custom_debug_capture.sv`，手动 capture 四路信号：CH1=IN1/PD，CH2=IN2/REF，CH3=OUT1/laser_error，CH4=OUT2/selected_out2；支持 decimation、length、read index 和四路数据寄存器。4.6 MHz REF 在高 decimation 下可能 alias。
+- 上位机修改：新增 `ARM AUTO LOCK` / `ABORT AUTO LOCK` 候选流程。Auto Lock 必须先处于 SCAN，寻找 error 过零点，写 `LOCK_BIAS` 和 `LOCK_CORRECTION_LIMIT`，强制 `Kp=0`、`Ki=0` 后进入 `MODE=3 P_LOCK`，再只允许自动小步 `Kp=4/8/16/32`；error 变大、OUT2 接近 limit 或 saturated 时立即 SAFE。
+- GUI 修改：右侧四个空 preview 窗口收敛为单窗口 `Custom FPGA Scope`，叠加 IN1 / IN2 / OUT1 / OUT2，支持通道勾选、统计和 CSV 保存；没有新 bitstream 或 capture 数据时显示 `custom_debug_capture not available`，不画 0。
+- 验证：`python -m pytest tests` 通过，`16 passed`；`py_compile` 通过；`xvlog` 通过；`tb_out2_lock_controller` 结果 `tests=28 pass=28 fail=0`；`tb_custom_debug_capture` 结果 `tests=11 pass=11 fail=0`；`tb_custom_register_bank_basic` 结果 `tests=71 pass=71 fail=0`。
+- 尚未执行：未运行 Vivado synthesis / implementation / timing，未生成 bitstream，未烧录，未上板验证。下一步必须由用户手动 Vivado timing；通过前不得声称 Auto Lock 或 debug_capture 已通过硬件验证。
+- 安全边界：OUT2 当前已接 PZT / Scan，所以 P_LOCK / Auto Lock 必须默认小 Kp、小 correction limit；禁止恢复积分，禁止 relock，禁止 AI 自动锁定，禁止失败后继续输出未知电压，禁止声称 FPGA 已闭环稳频或替代 D2-125。
+
 ## 2026-07-10 - 当前 main 主线文档同步
 
 - 本次只同步文档，不修改 RTL、不修改 testbench、不修改 Vivado project、不运行 Vivado、不生成 bitstream、不烧录、不连接 Red Pitaya。
