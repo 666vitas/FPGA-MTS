@@ -1,5 +1,27 @@
 # 开发日志
 
+## 2026-07-11 - v3LOCK-P0 人工 LOCK HERE 与同拍锁点捕获候选
+
+- 本次重要纠正：历史 `board(1).csv` 中的 `54 counts`、`0.704 V`、`0.784 V`、`49.75 Hz` 以及任何峰值、基线、扫描位置，只允许作为问题分析证据，禁止硬编码进 RTL、Python、GUI、测试默认值或锁点配置。
+- RTL 修改：`custom_register_bank.sv` 新增 `ERROR_SETPOINT`、`LOCK_ERROR_MONITOR`、`CAPTURE_LOCK_POINT`，协议版本升为 `0x00030001`。写 `CAPTURE_LOCK_POINT=1` 时，FPGA 在 `clk_i` 域锁存当前 `ERROR_MONITOR` 为 `ERROR_SETPOINT`、当前 `OUT2_MONITOR` 为 `LOCK_BIAS`，并进入 `MODE=3 P_LOCK`。
+- RTL 新增：`error_setpoint_corrector.sv`，输出寄存化 `lock_error = saturate_14bit(laser_error - error_setpoint)`；`red_pitaya_top.sv` 改为让 P_LOCK 使用 `lock_error`，OUT1 仍保持原始 `laser_error` 观察。
+- 无扰切换修复：`out2_lock_controller` 在 P_LOCK 管线填充期间输出 `LOCK_BIAS`，避免 `SCAN -> P_LOCK` 时因 Kp=0 先跳到 0。
+- 上位机修改：主流程改为 `Capture Waveform -> 点击当前波形目标 -> LOCK HERE`。`LOCK HERE` 等待当前 OUT2 重新进入用户所选目标窗口后，调用 FPGA `CAPTURE_LOCK_POINT`；不使用历史 CSV 锁点，不要求用户手工填写 `ERROR_SETPOINT` 或 `LOCK_BIAS`。
+- 删除/隐藏当前 GUI 的自动识峰入口；第一版不做 AI、不做自动区分 Rb 谱峰、不恢复 Ki/integral、不做复杂 PID。
+- 验证：`py_compile` 通过；`python -m pytest tests` 结果 `18 passed`；`tb_error_setpoint_corrector` 结果 `tests=6 pass=6 fail=0`；`tb_custom_register_bank_basic` 结果 `tests=83 pass=83 fail=0`；`tb_out2_lock_controller` 结果 `tests=29 pass=29 fail=0`。
+- 未执行：未运行 Vivado synthesis / implementation / timing，未生成 bitstream，未烧录，未接板子，未运行真实 LOCK HERE。
+- 安全边界：当前仍禁止声称 FPGA 已闭环锁定或替代 D2-125；LOCK HERE 必须先 OUT2 示波器验证，异常立即 SAFE。
+
+## 2026-07-11 - 修复 custom_debug_capture LUTRAM 资源爆炸
+
+- 问题：用户手动 Vivado synthesis 完成后，implementation `place_design` 报 `[Place 30-484]`；`custom_debug_capture` 的 `mem_ch*` 被推断成 LUTRAM / RAM64M / RAM64X1D，`Number of LUTRAMs/SRLs=6520`，`required capable slices=1630 out of 1500`，利用率 `108.667%`。
+- 修复：`v0.94/rtl/custom_debug_capture.sv` 中为 `mem_ch1..mem_ch4` 添加 `(* ram_style = "block" *)`，并删除组合读，改为同步读；`data_ch*_o` 允许 1 个 `clk_i` 周期读取延迟，目标是让 Vivado 推断 Block RAM 而不是 distributed RAM。
+- 四通道保持完整：CH1=IN1/PD，CH2=IN2/REF，CH3=laser_error，CH4=selected_out2；默认 `DEPTH=4096` 保持不变，未降级为 CH3/CH4-only。
+- testbench：`v0.94/sim/tb_custom_debug_capture.sv` 已适配同步读 1-cycle latency，继续覆盖 start capture、busy/done、read_index 读取 CH1-CH4、decimation 和 length 限制。
+- 验证：`xvlog -sv rtl/custom_debug_capture.sv sim/tb_custom_debug_capture.sv` 通过；`tb_custom_debug_capture` 仿真结果 `tests=12 pass=12 fail=0`。
+- 未执行：未运行 Vivado synthesis / implementation，未生成 bitstream，未烧录，未接板子，未运行 Auto Lock。
+- 安全边界：未修改 Auto Lock / P_LOCK / KI / correction limit；不恢复积分，不新增 FSM / relock / AI。下一步必须由用户手动 Vivado implementation 确认不再出现 `[Place 30-484]`，并检查 timing `WNS >= 0, TNS = 0, Failing Endpoints = 0`。
+
 ## 2026-07-10 - Auto Lock candidate 与单窗口波形显示第一版
 
 - 本轮目标：实现 Auto Lock candidate 和单窗口 `Custom FPGA Scope`，不是完整 AI 自动锁定，也不是已完成激光稳频。

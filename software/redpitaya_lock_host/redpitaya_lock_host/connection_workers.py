@@ -160,11 +160,14 @@ class CustomFpgaRegisterWorker(QThread):
                     correction_limit_counts=int(self.params.get("correction_limit_counts", 128)),
                 )
             elif self.operation == "lock":
-                response = backend.capture_bias_and_p_lock(
-                    kp=int(self.params["kp"]),
+                response = backend.lock_here(
                     polarity=int(self.params["polarity"]),
                     lock_limit_counts=int(self.params["lock_limit_counts"]),
                     correction_limit_counts=int(self.params.get("correction_limit_counts", 128)),
+                    settle_s=float(self.params.get("settle_s", 0.5)),
+                    target_out2_counts=self.params.get("target_out2_counts"),
+                    target_window_counts=int(self.params.get("target_window_counts", 64)),
+                    target_timeout_s=float(self.params.get("target_timeout_s", 5.0)),
                 )
             elif self.operation == "pi-lock":
                 response = backend.set_mode_pi_lock(
@@ -179,21 +182,6 @@ class CustomFpgaRegisterWorker(QThread):
                 response = backend.capture_waveform(
                     capture_length=int(self.params["capture_length"]),
                     capture_decimation=int(self.params["capture_decimation"]),
-                )
-            elif self.operation == "auto-lock":
-                response = backend.auto_lock(
-                    sample_count=int(self.params["sample_count"]),
-                    sample_interval_s=float(self.params["sample_interval_s"]),
-                    zero_threshold=int(self.params["zero_threshold"]),
-                    edge_margin_counts=int(self.params["edge_margin_counts"]),
-                    scan_freq_hz=float(self.params["scan_freq_hz"]),
-                    polarity=int(self.params["polarity"]),
-                    lock_limit_counts=int(self.params["lock_limit_counts"]),
-                    correction_limit_counts=int(self.params["correction_limit_counts"]),
-                    settle_s=float(self.params["settle_s"]),
-                    kp_step_s=float(self.params["kp_step_s"]),
-                    abort_out2_counts=int(self.params["abort_out2_counts"]),
-                    error_growth_counts=int(self.params["error_growth_counts"]),
                 )
             else:
                 raise ValueError(f"Unknown Custom FPGA operation: {self.operation}")

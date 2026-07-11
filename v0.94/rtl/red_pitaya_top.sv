@@ -257,6 +257,8 @@ logic                 lock_polarity;
 logic signed [14-1:0] lock_bias;
 logic signed [14-1:0] lock_limit;
 logic signed [14-1:0] lock_correction_limit;
+logic signed [14-1:0] error_setpoint;
+logic signed [14-1:0] lock_error;
 logic                 integral_reset;
 logic signed [14-1:0] scan_out2;
 logic signed [14-1:0] selected_out2;
@@ -514,6 +516,7 @@ custom_register_bank i_custom_register_bank (
   .lock_bias_o     (lock_bias      ),
   .lock_limit_o    (lock_limit     ),
   .lock_correction_limit_o(lock_correction_limit),
+  .error_setpoint_o(error_setpoint ),
   .ki_o            (lock_ki        ),
   .integral_reset_o(integral_reset ),
   .capture_start_o (capture_start  ),
@@ -522,11 +525,20 @@ custom_register_bank i_custom_register_bank (
   .capture_read_index_o(capture_read_index),
   .capture_busy_i  (capture_busy   ),
   .capture_done_i  (capture_done   ),
+  .lock_error_monitor_i(lock_error  ),
   .capture_data_ch1_i(capture_data_ch1),
   .capture_data_ch2_i(capture_data_ch2),
   .capture_data_ch3_i(capture_data_ch3),
   .capture_data_ch4_i(capture_data_ch4),
   .bus             (sys[6]         )
+);
+
+error_setpoint_corrector i_error_setpoint_corrector (
+  .clk_i        (adc_clk       ),
+  .rstn_i       (adc_rstn      ),
+  .error_i      (laser_error   ),
+  .setpoint_i   (error_setpoint),
+  .lock_error_o (lock_error    )
 );
 
 custom_debug_capture i_custom_debug_capture (
@@ -569,7 +581,7 @@ out2_lock_controller i_out2_lock_controller (
   .scan_i           (scan_out2      ),
   .scan_saturated_i (scan_saturated ),
   .hold_value_i     (hold_value     ),
-  .error_i          (laser_error    ),
+  .error_i          (lock_error     ),
   .kp_i             (lock_kp        ),
   .ki_i             (lock_ki        ),
   .polarity_i       (lock_polarity  ),

@@ -41,6 +41,13 @@ module tb_custom_debug_capture;
         #1;
     endtask
 
+    task automatic read_at(input logic [31:0] index);
+        @(negedge clk);
+        read_index = index;
+        @(posedge clk);
+        #1;
+    endtask
+
     custom_debug_capture #(.DEPTH(16)) dut (
         .clk_i(clk),
         .rstn_i(rstn),
@@ -91,15 +98,16 @@ module tb_custom_debug_capture;
 
         check("capture completes", busy == 1'b0 && done == 1'b1);
 
-        read_index = 32'd0;
-        #1;
+        read_at(32'd0);
         check("CH1 index 0 captured", data_ch1 != 14'sd0);
         check("CH2 index 0 captured", data_ch2 != 14'sd0);
         check("CH3 index 0 captured", data_ch3 != 14'sd0);
         check("CH4 index 0 captured", data_ch4 != 14'sd0);
 
-        read_index = 32'd3;
-        #1;
+        read_at(32'd0);
+        check("synchronous read returns requested index after one cycle", data_ch1 != 14'sd0);
+
+        read_at(32'd3);
         check("CH1 index 3 later than index 0", data_ch1 > 14'sd0);
         check("CH2 index 3 later negative", data_ch2 < 14'sd0);
         check("CH3 index 3 later positive", data_ch3 > 14'sd0);

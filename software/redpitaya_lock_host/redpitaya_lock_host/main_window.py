@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -158,6 +158,7 @@ class MainWindow(QMainWindow):
         self.last_probe: ProbeResult | None = None
         self.last_waveforms = self._empty_waveforms()
         self.custom_scope_data: dict[str, np.ndarray] | None = None
+        self.selected_lock_point: dict[str, int | float] | None = None
         self.connection_state = DISCONNECTED
         self.worker: (
             ProbeWorker
@@ -409,13 +410,13 @@ class MainWindow(QMainWindow):
         self.custom_lock_bias_v.setToolTip("LOCK does not use this voltage estimate; it captures OUT2_MONITOR counts.")
         self.custom_lock_limit_counts = QSpinBox()
         self.custom_lock_limit_counts.setRange(0, 8191)
-        self.custom_lock_limit_counts.setValue(512)
+        self.custom_lock_limit_counts.setValue(8191)
         self.custom_correction_limit_counts = QSpinBox()
         self.custom_correction_limit_counts.setRange(0, 8191)
         self.custom_correction_limit_counts.setValue(128)
         self.custom_zero_threshold_counts = QSpinBox()
         self.custom_zero_threshold_counts.setRange(1, 8191)
-        self.custom_zero_threshold_counts.setValue(10)
+        self.custom_zero_threshold_counts.setValue(64)
         self.custom_capture_length = QSpinBox()
         self.custom_capture_length.setRange(1, 4096)
         self.custom_capture_length.setValue(2048)
@@ -453,12 +454,15 @@ class MainWindow(QMainWindow):
         form.addRow("manual lock-bias-v (not used by LOCK)", self.custom_lock_bias_v)
         form.addRow("lock-limit-counts", self.custom_lock_limit_counts)
         form.addRow("correction-limit-counts", self.custom_correction_limit_counts)
-        form.addRow("zero-threshold-counts", self.custom_zero_threshold_counts)
+        form.addRow("target-window-counts", self.custom_zero_threshold_counts)
         form.addRow("capture-length", self.custom_capture_length)
         form.addRow("capture-decimation", self.custom_capture_decimation)
         self.captured_bias_label = QLabel("captured lock_bias: -- counts / -- V ideal")
         self.captured_bias_label.setWordWrap(True)
         form.addRow("captured bias", self.captured_bias_label)
+        self.selected_lock_label = QLabel("selected lock point: click current scan waveform first")
+        self.selected_lock_label.setWordWrap(True)
+        form.addRow("selected point", self.selected_lock_label)
 
         buttons = QGridLayout()
         buttons.setHorizontalSpacing(8)
@@ -471,9 +475,9 @@ class MainWindow(QMainWindow):
         self.custom_p_lock_button = QPushButton("P_LOCK")
         self.custom_pi_lock_button = QPushButton("PI_LOCK")
         self.custom_capture_bias_button = QPushButton("Capture Bias")
-        self.custom_lock_button = QPushButton("LOCK")
-        self.custom_arm_auto_lock_button = QPushButton("ARM AUTO LOCK")
-        self.custom_abort_auto_lock_button = QPushButton("ABORT AUTO LOCK")
+        self.custom_lock_button = QPushButton("LOCK HERE")
+        self.custom_arm_auto_lock_button = QPushButton("LOCK HERE")
+        self.custom_abort_auto_lock_button = QPushButton("ABORT / SAFE")
         self.custom_unlock_button = QPushButton("UNLOCK / SAFE")
         self.custom_capture_waveform_button = QPushButton("Capture Waveform")
         for button in (
@@ -494,6 +498,7 @@ class MainWindow(QMainWindow):
             self._style_button(button)
         self.custom_p_lock_button.setVisible(False)
         self.custom_pi_lock_button.setVisible(False)
+        self.custom_arm_auto_lock_button.setVisible(False)
         buttons.addWidget(self.custom_probe_button, 0, 0)
         buttons.addWidget(self.custom_status_button, 0, 1)
         buttons.addWidget(self.custom_safe_button, 1, 0)
@@ -502,8 +507,7 @@ class MainWindow(QMainWindow):
         buttons.addWidget(self.custom_capture_bias_button, 2, 1)
         buttons.addWidget(self.custom_lock_button, 3, 0)
         buttons.addWidget(self.custom_unlock_button, 3, 1)
-        buttons.addWidget(self.custom_arm_auto_lock_button, 4, 0)
-        buttons.addWidget(self.custom_abort_auto_lock_button, 4, 1)
+        buttons.addWidget(self.custom_abort_auto_lock_button, 4, 0, 1, 2)
         buttons.addWidget(self.custom_capture_waveform_button, 5, 0, 1, 2)
 
         self.custom_register_summary = QLabel(
@@ -515,9 +519,9 @@ class MainWindow(QMainWindow):
         self.custom_warning_text.setReadOnly(True)
         self.custom_warning_text.setMinimumHeight(90)
         self.custom_warning_text.setPlainText(
-            "Probe/Status/Capture Bias are read-only. LOCK is P-only: it captures OUT2_MONITOR counts "
-            "as LOCK_BIAS, then writes MODE=3 P_LOCK with Kp/polarity/lock-limit/correction-limit. Ki/PI is disabled. "
-            "Auto Lock is a P-only candidate with SAFE/ABORT; use slow scan and small correction limit."
+            "First enter SCAN and capture the current waveform. Click the desired zero point, then press LOCK HERE. "
+            "FPGA CAPTURE_LOCK_POINT latches ERROR_SETPOINT and LOCK_BIAS in the same clk_i domain, then enters "
+            "MODE=3 P_LOCK with Kp=0/Ki=0. Historical CSV values are not used as lock parameters."
         )
 
         layout.addLayout(form)
@@ -567,7 +571,7 @@ class MainWindow(QMainWindow):
             "D2-125 Error Input -> FPGA mixer + LPF -> laser_error\n"
             "D2-125 Servo Output -> keep current external path during this stage\n"
             "SCAN -> GUI writes custom_register_bank/ramp_generator for OUT2 triangle\n"
-            "LOCK -> GUI captures OUT2_MONITOR counts, then writes MODE=3 P_LOCK"
+            "Click current waveform target -> LOCK HERE -> FPGA captures ERROR_SETPOINT and LOCK_BIAS, then enters MODE=3 P_LOCK"
         )
         mapping.setWordWrap(True)
         layout.addWidget(QLabel("Lock Workflow Step"))
@@ -762,6 +766,14 @@ class MainWindow(QMainWindow):
             "ch3": self.custom_scope_plot.plot_item.plot([], [], pen=pg.mkPen("#2ca02c", width=1.5), name="OUT1 / laser_error"),
             "ch4": self.custom_scope_plot.plot_item.plot([], [], pen=pg.mkPen("#d62728", width=1.5), name="OUT2 / selected_out2"),
         }
+        self.custom_lock_marker = pg.InfiniteLine(
+            angle=90,
+            movable=False,
+            pen=pg.mkPen("#7f3fbf", width=1.2, style=Qt.PenStyle.DashLine),
+        )
+        self.custom_lock_marker.setVisible(False)
+        self.custom_scope_plot.plot_item.addItem(self.custom_lock_marker)
+        self.custom_scope_plot.scene().sigMouseClicked.connect(self._on_custom_scope_clicked)
         checkbox_row = QHBoxLayout()
         self.custom_scope_checks = {}
         for key, label in (
@@ -800,7 +812,6 @@ class MainWindow(QMainWindow):
         self.custom_pi_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("pi-lock"))
         self.custom_capture_bias_button.clicked.connect(lambda: self._start_custom_fpga_operation("capture-bias"))
         self.custom_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("lock"))
-        self.custom_arm_auto_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("auto-lock"))
         self.custom_abort_auto_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
         self.custom_unlock_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
         self.custom_capture_waveform_button.clicked.connect(lambda: self._start_custom_fpga_operation("capture"))
@@ -947,7 +958,7 @@ class MainWindow(QMainWindow):
             params = {
                 "hold_v": self.custom_hold_v.value(),
             }
-        elif operation in {"p-lock", "pi-lock", "lock"}:
+        elif operation in {"p-lock", "pi-lock"}:
             params = {
                 "kp": self.custom_kp.value(),
                 "ki": self.custom_ki.value(),
@@ -956,29 +967,27 @@ class MainWindow(QMainWindow):
                 "lock_limit_counts": self.custom_lock_limit_counts.value(),
                 "correction_limit_counts": self.custom_correction_limit_counts.value(),
             }
-        elif operation == "capture":
-            params = {
-                "capture_length": self.custom_capture_length.value(),
-                "capture_decimation": self.custom_capture_decimation.value(),
-            }
-        elif operation == "auto-lock":
-            if self.custom_freq_hz.value() > 1.0:
+        elif operation == "lock":
+            if self.selected_lock_point is None:
                 self.custom_warning_text.setPlainText(
-                    "AUTO LOCK warning: scan freq is above 1 Hz. Use 0.2~1 Hz for the first P-only candidate test."
+                    "LOCK HERE requires a target selected from the current scan waveform. "
+                    "Run SCAN, Capture Waveform, click the desired zero point, then press LOCK HERE."
                 )
+                self.statusBar().showMessage("LOCK HERE blocked: no waveform point selected")
+                return
             params = {
-                "sample_count": 256,
-                "sample_interval_s": 0.02,
-                "zero_threshold": self.custom_zero_threshold_counts.value(),
-                "edge_margin_counts": 256,
-                "scan_freq_hz": self.custom_freq_hz.value(),
                 "polarity": 1 if self.custom_polarity.currentText() == "invert" else 0,
                 "lock_limit_counts": self.custom_lock_limit_counts.value(),
                 "correction_limit_counts": self.custom_correction_limit_counts.value(),
                 "settle_s": 0.5,
-                "kp_step_s": 1.0,
-                "abort_out2_counts": 7800,
-                "error_growth_counts": 20,
+                "target_out2_counts": int(self.selected_lock_point["out2_counts"]),
+                "target_window_counts": self.custom_zero_threshold_counts.value(),
+                "target_timeout_s": 5.0,
+            }
+        elif operation == "capture":
+            params = {
+                "capture_length": self.custom_capture_length.value(),
+                "capture_decimation": self.custom_capture_decimation.value(),
             }
         target = self._target_host()
         user = self.ssh_user_edit.text().strip() or "root"
@@ -1023,10 +1032,43 @@ class MainWindow(QMainWindow):
             checkbox = self.custom_scope_checks.get(key)
             curve.setVisible(bool(checkbox is None or checkbox.isChecked()))
 
+    def _on_custom_scope_clicked(self, event: object) -> None:
+        if self.custom_scope_data is None:
+            self.selected_lock_point = None
+            self.selected_lock_label.setText("selected lock point: capture current scan waveform first")
+            return
+        scene_pos = event.scenePos()
+        if not self.custom_scope_plot.plot_item.sceneBoundingRect().contains(scene_pos):
+            return
+        view_pos = self.custom_scope_plot.plot_item.vb.mapSceneToView(scene_pos)
+        t = self.custom_scope_data.get("time_s")
+        out2 = self.custom_scope_data.get("ch4")
+        error = self.custom_scope_data.get("ch3")
+        if t is None or out2 is None or error is None or t.size == 0:
+            return
+        index = int(np.nanargmin(np.abs(t - float(view_pos.x()))))
+        index = max(0, min(index, t.size - 1))
+        self.selected_lock_point = {
+            "index": index,
+            "time_s": float(t[index]),
+            "out2_counts": int(round(float(out2[index]))),
+            "error_counts": int(round(float(error[index]))),
+        }
+        self.custom_lock_marker.setValue(float(t[index]))
+        self.custom_lock_marker.setVisible(True)
+        self.selected_lock_label.setText(
+            "selected lock point: "
+            f"index {index}, OUT2 {int(round(float(out2[index])))} counts, "
+            f"ERROR {int(round(float(error[index])))} counts"
+        )
+
     def _render_custom_capture_payload(self, payload: dict[str, Any]) -> None:
         points = payload.get("points", [])
         if not points:
             self.custom_scope_data = None
+            self.selected_lock_point = None
+            self.custom_lock_marker.setVisible(False)
+            self.selected_lock_label.setText("selected lock point: capture current scan waveform first")
             self.custom_scope_stats.setText("custom_debug_capture not available")
             for curve in self.custom_scope_curves.values():
                 curve.setData([], [])
@@ -1065,7 +1107,7 @@ class MainWindow(QMainWindow):
         stats_lines.append("4.6 MHz REF may alias when decimation is high.")
         stats_lines.append(
             f"MODE {payload.get('mode', '--')} | Kp not captured in status | "
-            f"lock_bias current OUT2 {payload.get('out2_counts', '--')} | "
+            f"current OUT2 {payload.get('out2_counts', '--')} | "
             f"correction_limit {payload.get('lock_correction_limit_counts', '--')}"
         )
         self.custom_scope_stats.setText("\n".join(stats_lines))
@@ -1155,6 +1197,8 @@ class MainWindow(QMainWindow):
         out2_volts = payload.get("out2_volts", "--")
         error_counts = payload.get("error_counts", "--")
         error_volts = payload.get("error_volts", "--")
+        error_setpoint_counts = payload.get("error_setpoint_counts", "--")
+        lock_error_counts = payload.get("lock_error_counts", "--")
         control_counts = payload.get("control_counts", "--")
         control_volts = payload.get("control_volts", "--")
         try:
@@ -1190,31 +1234,23 @@ class MainWindow(QMainWindow):
             f"STATUS: {status}",
             f"OUT2: {out2_counts} counts / {out2_volts_text}",
             f"ERROR_MONITOR: {error_counts} counts / {error_volts_text}",
+            f"ERROR_SETPOINT: {error_setpoint_counts} counts",
+            f"LOCK_ERROR_MONITOR: {lock_error_counts} counts",
             f"CONTROL_MONITOR: {control_counts} counts / {control_volts_text}",
         ]
         if captured_counts is not None:
-            lines.append(f"LOCK_BIAS source: captured OUT2_MONITOR = {captured_counts} counts")
+            lines.append(f"LOCK_BIAS source: FPGA CAPTURE_LOCK_POINT captured OUT2_MONITOR = {captured_counts} counts")
+            captured_setpoint = payload.get("captured_error_setpoint_counts", error_setpoint_counts)
+            lines.append(f"ERROR_SETPOINT source: FPGA CAPTURE_LOCK_POINT captured ERROR_MONITOR = {captured_setpoint} counts")
             lines.append("Ideal volts are register-scale estimates only; oscilloscope measurement is the DAC truth.")
         if operation in {"p-lock", "pi-lock", "lock"}:
             lines.append("Current LOCK path is P-only; Ki/PI is disabled in the timing-friendly RTL.")
             lines.append("Scope-only: keep Kp low; do not connect PZT/current/D2-125 before matrix validation.")
-        if operation == "auto-lock":
-            lines.append(f"AUTO LOCK state: {payload.get('auto_lock_state', '--')}")
-            lines.append(f"abort reason: {payload.get('abort_reason', '')}")
-            zero = payload.get("selected_zero_crossing")
-            if isinstance(zero, dict):
-                lines.append(
-                    "selected zero-crossing: "
-                    f"OUT2 {zero.get('out2_counts', '--')} counts / {zero.get('out2_volts', '--')} V, "
-                    f"ERROR {zero.get('error_counts', '--')} counts, "
-                    f"slope {zero.get('slope_abs_d_error_d_out2', '--')}"
-                )
+        if operation == "lock":
+            lines.append(f"LOCK HERE state: {payload.get('lock_state', '--')}")
+            lines.append(f"target wait matched: {payload.get('target_wait_matched', '--')}")
             lines.append(f"current Kp: {payload.get('current_kp', '--')}")
             lines.append(f"current correction limit: {payload.get('correction_limit_counts', '--')}")
-            trend = payload.get("error_trend", [])
-            if trend:
-                lines.append(f"error trend: {trend}")
-            lines.append("Auto Lock candidate is P-only; Ki/integral remain disabled.")
         if stderr.strip():
             lines.append("")
             lines.append(stderr.strip())
@@ -1726,7 +1762,7 @@ class MainWindow(QMainWindow):
                 "Custom FPGA Lock Host: do not start redpitaya_scpi overlay. "
                 "OUT1=laser_error (mixer+LPF). OUT2=selected_out2 from register-controlled "
                 "SAFE/SCAN/HOLD/P_LOCK modes. Main flow: Probe Registers -> Status -> SAFE -> SCAN -> "
-                "Capture Bias -> LOCK -> UNLOCK/SAFE. Current LOCK=P-only; Ki/PI disabled. "
+                "Capture Waveform -> click target -> LOCK HERE -> UNLOCK/SAFE. Current LOCK=P-only; Ki/PI disabled. "
                 "SCPI ASG output commands do not drive physical OUT2 in the current custom bitstream."
             )
             if all(hasattr(self, name) for name in ("ch3", "ch4")):

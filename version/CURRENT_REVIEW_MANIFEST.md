@@ -125,6 +125,9 @@ CONTROL_MONITOR
 KI
 INTEGRAL_RESET
 LOCK_CORRECTION_LIMIT
+ERROR_SETPOINT
+LOCK_ERROR_MONITOR
+CAPTURE_LOCK_POINT
 CAPTURE_CTRL
 CAPTURE_STATUS
 CAPTURE_DECIMATION
@@ -153,6 +156,7 @@ lock_bias = 0
 lock_limit = 8191
 ki = 0
 lock_correction_limit = 128
+error_setpoint = 0
 capture_decimation = 1024
 capture_length = 2048
 ```
@@ -206,6 +210,10 @@ Auto Lock candidate 等待 Vivado timing / bitstream / 烧录 / 上板验证
 custom_debug_capture 单窗口波形等待 Vivado timing / bitstream / 烧录 / 上板验证
 KI / integral 当前不要恢复
 ```
+
+2026-07-11 资源修复基线：`custom_debug_capture` 初版四通道 4096 深度存储曾被 Vivado 推断为 LUTRAM / RAM64M / RAM64X1D，导致 place_design `[Place 30-484]`，`LUTRAM/SRL capable slices` 超限。本次已将 `mem_ch1..mem_ch4` 标记为 `(* ram_style = "block" *)`，并把 debug capture 读路径改为同步读，读数据允许 1 个 `clk_i` 周期延迟。四通道仍完整保留，默认 `DEPTH=4096` 未变。该修复尚需用户重新运行 Vivado synthesis / implementation 确认，不得声称 implementation 已通过。
+
+2026-07-11 v3LOCK-P0 人工选点基线：当前第一版不是自动识峰、不是 AI 自动锁定。禁止把 `board(1).csv` 或任何历史实验中的 `54 counts`、`0.704 V`、`0.784 V`、`49.75 Hz`、峰值、基线、扫描位置写成生产默认值或锁点配置。当前候选协议版本为 `0x00030001`，新增 `ERROR_SETPOINT`、`LOCK_ERROR_MONITOR`、`CAPTURE_LOCK_POINT`。真实锁点必须来自当前扫描波形：用户点击当前目标后执行 `LOCK HERE`，FPGA 在同一 `clk_i` 域捕获 `ERROR_SETPOINT` 和 `LOCK_BIAS`，P_LOCK 使用校正后的 `lock_error`。该候选尚未完成 Vivado synthesis / implementation / timing / bitstream / 烧录 / 上板验证。
 
 禁止说的内容：
 

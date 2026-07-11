@@ -23,6 +23,9 @@ module tb_custom_register_bank_basic;
     localparam logic [5:0] REG_KI              = 6'h12;
     localparam logic [5:0] REG_INTEGRAL_RESET  = 6'h13;
     localparam logic [5:0] REG_LOCK_CORRECTION_LIMIT = 6'h14;
+    localparam logic [5:0] REG_ERROR_SETPOINT  = 6'h15;
+    localparam logic [5:0] REG_LOCK_ERROR_MONITOR = 6'h16;
+    localparam logic [5:0] REG_CAPTURE_LOCK_POINT = 6'h17;
     localparam logic [5:0] REG_CAPTURE_CTRL       = 6'h20;
     localparam logic [5:0] REG_CAPTURE_STATUS     = 6'h21;
     localparam logic [5:0] REG_CAPTURE_DECIMATION = 6'h22;
@@ -54,6 +57,7 @@ module tb_custom_register_bank_basic;
     logic signed [13:0] lock_bias;
     logic signed [13:0] lock_limit;
     logic signed [13:0] lock_correction_limit;
+    logic signed [13:0] error_setpoint;
     logic signed [13:0] ki;
     logic integral_reset;
     logic capture_start;
@@ -62,6 +66,7 @@ module tb_custom_register_bank_basic;
     logic [31:0] capture_read_index;
     logic capture_busy;
     logic capture_done;
+    logic signed [13:0] lock_error_monitor;
     logic signed [13:0] capture_data_ch1;
     logic signed [13:0] capture_data_ch2;
     logic signed [13:0] capture_data_ch3;
@@ -137,6 +142,7 @@ module tb_custom_register_bank_basic;
         .lock_bias_o(lock_bias),
         .lock_limit_o(lock_limit),
         .lock_correction_limit_o(lock_correction_limit),
+        .error_setpoint_o(error_setpoint),
         .ki_o(ki),
         .integral_reset_o(integral_reset),
         .capture_start_o(capture_start),
@@ -145,6 +151,7 @@ module tb_custom_register_bank_basic;
         .capture_read_index_o(capture_read_index),
         .capture_busy_i(capture_busy),
         .capture_done_i(capture_done),
+        .lock_error_monitor_i(lock_error_monitor),
         .capture_data_ch1_i(capture_data_ch1),
         .capture_data_ch2_i(capture_data_ch2),
         .capture_data_ch3_i(capture_data_ch3),
@@ -160,6 +167,7 @@ module tb_custom_register_bank_basic;
         saturated = 1'b0;
         capture_busy = 1'b0;
         capture_done = 1'b0;
+        lock_error_monitor = 14'sd0;
         capture_data_ch1 = 14'sd11;
         capture_data_ch2 = -14'sd22;
         capture_data_ch3 = 14'sd33;
@@ -186,6 +194,7 @@ module tb_custom_register_bank_basic;
         check("reset LOCK_BIAS is 0", lock_bias == 14'sd0);
         check("reset LOCK_LIMIT is 8191", lock_limit == 14'sd8191);
         check("reset LOCK_CORRECTION_LIMIT is 128", lock_correction_limit == 14'sd128);
+        check("reset ERROR_SETPOINT is 0", error_setpoint == 14'sd0);
         check("reset KI is 0", ki == 14'sd0);
         check("reset CAPTURE_DECIMATION is 1024", capture_decimation == 32'd1024);
         check("reset CAPTURE_LENGTH is 2048", capture_length == 32'd2048);
@@ -193,7 +202,7 @@ module tb_custom_register_bank_basic;
         bus_read(REG_MAGIC, read_data);
         check("read MAGIC", read_data == 32'h4D545330);
         bus_read(REG_VERSION, read_data);
-        check("read VERSION", read_data == 32'h00030000);
+        check("read VERSION", read_data == 32'h00030001);
 
         bus_write(REG_MODE, 32'd1);
         bus_write(REG_ENABLE, 32'd1);
@@ -208,6 +217,7 @@ module tb_custom_register_bank_basic;
         bus_write(REG_LOCK_BIAS, 32'd1234);
         bus_write(REG_LOCK_LIMIT, 32'd6000);
         bus_write(REG_LOCK_CORRECTION_LIMIT, 32'd128);
+        bus_write(REG_ERROR_SETPOINT, 32'hFFFF_FF9C);
         bus_write(REG_KI, 32'd8);
         bus_write(REG_INTEGRAL_RESET, 32'd1);
         bus_write(REG_CAPTURE_DECIMATION, 32'd64);
@@ -227,6 +237,7 @@ module tb_custom_register_bank_basic;
         check("write LOCK_BIAS=1234 reaches output", lock_bias == 14'sd1234);
         check("write LOCK_LIMIT=6000 reaches output", lock_limit == 14'sd6000);
         check("write LOCK_CORRECTION_LIMIT=128 reaches output", lock_correction_limit == 14'sd128);
+        check("write ERROR_SETPOINT=-100 reaches output", error_setpoint == -14'sd100);
         check("write KI=8 reaches output", ki == 14'sd8);
         check("write CAPTURE_DECIMATION=64 reaches output", capture_decimation == 32'd64);
         check("write CAPTURE_LENGTH=4096 reaches output", capture_length == 32'd4096);
@@ -275,6 +286,12 @@ module tb_custom_register_bank_basic;
         check("read back LOCK_LIMIT=6000", $signed(read_data) == 32'sd6000);
         bus_read(REG_LOCK_CORRECTION_LIMIT, read_data);
         check("read back LOCK_CORRECTION_LIMIT=128", $signed(read_data) == 32'sd128);
+        bus_read(REG_ERROR_SETPOINT, read_data);
+        check("read back ERROR_SETPOINT=-100", $signed(read_data) == -32'sd100);
+        lock_error_monitor = -14'sd321;
+        wait_cycles(2);
+        bus_read(REG_LOCK_ERROR_MONITOR, read_data);
+        check("read LOCK_ERROR_MONITOR", $signed(read_data) == -32'sd321);
         bus_read(REG_KI, read_data);
         check("read back KI=8", $signed(read_data) == 32'sd8);
         bus_read(REG_CAPTURE_DECIMATION, read_data);
@@ -307,6 +324,25 @@ module tb_custom_register_bank_basic;
         check("read ERROR_MONITOR", $signed(read_data) == -32'sd222);
         bus_read(REG_CONTROL_MONITOR, read_data);
         check("read CONTROL_MONITOR", $signed(read_data) == 32'sd333);
+
+        bus_write(REG_MODE, 32'd1);
+        bus_write(REG_ENABLE, 32'd1);
+        out2_monitor = 14'sd2345;
+        error_monitor = -14'sd456;
+        wait_cycles(2);
+        bus_write(REG_KP, 32'd0);
+        bus_write(REG_KI, 32'd0);
+        bus_write(REG_CAPTURE_LOCK_POINT, 32'd1);
+        check("CAPTURE_LOCK_POINT latches current ERROR_SETPOINT", error_setpoint == -14'sd456);
+        check("CAPTURE_LOCK_POINT latches current LOCK_BIAS", lock_bias == 14'sd2345);
+        check("CAPTURE_LOCK_POINT forces KP=0", kp == 14'sd0);
+        check("CAPTURE_LOCK_POINT forces KI=0", ki == 14'sd0);
+        check("CAPTURE_LOCK_POINT switches to P_LOCK", mode == 32'd3);
+        check("CAPTURE_LOCK_POINT keeps enable asserted", enable == 1'b1);
+        bus_read(REG_ERROR_SETPOINT, read_data);
+        check("read captured ERROR_SETPOINT", $signed(read_data) == -32'sd456);
+        bus_read(REG_LOCK_BIAS, read_data);
+        check("read captured LOCK_BIAS", $signed(read_data) == 32'sd2345);
 
         saturated = 1'b1;
         bus_read(REG_STATUS, read_data);

@@ -16,6 +16,7 @@ from .ssh_client import RedPitayaSshClient, SshCommandResult
 
 
 EXPECTED_MAGIC = 0x4D545330
+EXPECTED_VERSION = 0x00030001
 DEFAULT_BASE_ADDR = 0x4060_0000
 DEFAULT_CLK_HZ = 125_000_000.0
 COUNTS_PER_VOLT = 8191.0
@@ -56,19 +57,15 @@ class CaptureConfig:
 
 
 @dataclass(frozen=True)
-class AutoLockConfig:
-    sample_count: int
-    sample_interval_s: float
-    zero_threshold: int
-    edge_margin_counts: int
-    scan_freq_hz: float
+class LockHereConfig:
     polarity: int
     lock_limit_counts: int
     correction_limit_counts: int
     settle_s: float
-    kp_step_s: float
-    abort_out2_counts: int
-    error_growth_counts: int
+    target_out2_counts: int | None = None
+    target_window_counts: int = 64
+    target_timeout_s: float = 5.0
+    target_poll_s: float = 0.005
 
 
 @dataclass(frozen=True)
@@ -201,7 +198,7 @@ def _load_scan_script_module():
 def _remote_python_command(
     base_addr: int,
     operation: str,
-    config: ScanConfig | HoldConfig | LockConfig | CaptureConfig | AutoLockConfig | None,
+    config: ScanConfig | HoldConfig | LockConfig | CaptureConfig | LockHereConfig | None,
 ) -> str:
     helper = _load_scan_script_module().REMOTE_HELPER
     helper_b64 = base64.b64encode(helper.encode("utf-8")).decode("ascii")
@@ -246,18 +243,8 @@ def _remote_python_command(
             "--capture-decimation",
             str(config.capture_decimation),
         ]
-    elif isinstance(config, AutoLockConfig):
+    elif isinstance(config, LockHereConfig):
         remote_args += [
-            "--sample-count",
-            str(config.sample_count),
-            "--sample-interval-s",
-            str(config.sample_interval_s),
-            "--zero-threshold",
-            str(config.zero_threshold),
-            "--edge-margin-counts",
-            str(config.edge_margin_counts),
-            "--scan-freq-hz",
-            str(config.scan_freq_hz),
             "--polarity",
             str(config.polarity),
             "--lock-limit-counts",
@@ -266,13 +253,15 @@ def _remote_python_command(
             str(config.correction_limit_counts),
             "--settle-s",
             str(config.settle_s),
-            "--kp-step-s",
-            str(config.kp_step_s),
-            "--abort-out2-counts",
-            str(config.abort_out2_counts),
-            "--error-growth-counts",
-            str(config.error_growth_counts),
+            "--target-window-counts",
+            str(config.target_window_counts),
+            "--target-timeout-s",
+            str(config.target_timeout_s),
+            "--target-poll-s",
+            str(config.target_poll_s),
         ]
+        if config.target_out2_counts is not None:
+            remote_args += ["--target-out2-counts", str(config.target_out2_counts)]
     remote_python = (
         "import base64, sys; "
         f"code=base64.b64decode('{helper_b64}').decode('utf-8'); "
@@ -395,44 +384,27 @@ class CustomFpgaBackend:
             remote_command=response.remote_command,
         )
 
-    def capture_bias_and_p_lock(
+    def lock_here(
         self,
         *,
-        kp: int,
         polarity: int,
         lock_limit_counts: int,
         correction_limit_counts: int = 128,
+        settle_s: float = 0.5,
+        target_out2_counts: int | None = None,
+        target_window_counts: int = 64,
+        target_timeout_s: float = 5.0,
     ) -> CustomFpgaResponse:
-        status_response = self.capture_bias()
-        payload = dict(status_response.payload)
-        status_text = payload.get("status_value", payload.get("status_raw", payload.get("status", 0))) or 0
-        status_raw = int(status_text, 0) if isinstance(status_text, str) else int(status_text)
-        if status_raw & ~0x1:
-            raise CustomFpgaBackendError(
-                f"Refusing LOCK because custom FPGA STATUS has error bits set: 0x{status_raw:08X}"
-            )
-        lock_bias_counts = int(payload["captured_lock_bias_counts"])
-        config = build_lock_config_from_counts(
-            kp=kp,
-            ki=0,
+        config = LockHereConfig(
             polarity=polarity,
-            lock_bias_counts=lock_bias_counts,
             lock_limit_counts=lock_limit_counts,
             correction_limit_counts=correction_limit_counts,
+            settle_s=settle_s,
+            target_out2_counts=None if target_out2_counts is None else int(target_out2_counts),
+            target_window_counts=max(0, int(target_window_counts)),
+            target_timeout_s=max(0.1, float(target_timeout_s)),
         )
-        lock_response = self._run("p-lock", config, allow_nonzero=False)
-        lock_payload = dict(lock_response.payload)
-        lock_payload["captured_lock_bias_counts"] = lock_bias_counts
-        lock_payload["captured_lock_bias_volts_ideal"] = counts_to_volts(lock_bias_counts)
-        lock_payload["lock_bias_source"] = "OUT2_MONITOR counts captured before P_LOCK"
-        return CustomFpgaResponse(
-            operation="lock",
-            payload=lock_payload,
-            stdout=status_response.stdout + "\n" + lock_response.stdout,
-            stderr="\n".join(part for part in (status_response.stderr, lock_response.stderr) if part.strip()),
-            exit_code=lock_response.exit_code,
-            remote_command=status_response.remote_command + "\n" + lock_response.remote_command,
-        )
+        return self._run("lock-here", config, allow_nonzero=False)
 
     def capture_waveform(self, *, capture_length: int, capture_decimation: int) -> CustomFpgaResponse:
         config = CaptureConfig(
@@ -440,38 +412,6 @@ class CustomFpgaBackend:
             capture_decimation=max(1, int(capture_decimation)),
         )
         return self._run("capture", config, allow_nonzero=False)
-
-    def auto_lock(
-        self,
-        *,
-        sample_count: int,
-        sample_interval_s: float,
-        zero_threshold: int,
-        edge_margin_counts: int,
-        scan_freq_hz: float,
-        polarity: int,
-        lock_limit_counts: int,
-        correction_limit_counts: int,
-        settle_s: float,
-        kp_step_s: float,
-        abort_out2_counts: int,
-        error_growth_counts: int,
-    ) -> CustomFpgaResponse:
-        config = AutoLockConfig(
-            sample_count=max(2, int(sample_count)),
-            sample_interval_s=max(0.001, float(sample_interval_s)),
-            zero_threshold=max(1, int(zero_threshold)),
-            edge_margin_counts=max(0, int(edge_margin_counts)),
-            scan_freq_hz=float(scan_freq_hz),
-            polarity=1 if int(polarity) else 0,
-            lock_limit_counts=max(0, min(8191, int(lock_limit_counts))),
-            correction_limit_counts=max(0, min(8191, int(correction_limit_counts))),
-            settle_s=max(0.1, float(settle_s)),
-            kp_step_s=max(0.1, float(kp_step_s)),
-            abort_out2_counts=max(0, min(8191, int(abort_out2_counts))),
-            error_growth_counts=max(0, int(error_growth_counts)),
-        )
-        return self._run("auto-lock", config, allow_nonzero=False)
 
     def read_error_snapshot(self) -> CustomFpgaResponse:
         return self.read_status()
@@ -490,7 +430,7 @@ class CustomFpgaBackend:
     def _run(
         self,
         operation: str,
-        config: ScanConfig | HoldConfig | LockConfig | CaptureConfig | AutoLockConfig | None,
+        config: ScanConfig | HoldConfig | LockConfig | CaptureConfig | LockHereConfig | None,
         *,
         allow_nonzero: bool,
     ) -> CustomFpgaResponse:

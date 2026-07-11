@@ -23,10 +23,10 @@ module custom_debug_capture #(
 
     localparam int ADDR_WIDTH = $clog2(DEPTH);
 
-    logic signed [13:0] mem_ch1 [0:DEPTH-1];
-    logic signed [13:0] mem_ch2 [0:DEPTH-1];
-    logic signed [13:0] mem_ch3 [0:DEPTH-1];
-    logic signed [13:0] mem_ch4 [0:DEPTH-1];
+    (* ram_style = "block" *) logic signed [13:0] mem_ch1 [0:DEPTH-1];
+    (* ram_style = "block" *) logic signed [13:0] mem_ch2 [0:DEPTH-1];
+    (* ram_style = "block" *) logic signed [13:0] mem_ch3 [0:DEPTH-1];
+    (* ram_style = "block" *) logic signed [13:0] mem_ch4 [0:DEPTH-1];
 
     logic [31:0] decimation_q;
     logic [31:0] length_q;
@@ -40,11 +40,6 @@ module custom_debug_capture #(
         end else begin
             read_index_w = read_index_i[ADDR_WIDTH-1:0];
         end
-
-        data_ch1_o = mem_ch1[read_index_w];
-        data_ch2_o = mem_ch2[read_index_w];
-        data_ch3_o = mem_ch3[read_index_w];
-        data_ch4_o = mem_ch4[read_index_w];
     end
 
     always_ff @(posedge clk_i) begin
@@ -55,7 +50,16 @@ module custom_debug_capture #(
             length_q      <= 32'd2048;
             decim_cnt_q   <= 32'd0;
             write_index_q <= {ADDR_WIDTH{1'b0}};
+            data_ch1_o    <= 14'sd0;
+            data_ch2_o    <= 14'sd0;
+            data_ch3_o    <= 14'sd0;
+            data_ch4_o    <= 14'sd0;
         end else begin
+            data_ch1_o <= mem_ch1[read_index_w];
+            data_ch2_o <= mem_ch2[read_index_w];
+            data_ch3_o <= mem_ch3[read_index_w];
+            data_ch4_o <= mem_ch4[read_index_w];
+
             if (start_i) begin
                 busy_o        <= 1'b1;
                 done_o        <= 1'b0;

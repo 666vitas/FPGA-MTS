@@ -103,6 +103,14 @@ module tb_out2_lock_controller;
         check("HOLD outputs fixed hold value", control_o == -14'sd1234);
 
         mode = MODE_P_LOCK;
+        lock_bias = 14'sd777;
+        kp = 14'sd0;
+        polarity = 1'b0;
+        error_i = 14'sd500;
+        wait_cycles(1);
+        check("P_LOCK transition holds lock_bias while pipeline fills", control_o == 14'sd777);
+
+        mode = MODE_P_LOCK;
         lock_bias = 14'sd100;
         kp = 14'sd0;
         polarity = 1'b0;

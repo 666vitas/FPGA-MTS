@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 from redpitaya_lock_host.custom_fpga_backend import (
+    EXPECTED_VERSION,
     build_lock_config_from_counts,
     status_payload_has_expected_magic,
     missing_magic_guidance,
@@ -106,19 +107,41 @@ def test_one_click_lock_bias_uses_out2_monitor_counts_not_voltage_estimate() -> 
 def test_custom_fpga_cli_exposes_hold_p_lock_and_pi_lock_without_default_gain() -> None:
     custom_fpga_scan_control = load_scan_control_module()
 
-    for command in ("hold", "p-lock", "pi-lock"):
+    for command in ("hold", "p-lock", "pi-lock", "lock-here"):
         args = custom_fpga_scan_control.parse_args(["--host", "rp.local", command])
         assert args.command == command
 
     p_args = custom_fpga_scan_control.parse_args(["--host", "rp.local", "p-lock"])
     pi_args = custom_fpga_scan_control.parse_args(["--host", "rp.local", "pi-lock"])
-    auto_args = custom_fpga_scan_control.parse_args(["--host", "rp.local", "auto-lock"])
+    lock_here_args = custom_fpga_scan_control.parse_args(["--host", "rp.local", "lock-here"])
     assert p_args.kp == 0
     assert pi_args.kp == 0
     assert pi_args.ki == 0
     assert p_args.correction_limit_counts == 128
-    assert auto_args.command == "auto-lock"
-    assert auto_args.correction_limit_counts == 128
+    assert lock_here_args.command == "lock-here"
+    assert lock_here_args.correction_limit_counts == 128
+    assert lock_here_args.target_out2_counts is None
+    assert lock_here_args.target_window_counts == 64
+
+
+def test_remote_helper_register_map_includes_lock_here_setpoint_registers() -> None:
+    custom_fpga_scan_control = load_scan_control_module()
+
+    assert custom_fpga_scan_control.REGISTERS["ERROR_SETPOINT"] == 0x54
+    assert custom_fpga_scan_control.REGISTERS["LOCK_ERROR_MONITOR"] == 0x58
+    assert custom_fpga_scan_control.REGISTERS["CAPTURE_LOCK_POINT"] == 0x5C
+    assert f"EXPECTED_VERSION = 0x{EXPECTED_VERSION:08X}" in custom_fpga_scan_control.REMOTE_HELPER
+    assert '"lock-here"' in custom_fpga_scan_control.REMOTE_HELPER
+
+
+def test_lock_here_does_not_embed_historical_board_values() -> None:
+    source = (ROOT / "scripts" / "custom_fpga_scan_control.py").read_text(encoding="utf-8")
+    gui_source = (ROOT / "redpitaya_lock_host" / "main_window.py").read_text(encoding="utf-8")
+    backend_source = (ROOT / "redpitaya_lock_host" / "custom_fpga_backend.py").read_text(encoding="utf-8")
+
+    combined = "\n".join([source, gui_source, backend_source])
+    for forbidden in ("0.704", "0.784", "49.75", "54 counts"):
+        assert forbidden not in combined
 
 
 def test_gui_text_separates_scpi_and_custom_fpga_out2_paths() -> None:
@@ -132,13 +155,16 @@ def test_gui_text_separates_scpi_and_custom_fpga_out2_paths() -> None:
     assert "Capture Bias" in source
     assert "UNLOCK / SAFE" in source
     assert "Current LOCK=P-only; Ki/PI disabled" in source
-    assert "LOCK_BIAS source: captured OUT2_MONITOR" in source
+    assert "LOCK_BIAS source: FPGA CAPTURE_LOCK_POINT captured OUT2_MONITOR" in source
+    assert "ERROR_SETPOINT source: FPGA CAPTURE_LOCK_POINT captured ERROR_MONITOR" in source
     assert "SCPI ASG output commands do not drive physical OUT2" in source
     assert "Custom FPGA Scope" in source
     assert "custom_debug_capture not available" in source
     assert "CAPTURE_CTRL, CAPTURE_STATUS, CAPTURE_DECIMATION" in source
-    assert "ARM AUTO LOCK" in source
-    assert "ABORT AUTO LOCK" in source
+    assert "LOCK HERE" in source
+    assert "ABORT / SAFE" in source
+    assert "ARM AUTO LOCK" not in source
+    assert "AUTO LOCK" not in source
 
 
 def test_gui_startup_does_not_require_legacy_scpi_output_controls() -> None:
@@ -163,9 +189,9 @@ def test_main_window_constructs_without_legacy_scpi_output_controls() -> None:
         assert not hasattr(window, "out1")
         assert not hasattr(window, "out2")
         assert window.custom_probe_button.text() == "Probe Registers"
-        assert window.custom_lock_button.text() == "LOCK"
-        assert window.custom_arm_auto_lock_button.text() == "ARM AUTO LOCK"
+        assert window.custom_lock_button.text() == "LOCK HERE"
         assert window.custom_correction_limit_counts.value() == 128
+        assert window.custom_lock_limit_counts.value() == 8191
     finally:
         window.close()
         app.processEvents()

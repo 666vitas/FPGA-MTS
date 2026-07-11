@@ -1,5 +1,19 @@
 # STATUS
 
+## 2026-07-11 v3LOCK-P0 LOCK HERE 与 FPGA 同拍锁点捕获候选
+
+本次按最新安全纠正收敛为第一版人工选点：历史 `board(1).csv` 中的 `54 counts`、`0.704 V`、`0.784 V`、`49.75 Hz` 以及任何峰值/基线/扫描位置，只允许作为问题分析证据，禁止作为 RTL、Python、GUI、测试默认值或锁点配置。
+新增候选协议 `VERSION=0x00030001`：`ERROR_SETPOINT`、`LOCK_ERROR_MONITOR`、`CAPTURE_LOCK_POINT`。`CAPTURE_LOCK_POINT` 在 FPGA `clk_i` 域同拍锁存 `ERROR_SETPOINT <= ERROR_MONITOR` 与 `LOCK_BIAS <= OUT2_MONITOR`，并进入 `MODE=3 P_LOCK`；P_LOCK 使用 `lock_error = saturate_14bit(laser_error - error_setpoint)`，不再直接使用原始 `laser_error`。
+上位机主流程改为 `SCAN -> Capture Waveform -> 点击当前波形目标 -> LOCK HERE -> FPGA 等待当前 OUT2 重新进入所选窗口 -> 同拍捕获 -> Kp=0/Ki=0 P_LOCK -> 小 Kp 后续人工验证 -> SAFE`。第一版不做 AI、不做自动识峰、不恢复 Ki/integral、不使用历史 LOCK_BIAS。
+本次已运行 Python 静态检查、pytest 与 XSim 行为仿真；未运行 Vivado synthesis / implementation，未生成 bitstream，未烧录，未接板子。P_LOCK/LOCK HERE 仍必须先 OUT2 示波器验证，禁止声称已闭环锁定或已替代 D2-125。
+
+## 2026-07-11 custom_debug_capture BRAM 修复，等待用户手动 Vivado implementation 验证
+
+用户手动 Vivado place_design 失败：`custom_debug_capture` 的四通道 4096 深度存储被推断为 LUTRAM / RAM64M / RAM64X1D，触发 `[Place 30-484]`，`LUTRAM/SRL capable slices` 需求 `1630 / 1500`，利用率 `108.667%`。
+本次只修改 `v0.94/rtl/custom_debug_capture.sv` 和对应 testbench：为 `mem_ch1..mem_ch4` 添加 `(* ram_style = "block" *)`，删除组合读，改为 1 个 `clk_i` 周期延迟的同步读，目标是让 Vivado 推断 Block RAM。
+四通道功能保持不变：CH1=IN1/adc_dat[0]，CH2=IN2/adc_dat[1]，CH3=laser_error，CH4=selected_out2；默认 `DEPTH=4096` 保持不变，未降级通道。
+未修改 Auto Lock / P_LOCK / KI / correction limit；未运行 Vivado synthesis / implementation，未生成 bitstream，未烧录，未接板子，未运行 Auto Lock。下一步由用户手动重新运行 Vivado synthesis / implementation，并确认不再出现 `[Place 30-484]`，且 timing 满足 `WNS >= 0, TNS = 0, Failing Endpoints = 0`。
+
 ## 2026-07-10 Auto Lock candidate 与单窗口 debug capture 第一版
 
 本轮进入 Auto Lock candidate：新增 P-only `LOCK_CORRECTION_LIMIT`，默认 `128 counts`，`MODE=3 P_LOCK` 的 correction 先被限制后再叠加 `LOCK_BIAS`，最终仍受绝对 DAC limit 保护；`MODE=4 PI_LOCK` 继续退化为 P_LOCK，`KI / integral` 不恢复。

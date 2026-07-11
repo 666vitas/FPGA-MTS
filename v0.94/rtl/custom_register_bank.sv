@@ -20,6 +20,7 @@ module custom_register_bank (
     output logic signed [13:0] lock_bias_o,
     output logic signed [13:0] lock_limit_o,
     output logic signed [13:0] lock_correction_limit_o,
+    output logic signed [13:0] error_setpoint_o,
     output logic signed [13:0] ki_o,
     output logic               integral_reset_o,
     output logic               capture_start_o,
@@ -28,6 +29,7 @@ module custom_register_bank (
     output logic        [31:0] capture_read_index_o,
     input  logic               capture_busy_i,
     input  logic               capture_done_i,
+    input  logic signed [13:0] lock_error_monitor_i,
     input  logic signed [13:0] capture_data_ch1_i,
     input  logic signed [13:0] capture_data_ch2_i,
     input  logic signed [13:0] capture_data_ch3_i,
@@ -36,7 +38,7 @@ module custom_register_bank (
 );
 
     localparam logic [31:0] REG_MAGIC_VALUE   = 32'h4D545330;
-    localparam logic [31:0] REG_VERSION_VALUE = 32'h00030000;
+    localparam logic [31:0] REG_VERSION_VALUE = 32'h00030001;
 
     localparam logic [5:0] REG_MAGIC           = 6'h00;
     localparam logic [5:0] REG_VERSION         = 6'h01;
@@ -59,6 +61,9 @@ module custom_register_bank (
     localparam logic [5:0] REG_KI              = 6'h12;
     localparam logic [5:0] REG_INTEGRAL_RESET  = 6'h13;
     localparam logic [5:0] REG_LOCK_CORRECTION_LIMIT = 6'h14;
+    localparam logic [5:0] REG_ERROR_SETPOINT  = 6'h15;
+    localparam logic [5:0] REG_LOCK_ERROR_MONITOR = 6'h16;
+    localparam logic [5:0] REG_CAPTURE_LOCK_POINT = 6'h17;
     localparam logic [5:0] REG_CAPTURE_CTRL       = 6'h20;
     localparam logic [5:0] REG_CAPTURE_STATUS     = 6'h21;
     localparam logic [5:0] REG_CAPTURE_DECIMATION = 6'h22;
@@ -92,6 +97,7 @@ module custom_register_bank (
             lock_bias_o       <= 14'sd0;
             lock_limit_o      <= 14'sd8191;
             lock_correction_limit_o <= 14'sd128;
+            error_setpoint_o  <= 14'sd0;
             ki_o              <= 14'sd0;
             integral_reset_o  <= 1'b0;
             capture_start_o   <= 1'b0;
@@ -156,6 +162,20 @@ module custom_register_bank (
                         lock_correction_limit_o <= 14'sd8191;
                     end else begin
                         lock_correction_limit_o <= bus.wdata[13:0];
+                    end
+                end
+                REG_ERROR_SETPOINT: begin
+                    error_setpoint_o <= bus.wdata[13:0];
+                end
+                REG_CAPTURE_LOCK_POINT: begin
+                    if (bus.wdata[0]) begin
+                        error_setpoint_o <= error_monitor_i;
+                        lock_bias_o      <= out2_monitor_i;
+                        kp_o             <= 14'sd0;
+                        ki_o             <= 14'sd0;
+                        integral_reset_o <= 1'b1;
+                        mode_o           <= 32'd3;
+                        enable_o         <= 1'b1;
                     end
                 end
                 REG_KI: begin
@@ -252,6 +272,15 @@ module custom_register_bank (
                     end
                     REG_LOCK_CORRECTION_LIMIT: begin
                         bus.rdata <= {{18{lock_correction_limit_o[13]}}, lock_correction_limit_o};
+                    end
+                    REG_ERROR_SETPOINT: begin
+                        bus.rdata <= {{18{error_setpoint_o[13]}}, error_setpoint_o};
+                    end
+                    REG_LOCK_ERROR_MONITOR: begin
+                        bus.rdata <= {{18{lock_error_monitor_i[13]}}, lock_error_monitor_i};
+                    end
+                    REG_CAPTURE_LOCK_POINT: begin
+                        bus.rdata <= 32'd0;
                     end
                     REG_ERROR_MONITOR: begin
                         bus.rdata <= {{18{error_monitor_i[13]}}, error_monitor_i};
@@ -522,7 +551,7 @@ module out2_lock_controller (
                                 saturated_o <= s5_correction_saturated;
                             end
                         end else begin
-                            control_o   <= 14'sd0;
+                            control_o   <= lock_bias_i;
                             saturated_o <= 1'b0;
                         end
                     end

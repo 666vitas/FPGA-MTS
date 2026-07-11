@@ -43,6 +43,9 @@ REGISTERS = {
     "KI": 0x48,
     "INTEGRAL_RESET": 0x4C,
     "LOCK_CORRECTION_LIMIT": 0x50,
+    "ERROR_SETPOINT": 0x54,
+    "LOCK_ERROR_MONITOR": 0x58,
+    "CAPTURE_LOCK_POINT": 0x5C,
     "CAPTURE_CTRL": 0x80,
     "CAPTURE_STATUS": 0x84,
     "CAPTURE_DECIMATION": 0x88,
@@ -86,6 +89,9 @@ REGISTERS = {
     "KI": 0x48,
     "INTEGRAL_RESET": 0x4C,
     "LOCK_CORRECTION_LIMIT": 0x50,
+    "ERROR_SETPOINT": 0x54,
+    "LOCK_ERROR_MONITOR": 0x58,
+    "CAPTURE_LOCK_POINT": 0x5C,
     "CAPTURE_CTRL": 0x80,
     "CAPTURE_STATUS": 0x84,
     "CAPTURE_DECIMATION": 0x88,
@@ -98,6 +104,7 @@ REGISTERS = {
 }
 
 EXPECTED_MAGIC = 0x4D545330
+EXPECTED_VERSION = 0x00030001
 PROBE_BASE_ADDRS = [
     0x40000000,
     0x40100000,
@@ -206,6 +213,8 @@ def read_status(regs):
     out2_raw = regs.read(REGISTERS["OUT2_MONITOR"])
     error_raw = regs.read(REGISTERS["ERROR_MONITOR"])
     control_raw = regs.read(REGISTERS["CONTROL_MONITOR"])
+    error_setpoint_raw = regs.read(REGISTERS["ERROR_SETPOINT"])
+    lock_error_raw = regs.read(REGISTERS["LOCK_ERROR_MONITOR"])
     return {
         "magic": f"0x{magic:08X}",
         "version": f"0x{version:08X}",
@@ -218,6 +227,10 @@ def read_status(regs):
         "out2_volts": to_signed14(out2_raw) / 8191.0,
         "error_counts": to_signed14(error_raw),
         "error_volts": to_signed14(error_raw) / 8191.0,
+        "error_setpoint_counts": to_signed14(error_setpoint_raw),
+        "error_setpoint_volts": to_signed14(error_setpoint_raw) / 8191.0,
+        "lock_error_counts": to_signed14(lock_error_raw),
+        "lock_error_volts": to_signed14(lock_error_raw) / 8191.0,
         "control_counts": to_signed14(control_raw),
         "control_volts": to_signed14(control_raw) / 8191.0,
         "lock_correction_limit_counts": to_signed14(regs.read(REGISTERS["LOCK_CORRECTION_LIMIT"])),
@@ -257,129 +270,72 @@ def capture_waveform(regs, length, decimation):
     }
 
 
-def sample_status_series(regs, sample_count, interval_s):
-    samples = []
-    for index in range(max(2, int(sample_count))):
-        status = read_status(regs)
-        status["sample_index"] = index
-        samples.append(status)
-        time.sleep(max(0.001, float(interval_s)))
-    return samples
-
-
-def select_zero_crossing(samples, threshold, edge_margin_counts):
-    candidates = []
-    threshold = max(1, int(threshold))
-    edge_margin_counts = max(0, int(edge_margin_counts))
-    for prev, cur in zip(samples, samples[1:]):
-        prev_error = int(prev["error_counts"])
-        cur_error = int(cur["error_counts"])
-        prev_out2 = int(prev["out2_counts"])
-        cur_out2 = int(cur["out2_counts"])
-        crosses_down = prev_error > threshold and cur_error <= 0
-        crosses_up = prev_error < -threshold and cur_error >= 0
-        if not (crosses_down or crosses_up):
-            continue
-        if abs(cur_out2) >= (8191 - edge_margin_counts):
-            continue
-        delta_out2 = cur_out2 - prev_out2
-        delta_error = cur_error - prev_error
-        slope = 0.0 if delta_out2 == 0 else abs(float(delta_error) / float(delta_out2))
-        candidates.append({
-            "sample_index": cur["sample_index"],
-            "out2_counts": cur_out2,
-            "out2_volts": cur_out2 / 8191.0,
-            "error_counts": cur_error,
-            "slope_abs_d_error_d_out2": slope,
-        })
-    if not candidates:
-        return None
-    return sorted(candidates, key=lambda item: item["slope_abs_d_error_d_out2"], reverse=True)[0]
-
-
-def run_auto_lock(regs, args):
+def run_lock_here(regs, args):
     require_magic(regs)
     status = read_status(regs)
-    if status["version"] != "0x00030000":
-        raise SystemExit(f"VERSION mismatch: expected 0x00030000, got {status['version']}")
+    if status["version"] != f"0x{EXPECTED_VERSION:08X}":
+        raise SystemExit(f"VERSION mismatch: expected 0x{EXPECTED_VERSION:08X}, got {status['version']}")
     if int(status["mode"]) != 1:
-        raise SystemExit("AUTO LOCK requires MODE=1 SCAN first")
-    if float(args.scan_freq_hz) > 1.0:
-        print("WARNING: AUTO LOCK is safer at scan freq 0.2~1 Hz.", file=sys.stderr)
+        raise SystemExit("LOCK HERE requires MODE=1 SCAN first")
+    if int(status["enable"]) != 1:
+        raise SystemExit("LOCK HERE requires ENABLE=1 while scanning")
+    if bool(status["saturated"]):
+        raise SystemExit("LOCK HERE refused because STATUS reports saturation")
 
-    samples = sample_status_series(regs, args.sample_count, args.sample_interval_s)
-    zero = select_zero_crossing(samples, args.zero_threshold, args.edge_margin_counts)
-    if zero is None:
-        return {
-            "auto_lock_state": "LOCK_FAILED",
-            "abort_reason": "no qualifying error zero-crossing found",
-            "sample_count": len(samples),
-        }
+    target_wait_matched = False
+    if args.target_out2_counts is not None:
+        target = int(args.target_out2_counts)
+        window = max(0, int(args.target_window_counts))
+        deadline = time.time() + max(0.1, float(args.target_timeout_s))
+        while time.time() <= deadline:
+            status = read_status(regs)
+            if int(status["mode"]) != 1 or int(status["enable"]) != 1 or bool(status["saturated"]):
+                raise SystemExit("LOCK HERE target wait aborted: SCAN/ENABLE/saturation precondition changed")
+            if abs(int(status["out2_counts"]) - target) <= window:
+                target_wait_matched = True
+                break
+            time.sleep(max(0.001, float(args.target_poll_s)))
+        if not target_wait_matched:
+            raise SystemExit("LOCK HERE timed out before OUT2 reached the selected target window")
 
     correction_limit = max(0, min(8191, int(args.correction_limit_counts)))
-    regs.write(REGISTERS["ENABLE"], 0)
-    regs.write(REGISTERS["LOCK_BIAS"], int(zero["out2_counts"]))
-    regs.write(REGISTERS["LOCK_CORRECTION_LIMIT"], correction_limit)
-    regs.write(REGISTERS["LOCK_LIMIT"], max(0, min(8191, int(args.lock_limit_counts))))
+    lock_limit = max(0, min(8191, int(args.lock_limit_counts)))
+    if lock_limit < abs(int(status["out2_counts"])) + correction_limit:
+        raise SystemExit(
+            "LOCK HERE refused: lock_limit_counts must be >= "
+            "abs(current OUT2_MONITOR) + correction_limit_counts"
+        )
+
     regs.write(REGISTERS["KP"], 0)
     regs.write(REGISTERS["KI"], 0)
     regs.write(REGISTERS["POLARITY"], args.polarity)
+    regs.write(REGISTERS["LOCK_CORRECTION_LIMIT"], correction_limit)
+    regs.write(REGISTERS["LOCK_LIMIT"], lock_limit)
     regs.write(REGISTERS["INTEGRAL_RESET"], 1)
-    regs.write(REGISTERS["MODE"], 3)
-    regs.write(REGISTERS["ENABLE"], 1)
-    time.sleep(max(0.1, float(args.settle_s)))
+    regs.write(REGISTERS["CAPTURE_LOCK_POINT"], 1)
+    time.sleep(max(0.02, float(args.settle_s)))
     readback = read_status(regs)
     if int(readback["mode"]) != 3:
         regs.write(REGISTERS["KP"], 0)
         regs.write(REGISTERS["ENABLE"], 0)
         regs.write(REGISTERS["MODE"], 0)
-        raise SystemExit("AUTO LOCK failed: MODE did not read back as 3")
+        raise SystemExit("LOCK HERE failed: MODE did not read back as 3")
 
-    trend = []
-    previous_abs_error = abs(int(readback["error_counts"]))
-    for kp in (4, 8, 16, 32):
-        regs.write(REGISTERS["KP"], kp)
-        time.sleep(max(0.1, float(args.kp_step_s)))
-        step_status = read_status(regs)
-        abs_error = abs(int(step_status["error_counts"]))
-        trend.append({
-            "kp": kp,
-            "abs_error_counts": abs_error,
-            "out2_counts": int(step_status["out2_counts"]),
-            "saturated": bool(step_status["saturated"]),
-        })
-        if step_status["saturated"] or abs(int(step_status["out2_counts"])) > int(args.abort_out2_counts):
-            regs.write(REGISTERS["KP"], 0)
-            regs.write(REGISTERS["ENABLE"], 0)
-            regs.write(REGISTERS["MODE"], 0)
-            return {
-                "auto_lock_state": "LOCK_FAILED",
-                "abort_reason": "saturated or OUT2 too close to limit; polarity may be wrong",
-                "selected_zero_crossing": zero,
-                "error_trend": trend,
-            }
-        if abs_error > max(previous_abs_error + int(args.error_growth_counts), int(previous_abs_error * 1.5)):
-            regs.write(REGISTERS["KP"], 0)
-            regs.write(REGISTERS["ENABLE"], 0)
-            regs.write(REGISTERS["MODE"], 0)
-            return {
-                "auto_lock_state": "LOCK_FAILED",
-                "abort_reason": "error increased during Kp ramp; polarity may be wrong",
-                "selected_zero_crossing": zero,
-                "error_trend": trend,
-            }
-        previous_abs_error = min(previous_abs_error, abs_error)
-
-    final_status = read_status(regs)
-    final_status.update({
-        "auto_lock_state": "LOCK_HOLDING",
-        "selected_zero_crossing": zero,
-        "current_kp": 32,
+    readback.update({
+        "lock_state": "P_LOCK_ACTIVE_KP0",
+        "captured_error_setpoint_counts": readback["error_setpoint_counts"],
+        "captured_lock_bias_counts": to_signed14(regs.read(REGISTERS["LOCK_BIAS"])),
+        "captured_lock_bias_volts_ideal": to_signed14(regs.read(REGISTERS["LOCK_BIAS"])) / 8191.0,
+        "current_kp": 0,
+        "current_ki": 0,
         "correction_limit_counts": correction_limit,
-        "error_trend": trend,
-        "abort_reason": "",
+        "target_wait_matched": target_wait_matched,
+        "target_out2_counts": args.target_out2_counts,
+        "target_window_counts": args.target_window_counts,
+        "lock_bias_source": "FPGA CAPTURE_LOCK_POINT captured OUT2_MONITOR in clk_i domain",
+        "error_setpoint_source": "FPGA CAPTURE_LOCK_POINT captured ERROR_MONITOR in clk_i domain",
     })
-    return final_status
+    return readback
 
 
 def probe_base_addresses():
@@ -419,7 +375,7 @@ def probe_base_addresses():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-addr", default="0x40600000")
-    parser.add_argument("--op", choices=["safe", "scan", "hold", "p-lock", "pi-lock", "status", "probe", "capture", "auto-lock"], required=True)
+    parser.add_argument("--op", choices=["safe", "scan", "hold", "p-lock", "pi-lock", "lock-here", "status", "probe", "capture"], required=True)
     parser.add_argument("--offset-counts", type=int, default=6962)
     parser.add_argument("--amp-counts", type=int, default=410)
     parser.add_argument("--step-counts", type=int, default=1)
@@ -434,15 +390,11 @@ def main():
     parser.add_argument("--correction-limit-counts", type=int, default=128)
     parser.add_argument("--capture-length", type=int, default=2048)
     parser.add_argument("--capture-decimation", type=int, default=1024)
-    parser.add_argument("--sample-count", type=int, default=256)
-    parser.add_argument("--sample-interval-s", type=float, default=0.02)
-    parser.add_argument("--zero-threshold", type=int, default=10)
-    parser.add_argument("--edge-margin-counts", type=int, default=256)
-    parser.add_argument("--scan-freq-hz", type=float, default=0.5)
     parser.add_argument("--settle-s", type=float, default=0.5)
-    parser.add_argument("--kp-step-s", type=float, default=1.0)
-    parser.add_argument("--abort-out2-counts", type=int, default=7800)
-    parser.add_argument("--error-growth-counts", type=int, default=20)
+    parser.add_argument("--target-out2-counts", type=int, default=None)
+    parser.add_argument("--target-window-counts", type=int, default=64)
+    parser.add_argument("--target-timeout-s", type=float, default=5.0)
+    parser.add_argument("--target-poll-s", type=float, default=0.005)
     args = parser.parse_args()
 
     if args.op == "probe":
@@ -495,14 +447,14 @@ def main():
             regs.write(REGISTERS["INTEGRAL_RESET"], 1)
             regs.write(REGISTERS["MODE"], 4)
             regs.write(REGISTERS["ENABLE"], 1)
+        elif args.op == "lock-here":
+            status = run_lock_here(regs, args)
+            print(json.dumps(status, indent=2, sort_keys=True))
+            return
         elif args.op == "capture":
             require_magic(regs)
             status = read_status(regs)
             status.update(capture_waveform(regs, args.capture_length, args.capture_decimation))
-            print(json.dumps(status, indent=2, sort_keys=True))
-            return
-        elif args.op == "auto-lock":
-            status = run_auto_lock(regs, args)
             print(json.dumps(status, indent=2, sort_keys=True))
             return
         status = read_status(regs)
@@ -629,19 +581,9 @@ def remote_command(args: argparse.Namespace, op: str, config: ScanConfig | HoldC
             "--capture-decimation",
             str(args.capture_decimation),
         ]
-    elif op == "auto-lock":
+    elif op == "lock-here":
         polarity = 1 if str(args.polarity).lower() in {"1", "invert", "inverted", "negative"} else 0
         remote_args += [
-            "--sample-count",
-            str(args.sample_count),
-            "--sample-interval-s",
-            str(args.sample_interval_s),
-            "--zero-threshold",
-            str(args.zero_threshold),
-            "--edge-margin-counts",
-            str(args.edge_margin_counts),
-            "--scan-freq-hz",
-            str(args.scan_freq_hz),
             "--polarity",
             str(polarity),
             "--lock-limit-counts",
@@ -650,13 +592,15 @@ def remote_command(args: argparse.Namespace, op: str, config: ScanConfig | HoldC
             str(args.correction_limit_counts),
             "--settle-s",
             str(args.settle_s),
-            "--kp-step-s",
-            str(args.kp_step_s),
-            "--abort-out2-counts",
-            str(args.abort_out2_counts),
-            "--error-growth-counts",
-            str(args.error_growth_counts),
+            "--target-window-counts",
+            str(args.target_window_counts),
+            "--target-timeout-s",
+            str(args.target_timeout_s),
+            "--target-poll-s",
+            str(args.target_poll_s),
         ]
+        if args.target_out2_counts is not None:
+            remote_args += ["--target-out2-counts", str(args.target_out2_counts)]
     remote_python = (
         "import base64, sys; "
         f"code=base64.b64decode('{helper_b64}').decode('utf-8'); "
@@ -722,19 +666,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     capture_parser = subparsers.add_parser("capture", help="Capture custom_debug_capture waveform data")
     capture_parser.add_argument("--capture-length", type=int, default=2048)
     capture_parser.add_argument("--capture-decimation", type=int, default=1024)
-    auto_parser = subparsers.add_parser("auto-lock", help="Candidate P-only auto lock from SCAN zero crossing")
-    auto_parser.add_argument("--sample-count", type=int, default=256)
-    auto_parser.add_argument("--sample-interval-s", type=float, default=0.02)
-    auto_parser.add_argument("--zero-threshold", type=int, default=10)
-    auto_parser.add_argument("--edge-margin-counts", type=int, default=256)
-    auto_parser.add_argument("--scan-freq-hz", type=float, default=0.5)
-    auto_parser.add_argument("--polarity", choices=["normal", "invert", "0", "1"], default="normal")
-    auto_parser.add_argument("--lock-limit-counts", type=int, default=8191)
-    auto_parser.add_argument("--correction-limit-counts", type=int, default=128)
-    auto_parser.add_argument("--settle-s", type=float, default=0.5)
-    auto_parser.add_argument("--kp-step-s", type=float, default=1.0)
-    auto_parser.add_argument("--abort-out2-counts", type=int, default=7800)
-    auto_parser.add_argument("--error-growth-counts", type=int, default=20)
+    lock_here_parser = subparsers.add_parser(
+        "lock-here",
+        help="Capture current ERROR/OUT2 in FPGA and enter MODE=3 P_LOCK with Kp=0",
+    )
+    lock_here_parser.add_argument("--polarity", choices=["normal", "invert", "0", "1"], default="normal")
+    lock_here_parser.add_argument("--lock-limit-counts", type=int, default=8191)
+    lock_here_parser.add_argument("--correction-limit-counts", type=int, default=128)
+    lock_here_parser.add_argument("--settle-s", type=float, default=0.5)
+    lock_here_parser.add_argument("--target-out2-counts", type=int, default=None)
+    lock_here_parser.add_argument("--target-window-counts", type=int, default=64)
+    lock_here_parser.add_argument("--target-timeout-s", type=float, default=5.0)
+    lock_here_parser.add_argument("--target-poll-s", type=float, default=0.005)
     return parser.parse_args(argv)
 
 
