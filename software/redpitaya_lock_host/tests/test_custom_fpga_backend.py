@@ -3,12 +3,18 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
+
 from redpitaya_lock_host.custom_fpga_backend import (
     EXPECTED_VERSION,
+    CustomFpgaBackendError,
+    build_basic_lock_config,
     build_update_p_lock_config,
     build_lock_config_from_counts,
+    find_zero_crossing_candidates,
     status_payload_has_expected_magic,
     missing_magic_guidance,
+    validate_basic_lock_capture,
 )
 
 
@@ -211,6 +217,98 @@ def test_lock_here_does_not_embed_historical_board_values() -> None:
         assert forbidden not in combined
 
 
+def test_basic_lock_pzt_range_generates_scan_and_capture_parameters() -> None:
+    config = build_basic_lock_config(safe_min_v=0.80, safe_max_v=0.90)
+
+    assert round(config.offset_v, 6) == 0.85
+    assert round(config.amp_v, 6) == 0.05
+    assert config.freq_hz == 10.0
+    assert config.step_counts == 1
+    assert config.capture_length == 2048
+    assert config.capture_decimation == round(125_000_000 / (10 * 2048))
+    assert config.safe_min_counts <= config.safe_max_counts
+
+
+def test_basic_lock_rejects_invalid_pzt_range() -> None:
+    for safe_min, safe_max in ((0.9, 0.8), (-1.2, 0.2), (0.0, 1.2)):
+        try:
+            build_basic_lock_config(safe_min_v=safe_min, safe_max_v=safe_max)
+        except CustomFpgaBackendError:
+            pass
+        else:
+            raise AssertionError("invalid PZT range was accepted")
+
+
+def test_basic_lock_capture_validation_rejects_zero_flat_and_out_of_range_data() -> None:
+    config = build_basic_lock_config(safe_min_v=0.80, safe_max_v=0.90)
+    out2 = np.linspace(config.safe_min_counts, config.safe_max_counts, 128)
+
+    try:
+        validate_basic_lock_capture(
+            ch1_counts=np.zeros(128),
+            ch3_counts=np.sin(np.linspace(0, 8, 128)) * 20,
+            ch4_counts=out2,
+            safe_min_counts=config.safe_min_counts,
+            safe_max_counts=config.safe_max_counts,
+            saturated=False,
+        )
+    except CustomFpgaBackendError as exc:
+        assert "CH1/PD" in str(exc)
+    else:
+        raise AssertionError("all-zero PD data was accepted")
+
+    try:
+        validate_basic_lock_capture(
+            ch1_counts=np.sin(np.linspace(0, 8, 128)) * 20,
+            ch3_counts=np.zeros(128),
+            ch4_counts=out2,
+            safe_min_counts=config.safe_min_counts,
+            safe_max_counts=config.safe_max_counts,
+            saturated=False,
+        )
+    except CustomFpgaBackendError as exc:
+        assert "CH3/error" in str(exc)
+    else:
+        raise AssertionError("flat error data was accepted")
+
+    try:
+        validate_basic_lock_capture(
+            ch1_counts=np.sin(np.linspace(0, 8, 128)) * 20,
+            ch3_counts=np.sin(np.linspace(0, 8, 128)) * 20,
+            ch4_counts=out2 + 1000,
+            safe_min_counts=config.safe_min_counts,
+            safe_max_counts=config.safe_max_counts,
+            saturated=False,
+        )
+    except CustomFpgaBackendError as exc:
+        assert "safe range" in str(exc)
+    else:
+        raise AssertionError("out-of-range OUT2 data was accepted")
+
+
+def test_basic_lock_zero_crossing_finder_rejects_edges_and_flat_baseline() -> None:
+    flat = np.zeros(256)
+    out2 = np.linspace(6500, 7300, 256)
+
+    assert find_zero_crossing_candidates(error_counts=flat, out2_counts=out2) == []
+
+    edge_error = np.ones(256) * 100
+    edge_error[:2] = -100
+    assert find_zero_crossing_candidates(error_counts=edge_error, out2_counts=out2) == []
+
+
+def test_basic_lock_zero_crossing_finder_detects_dispersion_candidate() -> None:
+    x = np.linspace(-1.0, 1.0, 512)
+    error = 260.0 * x * np.exp(-(x * 3.5) ** 2)
+    out2 = np.linspace(6500, 7300, 512)
+
+    candidates = find_zero_crossing_candidates(error_counts=error, out2_counts=out2)
+
+    assert candidates
+    assert abs(candidates[0].index - 255) < 20
+    assert 6500 <= candidates[0].out2_counts <= 7300
+
+
 def test_gui_text_separates_scpi_and_custom_fpga_out2_paths() -> None:
     source = (ROOT / "redpitaya_lock_host" / "main_window.py").read_text(encoding="utf-8")
 
@@ -228,6 +326,9 @@ def test_gui_text_separates_scpi_and_custom_fpga_out2_paths() -> None:
     assert "Custom FPGA Scope" in source
     assert "custom_debug_capture not available" in source
     assert "CAPTURE_CTRL, CAPTURE_STATUS, CAPTURE_DECIMATION" in source
+    assert "BASIC LOCK" in source
+    assert "PZT safe min" in source
+    assert "PZT safe max" in source
     assert "LOCK HERE" in source
     assert "APPLY P" in source
     assert "ABORT / SAFE" in source
@@ -257,11 +358,91 @@ def test_main_window_constructs_without_legacy_scpi_output_controls() -> None:
         assert not hasattr(window, "out1")
         assert not hasattr(window, "out2")
         assert window.custom_probe_button.text() == "Probe Registers"
+        assert window.basic_lock_button.text() == "BASIC LOCK"
+        assert window.basic_safe_button.text() == "SAFE"
+        assert not window.custom_advanced_body.isVisible()
         assert window.custom_lock_button.text() == "LOCK HERE"
         assert window.custom_apply_p_button.text() == "APPLY P"
         assert [window.custom_kp.itemText(index) for index in range(window.custom_kp.count())] == ["0", "4", "8", "16", "32"]
         assert window.custom_correction_limit_counts.value() == 128
         assert window.custom_lock_limit_counts.value() == 8191
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_waveform_plot_dark_theme_uses_visible_axes_curves_and_placeholder() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.waveform_plot import DEFAULT_CURVE, PLOT_FOREGROUND, WaveformPlot
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    plot = WaveformPlot("Custom FPGA Scope", "Counts")
+    try:
+        assert PLOT_FOREGROUND.lower() != "#000000"
+        assert DEFAULT_CURVE.lower() != "#000000"
+        assert plot.placeholder is not None
+        plot.set_placeholder_text("custom_debug_capture not available")
+        assert plot.placeholder.isVisible()
+        plot.set_data(np.arange(16), np.linspace(-10, 10, 16))
+        assert not plot.placeholder.isVisible()
+        assert plot.curve.isVisible()
+        assert len(plot.curve.xData) == 16
+        assert len(plot.curve.yData) == 16
+    finally:
+        plot.close()
+        app.processEvents()
+
+
+def test_custom_scope_render_payload_shows_curves_range_and_candidate() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        count = 256
+        x = np.linspace(-1.0, 1.0, count)
+        config = build_basic_lock_config(safe_min_v=0.80, safe_max_v=0.90)
+        ch4 = np.linspace(config.safe_min_counts, config.safe_max_counts, count)
+        error = 240.0 * x * np.exp(-(x * 3.2) ** 2)
+        payload = {
+            "capture_decimation": 1024,
+            "mode": 1,
+            "saturated": False,
+            "out2_counts": int(ch4[count // 2]),
+            "lock_correction_limit_counts": 128,
+            "points": [
+                {
+                    "index": idx,
+                    "ch1_counts": int(50 * np.sin(idx / 12)),
+                    "ch2_counts": int(3000 * np.sin(idx / 3)),
+                    "ch3_counts": int(error[idx]),
+                    "ch4_counts": int(ch4[idx]),
+                }
+                for idx in range(count)
+            ],
+        }
+
+        window._render_custom_capture_payload(payload)
+
+        for curve in window.custom_scope_curves.values():
+            assert len(curve.xData) == count
+            assert len(curve.yData) == count
+        assert not window.custom_scope_plot.placeholder.isVisible()
+        y_range = window.custom_scope_plot.plot_item.vb.viewRange()[1]
+        assert y_range[0] <= float(np.nanmin(error))
+        assert y_range[1] >= float(np.nanmax(ch4))
+        assert window.basic_lock_candidates
+        assert window.selected_lock_point is not None
+        assert int(window.selected_lock_point["index"]) != 0
     finally:
         window.close()
         app.processEvents()

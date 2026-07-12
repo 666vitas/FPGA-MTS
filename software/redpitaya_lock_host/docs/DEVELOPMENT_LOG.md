@@ -474,3 +474,15 @@ Confirmed project boundary:
 - 测试：`python -m py_compile scripts\custom_fpga_scan_control.py redpitaya_lock_host\custom_fpga_backend.py redpitaya_lock_host\connection_workers.py redpitaya_lock_host\main_window.py` 通过；`python -m pytest tests` 通过，`21 passed`。
 - 未运行 Vivado，未生成 bitstream，未烧录，未声明已经真实激光稳频。
 - 上板预期流程：`SCAN -> 选择过零点 -> LOCK HERE -> Kp=0 -> APPLY P 4/8/16/32 -> 判断 polarity -> 异常 SAFE`。
+
+## 2026-07-12 - BASIC LOCK 小白版界面与 Scope 黑屏修复
+
+- 当前问题：板端 `custom_debug_capture` 已能返回真实四路数据且统计正常，但 GUI `Custom FPGA Scope` 依赖默认 pyqtgraph/Qt 主题，黑色背景下坐标轴文字、标题或曲线可能不可见；旧界面还要求用户手填 offset、amp、freq、step 和 decimation，不适合第一版“小白版 BASIC LOCK”。
+- Scope 修复：`WaveformPlot` 显式设置黑色背景、亮色坐标轴 pen、亮色坐标文字、亮色标题和非黑色曲线；placeholder 保存引用，真实数据到来后隐藏；四条曲线收到数据后强制 `setVisible(True)`；显示范围优先覆盖 CH3 `laser_error` 和 CH4 `selected_out2`，避免 IN2/REF alias 把 error 压扁。
+- BASIC LOCK 范围：新增顶层 `BASIC LOCK` 区，只保留 `PZT safe min voltage`、`PZT safe max voltage`、`BASIC LOCK`、`SAFE`、当前状态和候选锁点；原工程参数移动到默认隐藏的 `Advanced` 区。
+- 自动参数：根据用户 PZT 安全范围计算 `offset_v=(min+max)/2`、`amp_v=abs(max-min)/2`、`freq_hz=10`、`step_counts=1`、`capture_length=2048`、`capture_decimation=round(125000000/(freq_hz*capture_length))`，并限制在 Red Pitaya DAC 与用户 PZT 范围内。
+- 候选规则：只使用当前 capture 的 CH3/CH4，做轻量平滑、基线去除、MAD/局部差分噪声估计、非边缘 sign crossing、局部斜率和局部 Vpp 评分；不使用历史 CSV、固定峰位、固定 `LOCK_BIAS` 或历史实验电压。
+- SAFE 条件：PZT min>=max、超出 DAC +/-1 V、PD/error/OUT2 全零、OUT2 越过用户 PZT 范围、saturation、无有效候选、通信失败或用户拒绝候选时，进入或提示 SAFE。
+- 测试：`py_compile` 通过；`python -m pytest tests` 通过，`28 passed`。
+- 未运行 Vivado，未生成 bitstream，未烧录，尚未证明真实基础稳频完成。
+- 用户下一步：只输入 PZT safe min/max，点击 `BASIC LOCK`，确认候选过零点后观察 `LOCK HERE -> APPLY P4 -> MONITOR`，异常立即 `SAFE`。

@@ -35,3 +35,14 @@
 - 测试：`py_compile` 通过；`python -m pytest tests` 通过，`21 passed`。
 - 未运行 Vivado，未生成 bitstream，未烧录，未声明已经真实激光稳频。
 - 用户下一步：`SCAN -> 选择过零点 -> LOCK HERE -> Kp=0 -> APPLY P 4/8/16/32 -> 判断 polarity -> 异常 SAFE`。
+
+## 2026-07-12 - BASIC LOCK 小白版界面与 Scope 黑屏修复
+
+- 当前问题：板端 `custom_debug_capture` 已能返回真实四路数据且统计正常，但 GUI `Custom FPGA Scope` 依赖默认 pyqtgraph/Qt 主题，黑色背景下坐标轴文字、标题或曲线可能不可见；旧界面还要求用户手填 offset、amp、freq、step 和 decimation，不适合第一版“小白版 BASIC LOCK”。
+- Scope 修复：显式设置黑色背景、亮色坐标轴/文字/标题和非黑色曲线；placeholder 保存引用，真实数据到来后隐藏；四条曲线收到数据后强制可见；显示范围优先覆盖 CH3 `laser_error` 和 CH4 `selected_out2`，避免 IN2/REF alias 把 error 压扁。
+- BASIC LOCK 范围：顶层只保留 PZT safe min/max、`BASIC LOCK`、`SAFE`、当前状态和候选锁点；工程参数默认折叠在 `Advanced`。
+- 自动参数：`offset_v=(min+max)/2`、`amp_v=abs(max-min)/2`、`freq_hz=10`、`step_counts=1`、`capture_length=2048`、`capture_decimation=round(125000000/(freq_hz*capture_length))`。
+- zero crossing：只使用当前 capture 的 CH3/CH4，使用当前数据噪声估计、局部斜率和局部 Vpp 评分；不使用历史 CSV、固定峰位或固定 `LOCK_BIAS`。
+- SAFE 条件：PZT 范围非法、全零/平坦 capture、OUT2 越过用户 PZT 范围、saturation、无有效候选、通信失败或用户拒绝候选。
+- 测试：`py_compile` 通过；`python -m pytest tests` 通过，`28 passed`。
+- 未运行 Vivado，未生成 bitstream，未烧录，尚未证明真实基础稳频完成。

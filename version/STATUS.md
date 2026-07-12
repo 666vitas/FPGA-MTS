@@ -842,3 +842,10 @@ v2G：FPGA PI 与 D2-125 性能对比
 - Kp 仅允许 `0, 4, 8, 16, 32`；非零 Kp 下禁止直接翻转 polarity，需先 APPLY P 到 Kp=0。
 - 已通过 `py_compile` 和 `python -m pytest tests`；未运行 Vivado、未生成 bitstream、未烧录、未声明真实稳频完成。
 - 下一步唯一人工任务：上板按 `SCAN -> 选择过零点 -> LOCK HERE -> APPLY P 小步 Kp -> 判断 polarity -> 异常 SAFE` 验证。
+
+## 2026-07-12 BASIC LOCK 小白版上位机收敛
+- 本次只修改上位机与现有日志，不修改 RTL / testbench / Vivado project。
+- 修复 `Custom FPGA Scope` 黑屏风险：显式设置黑底亮轴、亮字、曲线颜色、placeholder 引用和 CH3/CH4 显示 range。
+- 新增 BASIC LOCK 顶层入口：用户只需输入 PZT safe min/max，自动计算 offset/amp/freq/step/capture decimation，并用当前 capture 寻找候选 zero crossing。
+- BASIC LOCK 仍不是 AI、不是自动重锁、不是长期稳频证明；失败或异常必须 SAFE。
+- 已通过 `py_compile` 和 `python -m pytest tests`，结果 `28 passed`；未运行 Vivado、未生成 bitstream、未烧录。

@@ -12,6 +12,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
+
 from .ssh_client import RedPitayaSshClient, SshCommandResult
 
 
@@ -21,6 +23,9 @@ DEFAULT_BASE_ADDR = 0x4060_0000
 DEFAULT_CLK_HZ = 125_000_000.0
 COUNTS_PER_VOLT = 8191.0
 ALLOWED_UPDATE_KP = (0, 4, 8, 16, 32)
+BASIC_LOCK_FREQ_HZ = 10.0
+BASIC_LOCK_CAPTURE_LENGTH = 2048
+BASIC_LOCK_STEP_COUNTS = 1
 
 
 class CustomFpgaBackendError(RuntimeError):
@@ -64,6 +69,31 @@ class CaptureConfig:
 
 
 @dataclass(frozen=True)
+class BasicLockConfig:
+    safe_min_v: float
+    safe_max_v: float
+    offset_v: float
+    amp_v: float
+    freq_hz: float
+    step_counts: int
+    capture_length: int
+    capture_decimation: int
+    limit_counts: int
+    safe_min_counts: int
+    safe_max_counts: int
+
+
+@dataclass(frozen=True)
+class ZeroCrossingCandidate:
+    index: int
+    out2_counts: int
+    error_counts: int
+    score: float
+    slope: float
+    local_vpp: float
+
+
+@dataclass(frozen=True)
 class LockHereConfig:
     polarity: int
     lock_limit_counts: int
@@ -102,6 +132,149 @@ def volts_to_counts(volts: float) -> int:
 
 def counts_to_volts(counts: int) -> float:
     return float(int(counts)) / COUNTS_PER_VOLT
+
+
+def build_basic_lock_config(
+    *,
+    safe_min_v: float,
+    safe_max_v: float,
+    clk_hz: float = DEFAULT_CLK_HZ,
+) -> BasicLockConfig:
+    safe_min = float(safe_min_v)
+    safe_max = float(safe_max_v)
+    if safe_min >= safe_max:
+        raise CustomFpgaBackendError("PZT safe min voltage must be lower than safe max voltage")
+    if safe_min < -1.0 or safe_max > 1.0:
+        raise CustomFpgaBackendError("PZT safe range must stay inside Red Pitaya DAC +/-1 V")
+
+    offset_v = (safe_min + safe_max) / 2.0
+    amp_v = abs(safe_max - safe_min) / 2.0
+    if amp_v <= 0.0:
+        raise CustomFpgaBackendError("PZT safe range must have nonzero width")
+    capture_decimation = max(1, int(round(float(clk_hz) / (BASIC_LOCK_FREQ_HZ * BASIC_LOCK_CAPTURE_LENGTH))))
+    return BasicLockConfig(
+        safe_min_v=safe_min,
+        safe_max_v=safe_max,
+        offset_v=offset_v,
+        amp_v=amp_v,
+        freq_hz=BASIC_LOCK_FREQ_HZ,
+        step_counts=BASIC_LOCK_STEP_COUNTS,
+        capture_length=BASIC_LOCK_CAPTURE_LENGTH,
+        capture_decimation=capture_decimation,
+        limit_counts=max(abs(volts_to_counts(safe_min)), abs(volts_to_counts(safe_max))),
+        safe_min_counts=volts_to_counts(safe_min),
+        safe_max_counts=volts_to_counts(safe_max),
+    )
+
+
+def signal_vpp(values: np.ndarray | list[float]) -> float:
+    arr = np.asarray(values, dtype=float)
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return 0.0
+    return float(np.nanmax(finite) - np.nanmin(finite))
+
+
+def robust_noise_counts(values: np.ndarray | list[float]) -> float:
+    arr = np.asarray(values, dtype=float)
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return 0.0
+    median = float(np.nanmedian(finite))
+    mad = float(np.nanmedian(np.abs(finite - median)))
+    return 1.4826 * mad
+
+
+def validate_basic_lock_capture(
+    *,
+    ch1_counts: np.ndarray | list[float],
+    ch3_counts: np.ndarray | list[float],
+    ch4_counts: np.ndarray | list[float],
+    safe_min_counts: int,
+    safe_max_counts: int,
+    saturated: bool,
+) -> None:
+    if saturated:
+        raise CustomFpgaBackendError("BASIC LOCK refused: FPGA status reports saturation")
+    ch1 = np.asarray(ch1_counts, dtype=float)
+    ch3 = np.asarray(ch3_counts, dtype=float)
+    ch4 = np.asarray(ch4_counts, dtype=float)
+    if min(ch1.size, ch3.size, ch4.size) == 0:
+        raise CustomFpgaBackendError("BASIC LOCK refused: capture is empty")
+    if signal_vpp(ch1) < 1.0:
+        raise CustomFpgaBackendError("BASIC LOCK refused: CH1/PD capture is all zero or too small")
+    if signal_vpp(ch3) < 1.0:
+        raise CustomFpgaBackendError("BASIC LOCK refused: CH3/error capture is all zero or too small")
+    if signal_vpp(ch4) < 1.0:
+        raise CustomFpgaBackendError("BASIC LOCK refused: CH4/OUT2 capture is all zero or too small")
+    if float(np.nanmin(ch4)) < int(safe_min_counts) or float(np.nanmax(ch4)) > int(safe_max_counts):
+        raise CustomFpgaBackendError("BASIC LOCK refused: OUT2 capture exceeded the user PZT safe range")
+
+
+def find_zero_crossing_candidates(
+    *,
+    error_counts: np.ndarray | list[float],
+    out2_counts: np.ndarray | list[float],
+    max_candidates: int = 3,
+) -> list[ZeroCrossingCandidate]:
+    error = np.asarray(error_counts, dtype=float)
+    out2 = np.asarray(out2_counts, dtype=float)
+    count = min(error.size, out2.size)
+    if count < 16:
+        return []
+    error = error[:count]
+    out2 = out2[:count]
+    edge = max(4, int(round(count * 0.05)))
+    if edge * 2 >= count:
+        return []
+
+    window = max(5, min(51, (count // 32) | 1))
+    kernel = np.ones(window, dtype=float) / float(window)
+    smooth = np.convolve(error, kernel, mode="same")
+    baseline = float(np.nanmedian(smooth[edge:-edge]))
+    centered = smooth - baseline
+    noise = max(robust_noise_counts(np.diff(centered[edge:-edge])) * 0.25, 1.0)
+    min_local_vpp = max(noise * 6.0, 3.0)
+    min_abs_slope = max(noise * 0.05, 0.05)
+
+    candidates: list[ZeroCrossingCandidate] = []
+    for idx in range(edge, count - edge - 1):
+        y0 = float(centered[idx])
+        y1 = float(centered[idx + 1])
+        if y0 == 0.0:
+            crossing = idx
+        elif y0 * y1 > 0.0:
+            continue
+        else:
+            crossing = idx if abs(y0) <= abs(y1) else idx + 1
+        left = max(edge, crossing - window)
+        right = min(count - edge, crossing + window + 1)
+        local = centered[left:right]
+        if local.size < 5:
+            continue
+        local_vpp = signal_vpp(local)
+        slope = float((centered[min(count - 1, crossing + 1)] - centered[max(0, crossing - 1)]) / 2.0)
+        if local_vpp < min_local_vpp or abs(slope) < min_abs_slope:
+            continue
+        score = abs(slope) * local_vpp / max(noise, 1.0)
+        candidates.append(
+            ZeroCrossingCandidate(
+                index=int(crossing),
+                out2_counts=int(round(float(out2[crossing]))),
+                error_counts=int(round(float(error[crossing]))),
+                score=float(score),
+                slope=float(slope),
+                local_vpp=float(local_vpp),
+            )
+        )
+
+    unique: dict[int, ZeroCrossingCandidate] = {}
+    for item in sorted(candidates, key=lambda candidate: candidate.score, reverse=True):
+        if all(abs(item.index - kept.index) > window for kept in unique.values()):
+            unique[item.index] = item
+        if len(unique) >= max_candidates:
+            break
+    return sorted(unique.values(), key=lambda candidate: candidate.score, reverse=True)
 
 
 def build_scan_config(

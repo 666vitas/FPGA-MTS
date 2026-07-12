@@ -48,8 +48,13 @@ from .connection_workers import (
 )
 from .custom_fpga_backend import (
     EXPECTED_MAGIC,
+    BasicLockConfig,
+    CustomFpgaBackendError,
+    build_basic_lock_config,
+    find_zero_crossing_candidates,
     missing_magic_guidance,
     status_payload_has_expected_magic,
+    validate_basic_lock_capture,
 )
 from .custom_fpga_workflow import CustomFpgaMeasurements, analyze_custom_fpga_measurements
 from .data_logger import save_plot_png, save_waveforms_csv, timestamped_name
@@ -159,6 +164,11 @@ class MainWindow(QMainWindow):
         self.last_waveforms = self._empty_waveforms()
         self.custom_scope_data: dict[str, np.ndarray] | None = None
         self.selected_lock_point: dict[str, int | float] | None = None
+        self.custom_scope_valid_for_selection = False
+        self.basic_lock_active = False
+        self.basic_lock_queue: list[str] = []
+        self.basic_lock_config: BasicLockConfig | None = None
+        self.basic_lock_candidates: list[Any] = []
         self.connection_state = DISCONNECTED
         self.worker: (
             ProbeWorker
@@ -337,7 +347,7 @@ class MainWindow(QMainWindow):
             "IN2 = 4.6 MHz REF, < +/-1 V\n"
             "OUT1 = FPGA laser_error -> oscilloscope\n"
             "OUT2 = selected_out2 -> laser dedicated PZT / Scan input for SCAN and P_LOCK\n"
-            "Do not connect OUT2 to laser scan/PZT or D2-125 yet."
+            "Never connect OUT2 to laser current modulation, D2-125 outputs, or any other output terminal."
         )
         wiring.setWordWrap(True)
         layout.addWidget(wiring)
@@ -383,6 +393,46 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(10, 18, 10, 10)
         layout.setSpacing(8)
 
+        basic_group = QGroupBox("BASIC LOCK")
+        basic_layout = QVBoxLayout(basic_group)
+        basic_layout.setContentsMargins(10, 18, 10, 10)
+        basic_layout.setSpacing(8)
+        basic_form = QFormLayout()
+        self._configure_form(basic_form)
+        self.basic_pzt_min_v = self._custom_double_spin(0.80, -1.0, 1.0, 4, " V")
+        self.basic_pzt_max_v = self._custom_double_spin(0.90, -1.0, 1.0, 4, " V")
+        self.basic_lock_button = QPushButton("BASIC LOCK")
+        self.basic_safe_button = QPushButton("SAFE")
+        self._style_button(self.basic_lock_button)
+        self._style_button(self.basic_safe_button)
+        self.basic_status_label = QLabel("state: IDLE")
+        self.basic_status_label.setWordWrap(True)
+        self.basic_status_label.setStyleSheet("font-weight: 600;")
+        self.basic_candidate_label = QLabel("candidate: --")
+        self.basic_candidate_label.setWordWrap(True)
+        basic_buttons = QHBoxLayout()
+        basic_buttons.setSpacing(8)
+        basic_buttons.addWidget(self.basic_lock_button)
+        basic_buttons.addWidget(self.basic_safe_button)
+        basic_form.addRow("PZT safe min", self.basic_pzt_min_v)
+        basic_form.addRow("PZT safe max", self.basic_pzt_max_v)
+        basic_layout.addLayout(basic_form)
+        basic_layout.addLayout(basic_buttons)
+        basic_layout.addWidget(self.basic_status_label)
+        basic_layout.addWidget(self.basic_candidate_label)
+
+        advanced_group = QGroupBox("Advanced")
+        advanced_group.setCheckable(True)
+        advanced_group.setChecked(False)
+        advanced_layout = QVBoxLayout(advanced_group)
+        advanced_layout.setContentsMargins(10, 18, 10, 10)
+        advanced_layout.setSpacing(8)
+        self.custom_advanced_body = QWidget()
+        advanced_body_layout = QVBoxLayout(self.custom_advanced_body)
+        advanced_body_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_body_layout.setSpacing(8)
+        self.custom_advanced_body.setVisible(False)
+        advanced_group.toggled.connect(self.custom_advanced_body.setVisible)
         form = QFormLayout()
         self._configure_form(form)
         self.custom_base_addr_edit = QLineEdit("0x40600000")
@@ -439,6 +489,8 @@ class MainWindow(QMainWindow):
             self.custom_capture_length,
             self.custom_capture_decimation,
         ):
+            self._style_field(widget)
+        for widget in (self.basic_pzt_min_v, self.basic_pzt_max_v):
             self._style_field(widget)
         form.addRow("base address", self.custom_base_addr_edit)
         form.addRow("offset-v", self.custom_offset_v)
@@ -527,8 +579,11 @@ class MainWindow(QMainWindow):
             "LOCK_BIAS or ERROR_SETPOINT. Change polarity only after APPLY P with Kp=0. Historical CSV values are not used as lock parameters."
         )
 
-        layout.addLayout(form)
-        layout.addLayout(buttons)
+        advanced_body_layout.addLayout(form)
+        advanced_body_layout.addLayout(buttons)
+        advanced_layout.addWidget(self.custom_advanced_body)
+        layout.addWidget(basic_group)
+        layout.addWidget(advanced_group)
         layout.addWidget(self.custom_register_summary)
         layout.addWidget(self.custom_warning_text)
         return group
@@ -776,6 +831,7 @@ class MainWindow(QMainWindow):
         )
         self.custom_lock_marker.setVisible(False)
         self.custom_scope_plot.plot_item.addItem(self.custom_lock_marker)
+        self.custom_candidate_markers: list[pg.InfiniteLine] = []
         self.custom_scope_plot.scene().sigMouseClicked.connect(self._on_custom_scope_clicked)
         checkbox_row = QHBoxLayout()
         self.custom_scope_checks = {}
@@ -786,7 +842,7 @@ class MainWindow(QMainWindow):
             ("ch4", "OUT2 / selected_out2"),
         ):
             checkbox = QCheckBox(label)
-            checkbox.setChecked(True)
+            checkbox.setChecked(key in {"ch3", "ch4"})
             checkbox.toggled.connect(self._update_custom_scope_visibility)
             self.custom_scope_checks[key] = checkbox
             checkbox_row.addWidget(checkbox)
@@ -819,6 +875,8 @@ class MainWindow(QMainWindow):
         self.custom_abort_auto_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
         self.custom_unlock_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
         self.custom_capture_waveform_button.clicked.connect(lambda: self._start_custom_fpga_operation("capture"))
+        self.basic_lock_button.clicked.connect(self._start_basic_lock)
+        self.basic_safe_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
         self.obs_analyze_button.clicked.connect(self._analyze_observe_readings)
         self.lock_step_combo.currentTextChanged.connect(self._update_lock_step_detail)
         self.export_experiment_log_button.clicked.connect(self.export_experiment_log)
@@ -942,6 +1000,9 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _start_custom_fpga_operation(self, operation: str) -> None:
+        if operation == "safe":
+            self.basic_lock_active = False
+            self.basic_lock_queue = []
         if self._official_mode():
             self.mode_combo.setCurrentText("Custom FPGA Mode")
         try:
@@ -1021,6 +1082,100 @@ class MainWindow(QMainWindow):
         worker.finished.connect(self._clear_worker)
         worker.start()
 
+    def _start_basic_lock(self) -> None:
+        try:
+            config = build_basic_lock_config(
+                safe_min_v=self.basic_pzt_min_v.value(),
+                safe_max_v=self.basic_pzt_max_v.value(),
+            )
+        except CustomFpgaBackendError as exc:
+            self.basic_status_label.setText(f"state: SAFE_FAIL | {exc}")
+            self.custom_warning_text.setPlainText(str(exc))
+            self._start_custom_fpga_operation("safe")
+            return
+
+        self.basic_lock_config = config
+        self.basic_lock_candidates = []
+        self.selected_lock_point = None
+        self.custom_scope_valid_for_selection = False
+        self._apply_basic_lock_config(config)
+        self.basic_lock_active = True
+        self.basic_lock_queue = ["safe", "scan", "capture"]
+        self.basic_status_label.setText(
+            "state: SAFE -> SCAN -> CAPTURE | "
+            f"offset {config.offset_v:.4f} V, amp {config.amp_v:.4f} V, "
+            f"freq {config.freq_hz:.1f} Hz, decimation {config.capture_decimation}"
+        )
+        self.basic_candidate_label.setText("candidate: waiting for current capture")
+        self._continue_basic_lock()
+
+    def _apply_basic_lock_config(self, config: BasicLockConfig) -> None:
+        self.custom_offset_v.setValue(config.offset_v)
+        self.custom_amp_v.setValue(config.amp_v)
+        self.custom_freq_hz.setValue(config.freq_hz)
+        self.custom_step_counts.setValue(config.step_counts)
+        self.custom_capture_length.setValue(config.capture_length)
+        self.custom_capture_decimation.setValue(config.capture_decimation)
+        self.custom_limit_counts.setValue(config.limit_counts)
+        self.custom_lock_limit_counts.setValue(config.limit_counts)
+        self.custom_kp.setCurrentText("0")
+
+    def _continue_basic_lock(self) -> None:
+        if not self.basic_lock_active or not self.basic_lock_queue:
+            return
+        next_operation = self.basic_lock_queue.pop(0)
+        self.basic_status_label.setText(f"state: {next_operation.upper()}")
+        self._start_custom_fpga_operation(next_operation)
+
+    def _basic_lock_fail(self, reason: str) -> None:
+        self.basic_lock_active = False
+        self.basic_lock_queue = []
+        self.basic_status_label.setText(f"state: SAFE_FAIL | {reason}")
+        self.basic_candidate_label.setText("candidate: rejected")
+        self.custom_warning_text.setPlainText(reason)
+        QTimer.singleShot(0, lambda: self._start_custom_fpga_operation("safe"))
+
+    def _confirm_basic_lock_candidate(self) -> None:
+        if self.selected_lock_point is None:
+            self._basic_lock_fail("BASIC LOCK found no valid zero-crossing candidate")
+            return
+        reply = QMessageBox.question(
+            self,
+            "Confirm BASIC LOCK candidate",
+            "Use the highlighted zero-crossing candidate for LOCK HERE with Kp=0, then APPLY P with Kp=4?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            self.basic_lock_active = False
+            self.basic_lock_queue = []
+            self.basic_status_label.setText("state: candidate ready, waiting for user")
+            return
+        self.custom_kp.setCurrentText("0")
+        self.basic_lock_queue = ["lock", "update-p-lock"]
+        self._continue_basic_lock()
+
+    def _continue_basic_lock_after_success(self, operation: str, payload: dict[str, Any]) -> None:
+        del payload
+        if not self.basic_lock_active:
+            return
+        if operation == "capture":
+            if self.basic_lock_candidates:
+                QTimer.singleShot(0, self._confirm_basic_lock_candidate)
+            else:
+                self._basic_lock_fail("BASIC LOCK failed: no valid zero-crossing candidate in current capture")
+            return
+        if operation == "lock":
+            self.custom_kp.setCurrentText("4")
+            QTimer.singleShot(0, self._continue_basic_lock)
+            return
+        if operation == "update-p-lock":
+            self.basic_lock_active = False
+            self.basic_lock_queue = []
+            self.basic_status_label.setText("state: BASIC LOCK ACTIVE | monitor LOCK_ERROR / OUT2 / saturation")
+            return
+        QTimer.singleShot(0, self._continue_basic_lock)
+
     def _show_custom_waveform_capture_plan(self) -> None:
         lines = [
             "custom_debug_capture not available unless the new RTL is synthesized, implemented, bitstreamed, and loaded.",
@@ -1040,11 +1195,12 @@ class MainWindow(QMainWindow):
         for key, curve in getattr(self, "custom_scope_curves", {}).items():
             checkbox = self.custom_scope_checks.get(key)
             curve.setVisible(bool(checkbox is None or checkbox.isChecked()))
+        self._fit_custom_scope_ranges()
 
     def _on_custom_scope_clicked(self, event: object) -> None:
-        if self.custom_scope_data is None:
+        if self.custom_scope_data is None or not self.custom_scope_valid_for_selection:
             self.selected_lock_point = None
-            self.selected_lock_label.setText("selected lock point: capture current scan waveform first")
+            self.selected_lock_label.setText("selected lock point: capture and validate current waveform first")
             return
         scene_pos = event.scenePos()
         if not self.custom_scope_plot.plot_item.sceneBoundingRect().contains(scene_pos):
@@ -1055,8 +1211,14 @@ class MainWindow(QMainWindow):
         error = self.custom_scope_data.get("ch3")
         if t is None or out2 is None or error is None or t.size == 0:
             return
-        index = int(np.nanargmin(np.abs(t - float(view_pos.x()))))
-        index = max(0, min(index, t.size - 1))
+        if self.basic_lock_candidates:
+            nearest = min(
+                self.basic_lock_candidates,
+                key=lambda candidate: abs(float(t[candidate.index]) - float(view_pos.x())),
+            )
+            index = int(nearest.index)
+        else:
+            return
         self.selected_lock_point = {
             "index": index,
             "time_s": float(t[index]),
@@ -1076,11 +1238,15 @@ class MainWindow(QMainWindow):
         if not points:
             self.custom_scope_data = None
             self.selected_lock_point = None
+            self.custom_scope_valid_for_selection = False
             self.custom_lock_marker.setVisible(False)
             self.selected_lock_label.setText("selected lock point: capture current scan waveform first")
             self.custom_scope_stats.setText("custom_debug_capture not available")
+            self.custom_scope_plot.set_placeholder_text("custom_debug_capture not available")
             for curve in self.custom_scope_curves.values():
                 curve.setData([], [])
+                curve.setVisible(False)
+            self._clear_candidate_markers()
             return
 
         labels = {
@@ -1102,8 +1268,12 @@ class MainWindow(QMainWindow):
         self.custom_scope_data = data
         for key, curve in self.custom_scope_curves.items():
             curve.setData(t, data[key])
+            curve.setVisible(True)
+        self.custom_scope_plot.hide_placeholder()
         self._update_custom_scope_visibility()
-        self.custom_scope_plot._fit_ranges(t, np.concatenate([data["ch1"], data["ch2"], data["ch3"], data["ch4"]]))
+        self._fit_custom_scope_ranges()
+
+        self.basic_lock_candidates = self._find_and_render_basic_candidates(payload, data)
 
         stats_lines = []
         for key, label in labels.items():
@@ -1121,6 +1291,85 @@ class MainWindow(QMainWindow):
         )
         self.custom_scope_stats.setText("\n".join(stats_lines))
 
+    def _fit_custom_scope_ranges(self) -> None:
+        if self.custom_scope_data is None:
+            return
+        t = self.custom_scope_data.get("time_s")
+        ch3 = self.custom_scope_data.get("ch3")
+        ch4 = self.custom_scope_data.get("ch4")
+        if t is None or ch3 is None or ch4 is None or t.size == 0:
+            return
+        y = np.concatenate([np.asarray(ch3, dtype=float), np.asarray(ch4, dtype=float)])
+        self.custom_scope_plot._fit_ranges(np.asarray(t, dtype=float), y)
+
+    def _clear_candidate_markers(self) -> None:
+        for marker in getattr(self, "custom_candidate_markers", []):
+            self.custom_scope_plot.plot_item.removeItem(marker)
+        self.custom_candidate_markers = []
+
+    def _find_and_render_basic_candidates(self, payload: dict[str, Any], data: dict[str, np.ndarray]) -> list[Any]:
+        self._clear_candidate_markers()
+        self.custom_scope_valid_for_selection = False
+        config = self.basic_lock_config
+        if config is None:
+            try:
+                config = build_basic_lock_config(
+                    safe_min_v=self.basic_pzt_min_v.value(),
+                    safe_max_v=self.basic_pzt_max_v.value(),
+                )
+            except CustomFpgaBackendError as exc:
+                self.basic_candidate_label.setText(f"candidate: blocked | {exc}")
+                return []
+        try:
+            validate_basic_lock_capture(
+                ch1_counts=data["ch1"],
+                ch3_counts=data["ch3"],
+                ch4_counts=data["ch4"],
+                safe_min_counts=config.safe_min_counts,
+                safe_max_counts=config.safe_max_counts,
+                saturated=bool(payload.get("saturated", False)),
+            )
+        except CustomFpgaBackendError as exc:
+            self.basic_candidate_label.setText(f"candidate: rejected | {exc}")
+            return []
+
+        candidates = find_zero_crossing_candidates(error_counts=data["ch3"], out2_counts=data["ch4"])
+        if not candidates:
+            self.basic_candidate_label.setText("candidate: none | no valid non-edge zero crossing")
+            return []
+        self.custom_scope_valid_for_selection = True
+        t = data["time_s"]
+        lines = []
+        colors = ["#ffcc00", "#72d6ff", "#f472b6"]
+        for idx, candidate in enumerate(candidates):
+            marker = pg.InfiniteLine(
+                pos=float(t[candidate.index]),
+                angle=90,
+                movable=False,
+                pen=pg.mkPen(colors[idx % len(colors)], width=1.1, style=Qt.PenStyle.DashLine),
+            )
+            self.custom_scope_plot.plot_item.addItem(marker)
+            self.custom_candidate_markers.append(marker)
+            lines.append(
+                f"candidate {idx + 1}: index {candidate.index}, OUT2 {candidate.out2_counts} counts, "
+                f"score {candidate.score:.1f}"
+            )
+        best = candidates[0]
+        self.selected_lock_point = {
+            "index": best.index,
+            "time_s": float(t[best.index]),
+            "out2_counts": best.out2_counts,
+            "error_counts": best.error_counts,
+        }
+        self.custom_lock_marker.setValue(float(t[best.index]))
+        self.custom_lock_marker.setVisible(True)
+        self.selected_lock_label.setText(
+            f"selected lock point: candidate 1, index {best.index}, OUT2 {best.out2_counts} counts, "
+            f"ERROR {best.error_counts} counts"
+        )
+        self.basic_candidate_label.setText("\n".join(lines))
+        return candidates
+
     def _on_custom_fpga_finished(self, result: object) -> None:
         data = dict(result)
         operation = str(data.get("operation", "custom"))
@@ -1132,6 +1381,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(message)
         self._append_connection_log(message)
         self._restore_after_custom_fpga_operation()
+        self._continue_basic_lock_after_success(operation, payload)
 
     def _on_custom_fpga_failed(self, text: str) -> None:
         self._set_connection_state(ERROR)
@@ -1732,9 +1982,13 @@ class MainWindow(QMainWindow):
             self.custom_abort_auto_lock_button,
             self.custom_unlock_button,
             self.custom_capture_waveform_button,
+            self.basic_lock_button,
+            self.basic_safe_button,
         ):
             button.setEnabled(custom_enabled)
         for widget in (
+            self.basic_pzt_min_v,
+            self.basic_pzt_max_v,
             self.custom_base_addr_edit,
             self.custom_offset_v,
             self.custom_amp_v,
