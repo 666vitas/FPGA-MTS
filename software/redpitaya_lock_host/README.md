@@ -2,7 +2,7 @@
 
 Red Pitaya Laser Lock Host V2 是本项目的上位机软件，用于配合 Red Pitaya FPGA 激光频率锁定实验。
 
-它的目标不是一步到位自动锁定，而是逐步替代 D2-125 工作流：扫描、error signal 观察、control output 观察、锁定准备检查，以及后续 lock/relock 流程记录。
+它的最终目标是服务于“基于 Red Pitaya 的全自动深度学习参数优化 MTS 激光稳频系统”。当前阶段不做 AI 自动识峰、自动重锁或复杂 PID，只做 PZT 基础稳频：扫描、error signal 观察、人工选点、LOCK HERE、P-only 小增益反馈和 SAFE 退出。
 
 ## 当前开发目录
 
@@ -124,17 +124,17 @@ run.bat
 
 当前上位机主界面默认面向项目专用 `Custom FPGA Lock Host`，不再把 `Official SCPI Mode`、`Start SCPI Server`、`Connect SCPI` 或 Official ASG OUT1/OUT2 作为主操作入口。当前 custom bitstream 中，`OUT1=laser_error`，`OUT2=selected_out2`，SCPI ASG 命令即使成功也不代表能驱动物理 OUT2。
 
-上板示波器验证建议按下面顺序执行：
+当前 PZT 基础稳频建议按下面顺序执行：
 
 ```text
-Probe Registers -> Status -> SAFE -> SCAN -> Capture Bias -> LOCK -> UNLOCK / SAFE
+Probe Registers -> Status -> SAFE -> SCAN -> Capture Waveform -> click zero crossing -> LOCK HERE -> Apply Kp -> UNLOCK / SAFE
 ```
 
-`Capture Bias` 和 `LOCK` 都会读取 `OUT2_MONITOR`。`LOCK` 不使用 `lock-bias-v` 的理想电压估算，而是用当前 `OUT2_MONITOR` counts 作为 `LOCK_BIAS`，再写入 `MODE=3 P_LOCK`。当前 LOCK 只启用 P-only，`Ki/PI` 暂时禁用。
+`LOCK HERE` 由 FPGA 同拍捕获当前 `ERROR_MONITOR` 为 `ERROR_SETPOINT`、当前 `OUT2_MONITOR` 为 `LOCK_BIAS`，并以 Kp=0/Ki=0 进入 `MODE=3 P_LOCK`。`Apply Kp` 只更新 Kp、polarity 和 limit，不重新捕获 `LOCK_BIAS` 或 `ERROR_SETPOINT`。当前 LOCK 只启用 P-only，`Ki/PI` 暂时禁用。
 
 `Capture Waveform` 当前不会采集真实 custom FPGA IN1/IN2 波形，只提示后续 `debug_capture` 寄存器方案。真实 IN1/IN2、OUT1、OUT2 波形仍以示波器观察为准。
 
-安全边界不变：未完成示波器矩阵验证和接线 SOP 前，OUT2 禁止连接 PZT、Scan input、激光器电流调制、D2-125 Servo Output 或 D2-125 Aux Output。
+安全边界：OUT2 的目标执行器是激光器专用 PZT / Scan 输入，SCAN 和 LOCK 使用同一个 PZT 接口。必须限制 OUT2 幅度、偏置、`LOCK_CORRECTION_LIMIT` 和 `LOCK_LIMIT`，异常立即 SAFE。禁止 OUT2 接激光器电流调制输入，禁止接 D2-125 Servo Output / Aux Output，禁止两个设备输出端并联。
 
 ## Red Pitaya 连接流程
 
@@ -143,8 +143,8 @@ Probe Registers -> Status -> SAFE -> SCAN -> Capture Bias -> LOCK -> UNLOCK / SA
 3. 点击 `Probe Registers`，确认找到 `MAGIC=0x4D545330`。
 4. 点击 `Status`，确认 `VERSION=0x00030000` 且状态可读。
 5. 点击 `SAFE`，确认 OUT2 处于安全关闭。
-6. 只把 OUT2 接到示波器，再点击 `SCAN`。
-7. 示波器确认三角波幅度、偏置和频率安全后，才允许进入 `Capture Bias -> LOCK`。
+6. 确认 OUT2 幅度、偏置和 limit 后，将 OUT2 接到激光器专用 PZT / Scan 输入。
+7. 点击 `SCAN`，观察 MTS error 色散曲线，再进入 `Capture Waveform -> LOCK HERE -> Apply Kp`。
 
 ## GUI Custom FPGA Control
 
@@ -158,7 +158,7 @@ Probe Registers -> Status -> SAFE -> SCAN -> Capture Bias -> LOCK -> UNLOCK / SA
 4. 点击 `Probe Registers`。
 5. 点击 `Status`，确认 `MAGIC = 0x4D545330`。
 6. 点击 `SAFE`。
-7. OUT2 只接示波器时，再点击 `SCAN`。
+7. OUT2 接激光器专用 PZT / Scan 输入且限幅确认后，再点击 `SCAN`。
 8. 扫描到合适工作点后，点击 `Capture Bias` 或直接点击 `LOCK`。
 9. 需要退出锁定输出时，点击 `UNLOCK / SAFE`。
 
@@ -198,12 +198,12 @@ Custom FPGA Observe
 
 `HOLD` 输出固定电压，使用 `hold-v` 设置。`LOCK` 使用 `Kp raw`、`polarity` 和 `lock-limit-counts`，并自动用 `OUT2_MONITOR` counts 捕获 `LOCK_BIAS`。`lock-bias-v` 只保留为旧的人工参考输入，不作为一键 `LOCK` 的偏置来源。当前 `Ki/PI` 禁用，`Kp raw` 约定 `256 = 1.0x`，GUI 默认值为 0，必须人工逐步增加。
 
-安全边界：HOLD/LOCK 第一阶段仍然只允许 OUT2 接示波器。不要把 OUT2 默认接到 PZT、激光电流、D2-125 Servo Output 或 Scan input。只有 scope-only 验证了幅度、偏置、polarity、limit 和 SAFE 关闭行为后，才允许单独制定执行器连接 SOP。
+安全边界：PZT 基础稳频阶段允许 OUT2 接激光器专用 PZT / Scan 输入。不要把 OUT2 接到激光器电流调制输入、D2-125 Servo Output 或 D2-125 Aux Output；不要让两个设备输出端并联。必须从 Kp=0 开始，按 0/4/8/16/32 这类小步增加，确认 polarity、limit 和 SAFE 行为。
 
 ## GUI 模式
 
 - Custom FPGA Observe Mode：通过 SSH `/dev/mem` 执行 Probe Registers、Status、SAFE、SCAN、HOLD、Capture Bias、LOCK、UNLOCK/SAFE，并记录真实接线的手动示波器读数：IN1 PD/MTS、IN2 REF、OUT1 `laser_error`、OUT2 `selected_out2`。
-- Lock Workflow Mode：D2-125 替代流程 checklist，当前只做 P-only scope-only 锁定准备，不声称已经接执行器闭环锁定。
+- Lock Workflow Mode：PZT 基础稳频 checklist，当前只做人工选点和 P-only 小增益闭环，不声称已经完成全自动锁定或替代 D2-125。
 - Data & Experiment Log：导出 Markdown 实验日志到 `docs/experiment_logs/`。
 
 debug-buffer read、IN1/IN2 自定义波形显示、高层 lock FSM control、relock 和 actuator connection SOP 仍是后续工作。

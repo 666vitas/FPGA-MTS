@@ -11,8 +11,8 @@ D2-125 Ramp
 D2-125 Error Input
 -> FPGA mixer + LPF -> laser_error
 
-D2-125 Servo Output
--> future safe actuator path
+Red Pitaya OUT2
+-> 激光器专用 PZT / Scan 输入
 
 D2-125 Lock/Scan switch
 -> future FPGA FSM + host Lock Workflow（后续功能）
@@ -36,6 +36,6 @@ D2-125 Relock / Lock Quality
 
 ## 当前限制
 
-v3REG-0 SAFE/SCAN 已经由用户上板验证。当前 RTL / software 已包含 HOLD / P_LOCK / PI_LOCK 候选入口，但它们尚未完成 Vivado timing、bitstream、烧录和上板验证。
+当前最小闭环是人工操作的 PZT 基础稳频：`SCAN -> 观察 MTS error -> 点击色散过零点 -> LOCK HERE -> Kp=0 捕获锁点 -> Apply Kp 小步增加 -> SAFE`。
 
-在完成 scope-only 验证和安全 SOP 前，OUT2 只能接示波器，不允许接 PZT、Scan input、激光器电流调制、D2-125 Servo Output 或 D2-125 Aux Output。
+OUT2 的目标执行器是激光器专用 PZT / Scan 输入。禁止接激光器电流调制输入、D2-125 Servo Output、D2-125 Aux Output，禁止两个设备输出端并联。必须限制幅度、偏置、`LOCK_CORRECTION_LIMIT` 和 `LOCK_LIMIT`；错误 polarity、持续 saturation、输出冲限或通信失败时立即 SAFE。

@@ -6,10 +6,10 @@ Custom FPGA Observe Mode 面向当前真实接线：
 IN1 <- PD/MTS after analog BPF + amplifier, must be < +/-1 V
 IN2 <- 4.6 MHz REF, must be < +/-1 V
 OUT1 -> FPGA laser_error -> oscilloscope
-OUT2 -> FPGA selected_out2 -> oscilloscope
+OUT2 -> FPGA selected_out2 -> laser dedicated PZT / Scan input
 ```
 
-当前阶段 OUT2 只允许接示波器。不要把 OUT2 接到 laser scan/PZT、D2-125、Scan input 或任何真实执行器。
+当前阶段 OUT2 的目标执行器是激光器专用 PZT / Scan 输入。不要把 OUT2 接到激光器电流调制输入、D2-125 Servo Output、D2-125 Aux Output，也不要与任何其他设备输出端并联。
 
 ## 手动读数
 
@@ -32,6 +32,6 @@ GUI 会计算 OUT2/OUT1 Vpp 比值，并标记危险情况：
 
 `custom_fpga_backend.py` 已实现 SSH + `/dev/mem` 寄存器路径，可用于 `SAFE`、`SCAN`、`HOLD`、`P_LOCK`、`PI_LOCK` 候选模式。
 
-v3REG-0 `SAFE/SCAN` 已有用户上板验证证据。`HOLD/P_LOCK/PI_LOCK` 还没有完成 timing、bitstream 和上板验证，所以仍然只是 scope-only 候选。
+当前最小闭环路径：`SCAN -> Capture Waveform -> 点击当前 error 过零点 -> LOCK HERE -> FPGA 同拍捕获 ERROR_SETPOINT / LOCK_BIAS -> Apply Kp 小步增加 -> UNLOCK / SAFE`。
 
-当前阶段不要把 OUT2 接到 PZT、Scan input、laser current modulation、D2-125 Servo Output 或 D2-125 Aux Output。
+`LOCK HERE` 只捕获锁点并以 Kp=0 进入 `MODE=3 P_LOCK`；`Apply Kp` 只修改 Kp、polarity 和 limit，不重新捕获 `LOCK_BIAS` 或 `ERROR_SETPOINT`。禁止接 laser current modulation、D2-125 Servo Output 或 D2-125 Aux Output。

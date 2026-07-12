@@ -30,6 +30,6 @@
 - Official SCPI Mode：可以启动 `redpitaya_scpi`，连接 5000 端口，控制官方 ASG OUT1/OUT2，并通过 SCPI 采集 IN1/IN2。启动 `redpitaya_scpi` 可能加载官方 v0.94 overlay，并覆盖当前 custom FPGA bitstream。
 - Custom FPGA Mode：保留当前 custom bitstream。当前 RTL 中 `USE_LASER_LOCK_CORE = 1`，OUT1 / DAC A 是 `laser_error`，OUT2 / DAC B 是 `selected_out2`，官方 ASG data 不再直接驱动物理 OUT1/OUT2。
 
-Custom FPGA Mode 下，OUT2 当前仍只允许接示波器，不能连接 laser scan/PZT、D2-125 或任何真实执行器。
+Custom FPGA Mode 下，OUT2 的目标执行器是激光器专用 PZT / Scan 输入。`MODE=1 SCAN` 用三角波驱动 PZT 扫描，`MODE=3 P_LOCK` 用 `LOCK_BIAS + P correction` 驱动同一个 PZT 做基础反馈，`MODE=0 SAFE` 退出扫描和反馈。
 
-上位机当前可以通过 SSH + `/dev/mem` 写 custom FPGA 寄存器；但 HOLD/P_LOCK/PI_LOCK 仍需后续 timing、bitstream 和 scope-only 上板验证。
+上位机当前可以通过 SSH + `/dev/mem` 写 custom FPGA 寄存器。必须限制 OUT2 幅度、偏置、`LOCK_CORRECTION_LIMIT` 和 `LOCK_LIMIT`；禁止 OUT2 接激光器电流调制输入、D2-125 Servo Output、D2-125 Aux Output，禁止两个设备输出端并联。

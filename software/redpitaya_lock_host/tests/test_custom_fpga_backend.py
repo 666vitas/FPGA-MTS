@@ -5,6 +5,7 @@ from pathlib import Path
 
 from redpitaya_lock_host.custom_fpga_backend import (
     EXPECTED_VERSION,
+    build_update_p_lock_config,
     build_lock_config_from_counts,
     status_payload_has_expected_magic,
     missing_magic_guidance,
@@ -107,13 +108,14 @@ def test_one_click_lock_bias_uses_out2_monitor_counts_not_voltage_estimate() -> 
 def test_custom_fpga_cli_exposes_hold_p_lock_and_pi_lock_without_default_gain() -> None:
     custom_fpga_scan_control = load_scan_control_module()
 
-    for command in ("hold", "p-lock", "pi-lock", "lock-here"):
+    for command in ("hold", "p-lock", "pi-lock", "lock-here", "update-p-lock"):
         args = custom_fpga_scan_control.parse_args(["--host", "rp.local", command])
         assert args.command == command
 
     p_args = custom_fpga_scan_control.parse_args(["--host", "rp.local", "p-lock"])
     pi_args = custom_fpga_scan_control.parse_args(["--host", "rp.local", "pi-lock"])
     lock_here_args = custom_fpga_scan_control.parse_args(["--host", "rp.local", "lock-here"])
+    update_p_args = custom_fpga_scan_control.parse_args(["--host", "rp.local", "update-p-lock"])
     assert p_args.kp == 0
     assert pi_args.kp == 0
     assert pi_args.ki == 0
@@ -122,6 +124,71 @@ def test_custom_fpga_cli_exposes_hold_p_lock_and_pi_lock_without_default_gain() 
     assert lock_here_args.correction_limit_counts == 128
     assert lock_here_args.target_out2_counts is None
     assert lock_here_args.target_window_counts == 64
+    assert update_p_args.kp == 0
+
+
+def test_update_p_lock_accepts_only_manual_small_kp_steps() -> None:
+    custom_fpga_scan_control = load_scan_control_module()
+
+    for kp in (0, 4, 8, 16, 32):
+        args = custom_fpga_scan_control.parse_args(["--host", "rp.local", "update-p-lock", "--kp", str(kp)])
+        config = custom_fpga_scan_control.build_update_p_lock_config(args)
+        backend_config = build_update_p_lock_config(kp=kp, polarity=1)
+        assert config.kp == kp
+        assert backend_config.kp == kp
+
+    try:
+        custom_fpga_scan_control.parse_args(["--host", "rp.local", "update-p-lock", "--kp", "64"])
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("update-p-lock accepted a non-whitelisted Kp")
+
+
+def test_update_p_lock_keeps_captured_lock_point_registers_untouched() -> None:
+    custom_fpga_scan_control = load_scan_control_module()
+    helper = custom_fpga_scan_control.REMOTE_HELPER
+
+    run_start = helper.index("def run_update_p_lock(regs, args):")
+    next_function = helper.index("\ndef probe_base_addresses", run_start)
+    run_body = helper[run_start:next_function]
+    normal_start = run_body.index("# Normal update writes only KP and POLARITY.")
+    normal_end = run_body.index("# Post-update verification", normal_start)
+    normal_body = run_body[normal_start:normal_end]
+
+    assert "require_magic(regs)" in run_body
+    assert "EXPECTED_VERSION" in run_body
+    assert "MODE=3" in run_body
+    assert "ENABLE=1" in run_body
+    assert "saturation" in run_body
+    assert "first APPLY P with --kp 0" in run_body
+    assert 'regs.write(REGISTERS["KP"], args.kp)' in normal_body
+    assert 'regs.write(REGISTERS["POLARITY"], requested_polarity)' in normal_body
+    for forbidden in (
+        "ERROR_SETPOINT",
+        "LOCK_BIAS",
+        "CAPTURE_LOCK_POINT",
+        "MODE",
+        "ENABLE",
+        "KI",
+        "INTEGRAL_RESET",
+        "LOCK_LIMIT",
+        "LOCK_CORRECTION_LIMIT",
+    ):
+        assert f'regs.write(REGISTERS["{forbidden}"]' not in normal_body
+
+
+def test_update_p_lock_safes_on_post_update_lock_point_or_saturation_failure() -> None:
+    custom_fpga_scan_control = load_scan_control_module()
+    helper = custom_fpga_scan_control.REMOTE_HELPER
+
+    assert "def safe_exit(regs, reason):" in helper
+    assert 'regs.write(REGISTERS["KP"], 0)' in helper
+    assert 'regs.write(REGISTERS["ENABLE"], 0)' in helper
+    assert 'regs.write(REGISTERS["MODE"], 0)' in helper
+    assert "before_error_setpoint != int(after" in helper
+    assert "before_lock_bias != after_lock_bias" in helper
+    assert "bool(after[\"saturated\"])" in helper
 
 
 def test_remote_helper_register_map_includes_lock_here_setpoint_registers() -> None:
@@ -162,6 +229,7 @@ def test_gui_text_separates_scpi_and_custom_fpga_out2_paths() -> None:
     assert "custom_debug_capture not available" in source
     assert "CAPTURE_CTRL, CAPTURE_STATUS, CAPTURE_DECIMATION" in source
     assert "LOCK HERE" in source
+    assert "APPLY P" in source
     assert "ABORT / SAFE" in source
     assert "ARM AUTO LOCK" not in source
     assert "AUTO LOCK" not in source
@@ -190,6 +258,8 @@ def test_main_window_constructs_without_legacy_scpi_output_controls() -> None:
         assert not hasattr(window, "out2")
         assert window.custom_probe_button.text() == "Probe Registers"
         assert window.custom_lock_button.text() == "LOCK HERE"
+        assert window.custom_apply_p_button.text() == "APPLY P"
+        assert [window.custom_kp.itemText(index) for index in range(window.custom_kp.count())] == ["0", "4", "8", "16", "32"]
         assert window.custom_correction_limit_counts.value() == 128
         assert window.custom_lock_limit_counts.value() == 8191
     finally:

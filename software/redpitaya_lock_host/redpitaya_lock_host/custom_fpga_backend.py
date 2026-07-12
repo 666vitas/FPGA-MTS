@@ -20,6 +20,7 @@ EXPECTED_VERSION = 0x00030001
 DEFAULT_BASE_ADDR = 0x4060_0000
 DEFAULT_CLK_HZ = 125_000_000.0
 COUNTS_PER_VOLT = 8191.0
+ALLOWED_UPDATE_KP = (0, 4, 8, 16, 32)
 
 
 class CustomFpgaBackendError(RuntimeError):
@@ -48,6 +49,12 @@ class LockConfig:
     lock_bias_counts: int
     lock_limit_counts: int
     correction_limit_counts: int
+
+
+@dataclass(frozen=True)
+class UpdatePLockConfig:
+    kp: int
+    polarity: int
 
 
 @dataclass(frozen=True)
@@ -165,6 +172,14 @@ def build_lock_config_from_counts(
     )
 
 
+def build_update_p_lock_config(*, kp: int, polarity: int) -> UpdatePLockConfig:
+    kp_value = int(kp)
+    if kp_value not in ALLOWED_UPDATE_KP:
+        allowed = ", ".join(str(value) for value in ALLOWED_UPDATE_KP)
+        raise CustomFpgaBackendError(f"APPLY P Kp must be one of: {allowed}")
+    return UpdatePLockConfig(kp=kp_value, polarity=1 if int(polarity) else 0)
+
+
 def missing_magic_guidance(magic_text: str) -> str:
     if magic_text.upper() != "0X00000000":
         return (
@@ -198,7 +213,7 @@ def _load_scan_script_module():
 def _remote_python_command(
     base_addr: int,
     operation: str,
-    config: ScanConfig | HoldConfig | LockConfig | CaptureConfig | LockHereConfig | None,
+    config: ScanConfig | HoldConfig | LockConfig | UpdatePLockConfig | CaptureConfig | LockHereConfig | None,
 ) -> str:
     helper = _load_scan_script_module().REMOTE_HELPER
     helper_b64 = base64.b64encode(helper.encode("utf-8")).decode("ascii")
@@ -235,6 +250,13 @@ def _remote_python_command(
             str(config.lock_limit_counts),
             "--correction-limit-counts",
             str(config.correction_limit_counts),
+        ]
+    elif isinstance(config, UpdatePLockConfig):
+        remote_args += [
+            "--kp",
+            str(config.kp),
+            "--polarity",
+            str(config.polarity),
         ]
     elif isinstance(config, CaptureConfig):
         remote_args += [
@@ -347,6 +369,15 @@ class CustomFpgaBackend:
         )
         return self._run("p-lock", config, allow_nonzero=False)
 
+    def update_p_lock(
+        self,
+        *,
+        kp: int,
+        polarity: int,
+    ) -> CustomFpgaResponse:
+        config = build_update_p_lock_config(kp=kp, polarity=polarity)
+        return self._run("update-p-lock", config, allow_nonzero=False)
+
     def set_mode_pi_lock(
         self,
         *,
@@ -430,7 +461,7 @@ class CustomFpgaBackend:
     def _run(
         self,
         operation: str,
-        config: ScanConfig | HoldConfig | LockConfig | CaptureConfig | LockHereConfig | None,
+        config: ScanConfig | HoldConfig | LockConfig | UpdatePLockConfig | CaptureConfig | LockHereConfig | None,
         *,
         allow_nonzero: bool,
     ) -> CustomFpgaResponse:

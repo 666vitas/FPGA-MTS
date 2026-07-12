@@ -1,5 +1,23 @@
 # STATUS
 
+## 2026-07-12 PZT 基础稳频主线纠正与最小闭环
+
+项目最终目标固定为：基于 Red Pitaya 的全自动深度学习参数优化 MTS 激光稳频系统。当前阶段只做最简单、可人工操作的 PZT 基础稳频：`OUT2 -> 激光器专用 PZT / Scan 输入`，`SCAN -> 观察 MTS error -> 人工选择色散过零点 -> LOCK HERE -> 同拍捕获 ERROR_SETPOINT 和 LOCK_BIAS -> P-only 小增益反馈 -> SAFE`。
+
+当前有效安全边界：OUT2 的目标执行器就是激光器专用 PZT / Scan 输入；`MODE=1 SCAN` 和 `MODE=3 P_LOCK` 使用同一个 PZT 接口。必须限制 OUT2 幅度、偏置、`LOCK_CORRECTION_LIMIT` 和 `LOCK_LIMIT`，反馈方向错误、输出接近 limit、持续 saturation、通信失败或波形异常时立即 SAFE。禁止 OUT2 接激光器电流调制输入，禁止接 D2-125 Servo Output / Aux Output，禁止两个设备输出端并联。
+
+当前代码审查结论：RTL 已具备 `SCAN` 输出到 `selected_out2 -> DAC B / OUT2`、`CAPTURE_LOCK_POINT` 同拍捕获 `ERROR_SETPOINT` 与 `LOCK_BIAS`、`P_LOCK` 使用 `laser_error - ERROR_SETPOINT` 后的 `lock_error`、Kp=0 无扰保持 `LOCK_BIAS`、P correction 受 `LOCK_CORRECTION_LIMIT` 限制、最终 OUT2 受绝对 `LOCK_LIMIT` / DAC limit 限制、SAFE 退出。上位机已具备 `SCAN -> Capture Waveform -> 点击目标 -> LOCK HERE -> Apply Kp -> UNLOCK / SAFE` 的最小人工闭环路径；本次新增 `Apply Kp`，只更新 Kp / polarity / limit，不重新捕获 `LOCK_BIAS` 或 `ERROR_SETPOINT`。
+
+当前仍缺失：尚未由用户反馈完成新 bitstream 烧录后的 PZT 基础稳频闭环实测；尚未证明 `custom_debug_capture` 上板 waveform 数据完整可用；尚未证明 LOCK HERE 后小 Kp 能在真实 PZT 上长期保持色散过零点；尚未实现 AI 自动识峰、自动重锁、复杂 PID、Ki/integral 或深度学习参数优化。下一步唯一任务：用户上板按 `SCAN -> 选择锁点 -> LOCK HERE -> 小步 Kp -> 判断 polarity -> 基础稳频 -> SAFE` 做实测记录。
+
+## 2026-07-11 v3LOCK-P0 用户手动 Vivado timing PASS，下一步唯一任务是 Generate Bitstream
+
+当前验证等级：代码与 testbench 已通过；用户手动 `red_pitaya_top` synthesis / implementation / timing 已通过。Implemented Design 已确认存在 `i_custom_debug_capture`、`i_custom_register_bank`、`i_error_setpoint_corrector`。Timing：Setup WNS `+0.031 ns`、TNS `0.000 ns`、Failing Endpoints `0`；Hold WHS `+0.048 ns`、THS `0.000 ns`、Failing Endpoints `0`；Pulse Width WPWS `+1.000 ns`、TPWS `0.000 ns`、Failing Endpoints `0`；Vivado 显示 `All user specified timing constraints are met.`
+
+仍未完成：尚未证明 bitstream 已生成；尚未烧录；尚未读取新 `VERSION=0x00030001`；尚未完成 SAFE/SCAN 示波器回归；尚未验证 `custom_debug_capture` 上板工作；尚未验证 `LOCK HERE`；尚未真实闭环锁定激光。
+
+关键阻塞：timing PASS 不等于 bitstream、烧录、PZT 基础稳频或锁定通过。OUT2 目标执行器是激光器专用 PZT / Scan 输入，但必须限幅、限偏置、小 Kp、异常 SAFE；禁止接激光器电流调制输入、D2-125 Servo Output、D2-125 Aux Output，也禁止与任何 D2-125 输出并联。
+
 ## 2026-07-11 v3LOCK-P0 LOCK HERE 与 FPGA 同拍锁点捕获候选
 
 本次按最新安全纠正收敛为第一版人工选点：历史 `board(1).csv` 中的 `54 counts`、`0.704 V`、`0.784 V`、`49.75 Hz` 以及任何峰值/基线/扫描位置，只允许作为问题分析证据，禁止作为 RTL、Python、GUI、测试默认值或锁点配置。
@@ -26,20 +44,20 @@ OUT2 当前已接 PZT / Scan，因此 correction limit 是安全必要条件；�
 v3REG-0 SAFE/SCAN 已由用户上板验证：base address `0x40600000`，`MAGIC=0x4D545330`，`VERSION=0x00030000`，GUI / monitor 已可控制 OUT2 三角波并可 SAFE 关闭。
 GitHub main 已包含 HOLD / P_LOCK / PI_LOCK 候选，但这些候选尚未完成最新 Vivado synthesis / implementation / timing / bitstream / 烧录 / 上板示波器验证。
 当前 LOCK 目标缩小为 P-only：`MODE=3 P_LOCK` 是下一步验证重点；`MODE=4 PI_LOCK` 暂时退化为 P_LOCK，`KI / integral` 当前不要恢复。
-OUT2 仍只允许接示波器；禁止接 PZT / Scan input / 激光器 / D2-125 Servo Output / D2-125 Aux Output；禁止声称 FPGA 已经闭环锁定或替代 D2-125。
+当前 PZT 基础稳频主线允许 OUT2 接激光器专用 PZT / Scan 输入；禁止接激光器电流调制输入、D2-125 Servo Output、D2-125 Aux Output，禁止任何输出端并联；禁止声称 FPGA 已经完成全自动锁定或替代 D2-125。
 
 ## 2026-07-09 Custom FPGA Lock Host GUI 启动修复
 
 本次只修复上位机 GUI：移除主界面对旧 Official SCPI `self.out1/self.out2` 控件的无条件依赖，解决 `run_mock.bat` 启动 `AttributeError`。
 主界面仍保持 Custom FPGA Lock Host，不恢复 Official SCPI/ASG 主工作流。
-未修改 RTL，未运行 Vivado，未生成 bitstream；OUT2 仍只允许示波器验证。
+未修改 RTL，未运行 Vivado，未生成 bitstream；当前有效主线以 2026-07-12 PZT 基础稳频段落为准。
 
 ## 2026-07-09 上位机主线收敛为 Custom FPGA Lock Host
 
 上位机主界面不再暴露 Official SCPI/ASG 操作入口，默认流程改为 `Probe Registers -> Status -> SAFE -> SCAN -> Capture Bias -> LOCK -> UNLOCK/SAFE`。
 `LOCK` 当前为 P-only：先读取 `OUT2_MONITOR` counts 作为 `LOCK_BIAS`，再写入 `MODE=3 P_LOCK`；不使用 `lock-bias-v` 理想电压估算捕获偏置。
 `IN1/IN2` 自定义波形显示仍未实现，只记录 `debug_capture` 寄存器方案；本次未修改 RTL、未运行 Vivado、未生成 bitstream。
-OUT2 仍然只允许示波器验证，禁止连接 PZT/Scan/激光器电流调制/D2-125 输出。
+当前有效主线已纠正为 OUT2 目标执行器是激光器专用 PZT / Scan 输入；禁止连接激光器电流调制输入或 D2-125 输出。
 
 ## 2026-07-09 v3REG P-only timing 修复，等待用户手动 Vivado 验证
 
@@ -47,7 +65,7 @@ OUT2 仍然只允许示波器验证，禁止连接 PZT/Scan/激光器电流调�
 本次将当前 LOCK 目标缩小为 P_LOCK：`MODE=3` 为流水线 P-only；`MODE=4 PI_LOCK` 暂时退化为 P_LOCK，`KI / integral` 在当前 RTL 中禁用。
 Register map 和上位机命令保持不变；上位机仍可写 `KI`，但当前 RTL 不使用 `KI`。
 Codex 本次不运行 Vivado，不运行 synthesis / implementation，不生成 bitstream，不声称 timing 通过。
-OUT2 仍必须先只接示波器验证 SAFE/SCAN/HOLD/P_LOCK；未完成示波器验证和接线 SOP 前禁止接 Scan/PZT、激光器电流调制或 D2-125 输出。
+当前有效主线已纠正为 OUT2 目标执行器是激光器专用 PZT / Scan 输入；必须限幅、限偏置、小 Kp、异常 SAFE，禁止接激光器电流调制或 D2-125 输出。
 
 ## 当前主线
 
@@ -68,7 +86,7 @@ v3REG-0 已验证内容：Red Pitaya 加载 `/root/red_pitaya_top.bit.bin` 后�
 
 v3REG-1 / v3REG-2 当前状态：代码和仿真候选已存在，包含 `HOLD_VALUE / KP / POLARITY / LOCK_BIAS / LOCK_LIMIT / ERROR_MONITOR / CONTROL_MONITOR / KI / INTEGRAL_RESET`。这些模式还没有通过 Vivado timing、没有生成新 bitstream、没有烧录、没有上板验证。
 
-强制安全边界：只允许 OUT2 接示波器；禁止接 PZT、Scan input、激光器电流调制、D2-125 Servo Output、D2-125 Aux Output；禁止声称已经闭环锁定或已经替代 D2-125。
+强制安全边界：OUT2 只允许接激光器专用 PZT / Scan 输入；禁止接激光器电流调制输入、D2-125 Servo Output、D2-125 Aux Output，禁止任何输出端并联；禁止声称已经完成全自动锁定或已经替代 D2-125。
 
 ## 2026-07-05 GUI Custom FPGA Control v1 已接入
 
@@ -88,13 +106,13 @@ SAFE / SCAN 写寄存器前必须读到 `MAGIC = 0x4D545330`；`MAGIC = 0x000000
 `custom_fpga_scan_control.py` 已修复 Windows PowerShell -> SSH -> remote bash 的 `python3 -c` quoting，避免远端 bash 误解析 Python 代码。
 实验顺序明确为：先 Generate Bitstream 并把 timing-clean bitstream 加载/烧录进 Red Pitaya FPGA，再运行上位机脚本。
 Red Pitaya 网页界面不是本阶段必需条件；VPN 可能影响网页、`.local` 或 SSH，建议关闭 VPN 或使用板子实际 IP。
-烧录后第一步仍是 `status`，必须读到 `MAGIC=0x4D545330`；之后才允许 `safe` / `scan`，且 OUT2 仍只接示波器。
+烧录后第一步仍是 `status`，必须读到 `MAGIC=0x4D545330`；之后才允许 `safe` / `scan`。当前 PZT 基础稳频主线下，OUT2 只允许接激光器专用 PZT / Scan 输入。
 
 ## 2026-07-05 v3REG0_TIMING_FIX_2 用户手动 Vivado implementation timing PASS
 
 用户手动 Vivado implementation 已通过：`WNS = +0.322 ns`，`TNS = 0.000 ns`，`Failing Endpoints = 0`。
-允许进入 Generate Bitstream；仍只允许 OUT2 示波器 SAFE/SCAN 验证。
-禁止接 Scan/PZT、激光器、D2-125 Servo Output、D2-125 Aux Output。
+允许进入 Generate Bitstream；当前有效主线已纠正为 OUT2 目标执行器是激光器专用 PZT / Scan 输入。
+禁止接激光器电流调制输入、D2-125 Servo Output、D2-125 Aux Output，禁止任何输出端并联。
 
 ## 2026-07-05 v3REG0_TIMING_FIX_2 已拆分 ramp_generator 三角波更新路径
 
@@ -817,3 +835,10 @@ v2G：FPGA PI 与 D2-125 性能对比
 - `E:\new\fpga_lock\v94\version\v2\V2_DEVELOPMENT_ROADMAP.md`
 - `E:\new\fpga_lock\v94\version\v2\V2_NEXT_STEPS.md`
 - `E:\new\fpga_lock\v94\version\v2\GPT_REVIEW_V2_SUMMARY.md`
+
+## 2026-07-12 v3LOCK-P0 APPLY P host fix
+- 本次只修改上位机，不修改 RTL / testbench / Vivado project。
+- 新增 `update-p-lock` / GUI `APPLY P`：LOCK HERE 后仅小步更新 Kp/polarity，不重新捕获或覆盖 `ERROR_SETPOINT` / `LOCK_BIAS`。
+- Kp 仅允许 `0, 4, 8, 16, 32`；非零 Kp 下禁止直接翻转 polarity，需先 APPLY P 到 Kp=0。
+- 已通过 `py_compile` 和 `python -m pytest tests`；未运行 Vivado、未生成 bitstream、未烧录、未声明真实稳频完成。
+- 下一步唯一人工任务：上板按 `SCAN -> 选择过零点 -> LOCK HERE -> APPLY P 小步 Kp -> 判断 polarity -> 异常 SAFE` 验证。

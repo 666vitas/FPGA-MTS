@@ -5,9 +5,9 @@
 当前主线以 `version/STATUS.md` 和 `version/CURRENT_REVIEW_MANIFEST.md` 为准：
 
 ```text
-v3REG-0 SAFE/SCAN 已由用户上板验证。
-当前 RTL / software 已包含 v3REG-1 / v3REG-2 候选：HOLD / P_LOCK / PI_LOCK。
-HOLD / P_LOCK / PI_LOCK 尚未完成 Vivado timing、bitstream、烧录和上板验证。
+项目最终目标：基于 Red Pitaya 的全自动深度学习参数优化 MTS 激光稳频系统。
+当前主线：PZT 基础稳频最小闭环。
+当前操作：SCAN -> 观察 MTS error -> 人工选择色散过零点 -> LOCK HERE -> 捕获 ERROR_SETPOINT 和 LOCK_BIAS -> P-only 小增益反馈 -> SAFE。
 ```
 
 当前控制链路：
@@ -21,7 +21,7 @@ GUI / CLI
 -> OUT2
 ```
 
-当前阶段只允许 OUT2 接示波器。不验证真实闭环锁定，不接 Scan/PZT，不接激光器，不接 D2-125 输出。
+当前 OUT2 的目标执行器是激光器专用 PZT / Scan 输入。SCAN 和 P_LOCK 使用同一个 PZT 接口；必须限制幅度、偏置、`LOCK_CORRECTION_LIMIT` 和 `LOCK_LIMIT`，异常立即 SAFE。禁止 OUT2 接激光器电流调制输入、D2-125 Servo Output、D2-125 Aux Output，禁止与任何其他设备输出端并联。
 
 ## 当前信号含义
 

@@ -48,9 +48,8 @@ v0.94/redpitaya_laser_lock_project/docs/old/**
 当前主线：
 
 ```text
-v3REG-0 SAFE/SCAN 已由用户上板验证。
-当前 RTL / software 已包含 v3REG-1 / v3REG-2 候选：HOLD / P_LOCK / PI_LOCK。
-HOLD / P_LOCK / PI_LOCK 尚未完成 Vivado timing、bitstream、烧录和上板验证。
+项目最终目标：基于 Red Pitaya 的全自动深度学习参数优化 MTS 激光稳频系统。
+当前最小主线：PZT 基础稳频，人工 SCAN -> 选择色散过零点 -> LOCK HERE -> P-only 小增益反馈 -> SAFE。
 ```
 
 信号含义：
@@ -61,7 +60,7 @@ OUT2 = selected_out2
 laser_control / pi_controller_seq = 内部候选或历史路径，不是当前 DAC B / OUT2 最终输出
 ```
 
-安全边界：当前只允许 OUT2 接示波器；禁止接 Scan/PZT、激光器、D2-125 Servo Output、D2-125 Aux Output；不能声称已经闭环锁定，不能声称已经替代 D2-125。
+当前执行器边界：OUT2 的目标执行器是激光器专用 PZT / Scan 输入；SCAN 和 P_LOCK 使用同一个 PZT 接口。必须限制 OUT2 幅度、偏置和 `LOCK_CORRECTION_LIMIT`，异常立即 SAFE。禁止 OUT2 接激光器电流调制输入，禁止接 D2-125 Servo Output / Aux Output，禁止两个设备输出端并联。当前不能声称已完成全自动锁定或替代 D2-125。
 
 ## 审查输出要求
 

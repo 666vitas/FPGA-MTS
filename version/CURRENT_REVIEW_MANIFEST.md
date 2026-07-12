@@ -7,7 +7,7 @@
 ```text
 Repository: 666vitas/FPGA-MTS
 Primary branch: main
-Current stage: v3REG-0 SAFE/SCAN 已上板验证；v3REG-1/v3REG-2 HOLD/P_LOCK/PI_LOCK 仅为 RTL/software 候选，尚未完成最新 Vivado/timing/bitstream/上板验证
+Current stage: PZT 基础稳频最小闭环；SCAN / LOCK HERE / P-only 小增益 / SAFE
 Primary RTL root: v0.94/rtl
 Primary Vivado project: v0.94/project/redpitaya.xpr
 Primary status file: version/STATUS.md
@@ -30,9 +30,7 @@ laser_control / pi_controller_seq = 内部候选或历史路径，不是当前 D
 
 v3REG-0 SAFE/SCAN 已由用户上板验证：base address `0x40600000`，`MAGIC=0x4D545330`，`VERSION=0x00030000`，GUI/monitor 可控制 OUT2 三角波，并可用 SAFE 关闭。
 
-HOLD/P_LOCK/PI_LOCK 当前只表示 GitHub main 中的 RTL/software 候选已经存在；尚未完成最新 Vivado synthesis / implementation / timing / bitstream / 烧录 / 上板示波器验证。当前 LOCK 目标缩小为 P-only；`MODE=3 P_LOCK` 是下一步验证重点，`MODE=4 PI_LOCK` 暂时退化为 P_LOCK。2026-07-10 起 Auto Lock 只是 candidate：只做 SCAN 后自动寻找 error 过零点、写 `LOCK_BIAS`、小步增加 P-only Kp，并保留 SAFE / ABORT。
-
-当前 OUT2 已接 PZT / Scan 做谱线扫描，因此所有 P_LOCK / Auto Lock 候选必须默认小 Kp、小 `LOCK_CORRECTION_LIMIT`，失败必须 SAFE；不允许接入激光器电流调制、D2-125 Servo Output 或 D2-125 Aux Output，也不允许声称已完成激光稳频。
+当前 OUT2 的目标执行器是激光器专用 PZT / Scan 输入。`MODE=1 SCAN` 输出三角波驱动同一个 PZT 扫描激光频率；`MODE=3 P_LOCK` 输出 `LOCK_BIAS + P correction` 驱动同一个 PZT 完成基础反馈；`MODE=0 SAFE` 退出扫描和锁定。必须默认小 Kp、小 `LOCK_CORRECTION_LIMIT`，失败必须 SAFE；禁止接入激光器电流调制、D2-125 Servo Output 或 D2-125 Aux Output，也禁止任何输出端并联。
 
 ## 3. 当前必须读取的文件
 
@@ -218,8 +216,7 @@ KI / integral 当前不要恢复
 禁止说的内容：
 
 ```text
-已经可以接 PZT
-已经可以接 Scan
+已经可以接激光器电流调制输入
 已经可以替代 D2-125 Aux Output
 已经闭环锁定
 已经完成 D2-125 替代
@@ -234,9 +231,9 @@ KI / integral 当前不要恢复
 2. 用户明确授权后，才允许手动进入 Vivado synthesis / implementation / timing 检查。
 3. timing 通过后，才允许生成 bitstream。
 4. 烧录后先用上位机读 MAGIC / VERSION。
-5. 只把 OUT2 接示波器，先复核 SAFE/SCAN。
-6. 再以 Kp=0 / Ki=0 复核 HOLD/P_LOCK/PI_LOCK 候选模式。
-7. HOLD/P_LOCK/PI_LOCK scope-only 验证通过后，仍需单独安全评审，才能讨论 PZT/Scan 接入。
+5. OUT2 连接激光器专用 PZT / Scan 输入前，先确认幅度、偏置、limit、correction_limit 和 SAFE。
+6. 按 `SCAN -> 选择锁点 -> LOCK HERE -> Kp=0 -> Apply Kp 小步 0/4/8/16/32 -> 判断 polarity -> SAFE` 验证。
+7. 禁止接激光器电流调制输入、D2-125 Servo Output、D2-125 Aux Output，禁止任何输出端并联。
 ```
 
 ## 8. 审查输出必须包含

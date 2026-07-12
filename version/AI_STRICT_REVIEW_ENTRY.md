@@ -80,12 +80,21 @@ AI 审查必须按下面顺序读取：
 
 ## 3. 当前主线判定
 
+<<<<<<< HEAD
 截至 2026-07-11，当前主线为：
 
 ```text
 v3REG-0 register-controlled OUT2 SAFE/SCAN 已由用户上板验证；
 GitHub main 已进入 v3LOCK-P0 人工 LOCK HERE 候选；
 HOLD / P_LOCK / PI_LOCK / LOCK HERE 尚未完成最新 Vivado synthesis / implementation / timing / bitstream / 烧录 / 上板示波器验证。
+=======
+截至 2026-07-12，当前主线为：
+
+```text
+项目最终目标固定为：基于 Red Pitaya 的全自动深度学习参数优化 MTS 激光稳频系统。
+当前只做 PZT 基础稳频最小闭环：SCAN -> 观察 MTS error -> 人工选择色散过零点 -> LOCK HERE -> 同拍捕获 ERROR_SETPOINT 和 LOCK_BIAS -> P-only 小增益反馈 -> SAFE。
+OUT2 的目标执行器是激光器专用 PZT / Scan 输入，SCAN 和 P_LOCK 使用同一个 PZT 接口。
+>>>>>>> 0a6928a (Update v94 project code documents and records)
 ```
 
 必须使用下面判断：
@@ -131,13 +140,16 @@ custom_debug_capture 已加入 block RAM 推断候选修复，但尚未由最新
 任何审查都必须保留下面结论：
 
 ```text
-本阶段只允许 OUT2 接示波器。
-禁止 OUT2 接 Scan/PZT。
-禁止 OUT2 接激光器。
+OUT2 的目标执行器是激光器专用 PZT / Scan 输入。
+SCAN 和 P_LOCK 使用同一个 PZT 接口。
+必须限制 OUT2 幅度、偏置、LOCK_CORRECTION_LIMIT 和 LOCK_LIMIT。
+异常、反馈方向错误、持续 saturation 或输出接近 limit 时立即 SAFE。
+禁止 OUT2 接激光器电流调制输入。
 禁止 OUT2 接 D2-125 Servo Output。
 禁止 OUT2 接 D2-125 Aux Output。
 禁止 OUT2 与任何 D2-125 输出并联。
-禁止声称已经闭环锁定。
+禁止两个设备输出端并联。
+禁止声称已经完成全自动锁定、自动重锁或深度学习参数优化。
 禁止把 Auto Lock candidate 说成已经完成激光稳频。
 ```
 
@@ -173,9 +185,9 @@ H. 下一步最小安全动作
 
 纠正：是否作为 OUT2 最终输出，必须看 `red_pitaya_top.sv` 的 DAC B 选择逻辑。当前 OUT2 是 `selected_out2`，不是 `laser_control`。
 
-### 错误 4：看到 register_bank 就说已经能接 PZT
+### 错误 4：把 PZT 基础稳频主线误写成永久示波器-only
 
-纠正：register_bank 只是让上位机控制 OUT2 SAFE/SCAN 的第一步。没有 Vivado、bitstream、上板示波器验证前，不能接 PZT。
+纠正：当前 PZT 基础稳频主线的目标执行器就是激光器专用 PZT / Scan 输入。正确边界不是“永久禁止 PZT”，而是“只能接专用 PZT/Scan 输入，必须限幅、限偏置、小 Kp、异常 SAFE；禁止接电流调制输入和任何 D2-125 输出端”。
 
 ### 错误 5：看到 LOCK HERE / CAPTURE_LOCK_POINT 就说已经实现自动锁定
 

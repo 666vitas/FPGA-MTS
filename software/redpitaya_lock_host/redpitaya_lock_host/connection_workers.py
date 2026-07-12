@@ -159,6 +159,11 @@ class CustomFpgaRegisterWorker(QThread):
                     lock_limit_counts=int(self.params["lock_limit_counts"]),
                     correction_limit_counts=int(self.params.get("correction_limit_counts", 128)),
                 )
+            elif self.operation == "update-p-lock":
+                response = backend.update_p_lock(
+                    kp=int(self.params["kp"]),
+                    polarity=int(self.params["polarity"]),
+                )
             elif self.operation == "lock":
                 response = backend.lock_here(
                     polarity=int(self.params["polarity"]),

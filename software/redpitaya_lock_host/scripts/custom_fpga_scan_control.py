@@ -20,6 +20,7 @@ from dataclasses import dataclass
 COUNTS_PER_VOLT = 8191.0
 DEFAULT_CLK_HZ = 125_000_000.0
 DEFAULT_BASE_ADDR = 0x4060_0000
+ALLOWED_UPDATE_KP = (0, 4, 8, 16, 32)
 
 REGISTERS = {
     "MAGIC": 0x00,
@@ -105,6 +106,7 @@ REGISTERS = {
 
 EXPECTED_MAGIC = 0x4D545330
 EXPECTED_VERSION = 0x00030001
+ALLOWED_UPDATE_KP = {0, 4, 8, 16, 32}
 PROBE_BASE_ADDRS = [
     0x40000000,
     0x40100000,
@@ -215,6 +217,9 @@ def read_status(regs):
     control_raw = regs.read(REGISTERS["CONTROL_MONITOR"])
     error_setpoint_raw = regs.read(REGISTERS["ERROR_SETPOINT"])
     lock_error_raw = regs.read(REGISTERS["LOCK_ERROR_MONITOR"])
+    kp_raw = regs.read(REGISTERS["KP"])
+    polarity_raw = regs.read(REGISTERS["POLARITY"])
+    lock_bias_raw = regs.read(REGISTERS["LOCK_BIAS"])
     return {
         "magic": f"0x{magic:08X}",
         "version": f"0x{version:08X}",
@@ -229,8 +234,12 @@ def read_status(regs):
         "error_volts": to_signed14(error_raw) / 8191.0,
         "error_setpoint_counts": to_signed14(error_setpoint_raw),
         "error_setpoint_volts": to_signed14(error_setpoint_raw) / 8191.0,
+        "lock_bias_counts": to_signed14(lock_bias_raw),
+        "lock_bias_volts": to_signed14(lock_bias_raw) / 8191.0,
         "lock_error_counts": to_signed14(lock_error_raw),
         "lock_error_volts": to_signed14(lock_error_raw) / 8191.0,
+        "kp": to_signed14(kp_raw),
+        "polarity": polarity_raw & 1,
         "control_counts": to_signed14(control_raw),
         "control_volts": to_signed14(control_raw) / 8191.0,
         "lock_correction_limit_counts": to_signed14(regs.read(REGISTERS["LOCK_CORRECTION_LIMIT"])),
@@ -338,6 +347,75 @@ def run_lock_here(regs, args):
     return readback
 
 
+def safe_exit(regs, reason):
+    regs.write(REGISTERS["KP"], 0)
+    regs.write(REGISTERS["ENABLE"], 0)
+    regs.write(REGISTERS["MODE"], 0)
+    raise SystemExit(f"update-p-lock aborted and SAFE executed: {reason}")
+
+
+def run_update_p_lock(regs, args):
+    require_magic(regs)
+    before = read_status(regs)
+    before_error_setpoint = int(before["error_setpoint_counts"])
+    before_lock_bias = int(before["lock_bias_counts"])
+    before_mode = int(before["mode"])
+    before_enable = int(before["enable"])
+    before_kp = int(before["kp"])
+    before_polarity = int(before["polarity"])
+    requested_polarity = int(args.polarity)
+
+    if before["version"] != f"0x{EXPECTED_VERSION:08X}":
+        safe_exit(regs, f"VERSION mismatch: expected 0x{EXPECTED_VERSION:08X}, got {before['version']}")
+    if before_mode != 3:
+        safe_exit(regs, f"MODE=3 P_LOCK is required, got MODE={before_mode}")
+    if before_enable != 1:
+        safe_exit(regs, f"ENABLE=1 is required, got ENABLE={before_enable}")
+    if bool(before["saturated"]):
+        safe_exit(regs, "pre-update saturation is set")
+    if int(args.kp) not in ALLOWED_UPDATE_KP:
+        safe_exit(regs, f"Kp must be one of {sorted(ALLOWED_UPDATE_KP)}, got {args.kp}")
+    if before_polarity != requested_polarity and before_kp != 0:
+        raise SystemExit(
+            "update-p-lock refused: polarity change while Kp is nonzero. "
+            "first APPLY P with --kp 0, then change polarity."
+        )
+
+    # Normal update writes only KP and POLARITY.
+    regs.write(REGISTERS["KP"], args.kp)
+    regs.write(REGISTERS["POLARITY"], requested_polarity)
+
+    # Post-update verification keeps the FPGA in SAFE on any lock-point drift.
+    after = read_status(regs)
+    after_lock_bias = int(after["lock_bias_counts"])
+    if int(after["mode"]) != 3:
+        safe_exit(regs, f"MODE changed after update: {after['mode']}")
+    if int(after["enable"]) != 1:
+        safe_exit(regs, f"ENABLE changed after update: {after['enable']}")
+    if before_error_setpoint != int(after["error_setpoint_counts"]):
+        safe_exit(regs, "ERROR_SETPOINT changed during update-p-lock")
+    if before_lock_bias != after_lock_bias:
+        safe_exit(regs, "LOCK_BIAS changed during update-p-lock")
+    if int(after["kp"]) != int(args.kp):
+        safe_exit(regs, f"KP readback mismatch: expected {args.kp}, got {after['kp']}")
+    if int(after["polarity"]) != requested_polarity:
+        safe_exit(regs, f"POLARITY readback mismatch: expected {requested_polarity}, got {after['polarity']}")
+    if bool(after["saturated"]):
+        safe_exit(regs, "post-update saturation is set")
+
+    after.update({
+        "lock_state": "P_LOCK_UPDATED",
+        "before_kp": before_kp,
+        "before_polarity": before_polarity,
+        "current_kp": int(after["kp"]),
+        "current_polarity": int(after["polarity"]),
+        "error_setpoint_preserved_counts": before_error_setpoint,
+        "lock_bias_preserved_counts": before_lock_bias,
+        "update_rule": "Only KP and POLARITY were written; LOCK_BIAS and ERROR_SETPOINT were not touched.",
+    })
+    return after
+
+
 def probe_base_addresses():
     results = []
     found_base = None
@@ -375,7 +453,7 @@ def probe_base_addresses():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-addr", default="0x40600000")
-    parser.add_argument("--op", choices=["safe", "scan", "hold", "p-lock", "pi-lock", "lock-here", "status", "probe", "capture"], required=True)
+    parser.add_argument("--op", choices=["safe", "scan", "hold", "p-lock", "update-p-lock", "pi-lock", "lock-here", "status", "probe", "capture"], required=True)
     parser.add_argument("--offset-counts", type=int, default=6962)
     parser.add_argument("--amp-counts", type=int, default=410)
     parser.add_argument("--step-counts", type=int, default=1)
@@ -435,6 +513,10 @@ def main():
             regs.write(REGISTERS["INTEGRAL_RESET"], 1)
             regs.write(REGISTERS["MODE"], 3)
             regs.write(REGISTERS["ENABLE"], 1)
+        elif args.op == "update-p-lock":
+            status = run_update_p_lock(regs, args)
+            print(json.dumps(status, indent=2, sort_keys=True))
+            return
         elif args.op == "pi-lock":
             require_magic(regs)
             regs.write(REGISTERS["ENABLE"], 0)
@@ -494,6 +576,12 @@ class LockConfig:
     correction_limit_counts: int
 
 
+@dataclass
+class UpdatePLockConfig:
+    kp: int
+    polarity: int
+
+
 def volts_to_counts(volts: float) -> int:
     counts = int(round(volts * COUNTS_PER_VOLT))
     return max(-8191, min(8191, counts))
@@ -533,7 +621,18 @@ def build_lock_config(args: argparse.Namespace, *, pi: bool) -> LockConfig:
     )
 
 
-def remote_command(args: argparse.Namespace, op: str, config: ScanConfig | HoldConfig | LockConfig | None) -> list[str]:
+def build_update_p_lock_config(args: argparse.Namespace) -> UpdatePLockConfig:
+    return UpdatePLockConfig(
+        kp=int(args.kp),
+        polarity=1 if str(args.polarity).lower() in {"1", "invert", "inverted", "negative"} else 0,
+    )
+
+
+def remote_command(
+    args: argparse.Namespace,
+    op: str,
+    config: ScanConfig | HoldConfig | LockConfig | UpdatePLockConfig | None,
+) -> list[str]:
     helper_b64 = base64.b64encode(REMOTE_HELPER.encode("utf-8")).decode("ascii")
     remote_args = [
         "--base-addr",
@@ -573,6 +672,13 @@ def remote_command(args: argparse.Namespace, op: str, config: ScanConfig | HoldC
             str(config.lock_limit_counts),
             "--correction-limit-counts",
             str(config.correction_limit_counts),
+        ]
+    elif isinstance(config, UpdatePLockConfig):
+        remote_args += [
+            "--kp",
+            str(config.kp),
+            "--polarity",
+            str(config.polarity),
         ]
     elif op == "capture":
         remote_args += [
@@ -653,6 +759,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p_lock_parser.add_argument("--lock-limit-counts", type=int, default=8191)
     p_lock_parser.add_argument("--correction-limit-counts", type=int, default=128)
 
+    update_p_parser = subparsers.add_parser(
+        "update-p-lock",
+        help="Apply manual P gain/polarity after LOCK HERE without recapturing LOCK_BIAS or ERROR_SETPOINT",
+    )
+    update_p_parser.add_argument("--kp", type=int, choices=ALLOWED_UPDATE_KP, default=0)
+    update_p_parser.add_argument("--polarity", choices=["normal", "invert", "0", "1"], default="normal")
+
     pi_lock_parser = subparsers.add_parser("pi-lock", help="Enable PI lock mode; Kp/Ki default to zero")
     pi_lock_parser.add_argument("--kp", type=int, default=0, help="Fixed-point Kp, 256 = gain 1.0")
     pi_lock_parser.add_argument("--ki", type=int, default=0, help="Fixed-point Ki, 256 = gain 1.0 per sample")
@@ -689,6 +802,8 @@ def main(argv: list[str] | None = None) -> int:
         config = build_hold_config(args)
     elif args.command == "p-lock":
         config = build_lock_config(args, pi=False)
+    elif args.command == "update-p-lock":
+        config = build_update_p_lock_config(args)
     elif args.command == "pi-lock":
         config = build_lock_config(args, pi=True)
     else:
@@ -722,6 +837,17 @@ def main(argv: list[str] | None = None) -> int:
                     # lock_bias_counts={config.lock_bias_counts}
                     # lock_limit_counts={config.lock_limit_counts}
                     # correction_limit_counts={config.correction_limit_counts}
+                    """
+                ).strip()
+            )
+        elif isinstance(config, UpdatePLockConfig):
+            print(
+                textwrap.dedent(
+                    f"""
+                    # update-p-lock parameters
+                    # kp={config.kp}
+                    # polarity={config.polarity}
+                    # normal path writes only KP and POLARITY
                     """
                 ).strip()
             )

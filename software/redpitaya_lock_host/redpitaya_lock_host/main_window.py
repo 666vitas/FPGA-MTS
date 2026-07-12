@@ -336,7 +336,7 @@ class MainWindow(QMainWindow):
             "IN1 = PD/MTS after analog BPF + amplifier, < +/-1 V\n"
             "IN2 = 4.6 MHz REF, < +/-1 V\n"
             "OUT1 = FPGA laser_error -> oscilloscope\n"
-            "OUT2 = selected_out2 (SAFE/SCAN proven; HOLD/P_LOCK/PI_LOCK candidates) -> oscilloscope only\n"
+            "OUT2 = selected_out2 -> laser dedicated PZT / Scan input for SCAN and P_LOCK\n"
             "Do not connect OUT2 to laser scan/PZT or D2-125 yet."
         )
         wiring.setWordWrap(True)
@@ -396,9 +396,8 @@ class MainWindow(QMainWindow):
         self.custom_limit_counts.setRange(0, 8191)
         self.custom_limit_counts.setValue(8191)
         self.custom_hold_v = self._custom_double_spin(0.0, -1.0, 1.0, 4, " V")
-        self.custom_kp = QSpinBox()
-        self.custom_kp.setRange(0, 8191)
-        self.custom_kp.setValue(0)
+        self.custom_kp = QComboBox()
+        self.custom_kp.addItems(["0", "4", "8", "16", "32"])
         self.custom_ki = QSpinBox()
         self.custom_ki.setRange(0, 8191)
         self.custom_ki.setValue(0)
@@ -448,7 +447,7 @@ class MainWindow(QMainWindow):
         form.addRow("step-counts", self.custom_step_counts)
         form.addRow("limit-counts", self.custom_limit_counts)
         form.addRow("hold-v", self.custom_hold_v)
-        form.addRow("Kp raw (256=1x)", self.custom_kp)
+        form.addRow("Kp manual step", self.custom_kp)
         form.addRow("Ki raw (disabled)", self.custom_ki)
         form.addRow("polarity", self.custom_polarity)
         form.addRow("manual lock-bias-v (not used by LOCK)", self.custom_lock_bias_v)
@@ -476,6 +475,7 @@ class MainWindow(QMainWindow):
         self.custom_pi_lock_button = QPushButton("PI_LOCK")
         self.custom_capture_bias_button = QPushButton("Capture Bias")
         self.custom_lock_button = QPushButton("LOCK HERE")
+        self.custom_apply_p_button = QPushButton("APPLY P")
         self.custom_arm_auto_lock_button = QPushButton("LOCK HERE")
         self.custom_abort_auto_lock_button = QPushButton("ABORT / SAFE")
         self.custom_unlock_button = QPushButton("UNLOCK / SAFE")
@@ -490,6 +490,7 @@ class MainWindow(QMainWindow):
             self.custom_pi_lock_button,
             self.custom_capture_bias_button,
             self.custom_lock_button,
+            self.custom_apply_p_button,
             self.custom_arm_auto_lock_button,
             self.custom_abort_auto_lock_button,
             self.custom_unlock_button,
@@ -506,8 +507,9 @@ class MainWindow(QMainWindow):
         buttons.addWidget(self.custom_hold_button, 2, 0)
         buttons.addWidget(self.custom_capture_bias_button, 2, 1)
         buttons.addWidget(self.custom_lock_button, 3, 0)
-        buttons.addWidget(self.custom_unlock_button, 3, 1)
-        buttons.addWidget(self.custom_abort_auto_lock_button, 4, 0, 1, 2)
+        buttons.addWidget(self.custom_apply_p_button, 3, 1)
+        buttons.addWidget(self.custom_unlock_button, 4, 0)
+        buttons.addWidget(self.custom_abort_auto_lock_button, 4, 1)
         buttons.addWidget(self.custom_capture_waveform_button, 5, 0, 1, 2)
 
         self.custom_register_summary = QLabel(
@@ -521,7 +523,8 @@ class MainWindow(QMainWindow):
         self.custom_warning_text.setPlainText(
             "First enter SCAN and capture the current waveform. Click the desired zero point, then press LOCK HERE. "
             "FPGA CAPTURE_LOCK_POINT latches ERROR_SETPOINT and LOCK_BIAS in the same clk_i domain, then enters "
-            "MODE=3 P_LOCK with Kp=0/Ki=0. Historical CSV values are not used as lock parameters."
+            "MODE=3 P_LOCK with Kp=0/Ki=0. Use APPLY P for 0/4/8/16/32 manual gain steps without recapturing "
+            "LOCK_BIAS or ERROR_SETPOINT. Change polarity only after APPLY P with Kp=0. Historical CSV values are not used as lock parameters."
         )
 
         layout.addLayout(form)
@@ -567,9 +570,9 @@ class MainWindow(QMainWindow):
         self.lock_step_detail = QLabel("")
         self.lock_step_detail.setWordWrap(True)
         mapping = QLabel(
-            "D2-125 Aux Servo Output -> disconnect; Custom FPGA OUT2 provides selected_out2 scope-only first\n"
+            "D2-125 Aux Servo Output -> disconnect; Custom FPGA OUT2 provides selected_out2 to laser dedicated PZT / Scan input\n"
             "D2-125 Error Input -> FPGA mixer + LPF -> laser_error\n"
-            "D2-125 Servo Output -> keep current external path during this stage\n"
+            "D2-125 Servo Output -> do not parallel with Red Pitaya OUT2\n"
             "SCAN -> GUI writes custom_register_bank/ramp_generator for OUT2 triangle\n"
             "Click current waveform target -> LOCK HERE -> FPGA captures ERROR_SETPOINT and LOCK_BIAS, then enters MODE=3 P_LOCK"
         )
@@ -812,6 +815,7 @@ class MainWindow(QMainWindow):
         self.custom_pi_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("pi-lock"))
         self.custom_capture_bias_button.clicked.connect(lambda: self._start_custom_fpga_operation("capture-bias"))
         self.custom_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("lock"))
+        self.custom_apply_p_button.clicked.connect(lambda: self._start_custom_fpga_operation("update-p-lock"))
         self.custom_abort_auto_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
         self.custom_unlock_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
         self.custom_capture_waveform_button.clicked.connect(lambda: self._start_custom_fpga_operation("capture"))
@@ -960,12 +964,17 @@ class MainWindow(QMainWindow):
             }
         elif operation in {"p-lock", "pi-lock"}:
             params = {
-                "kp": self.custom_kp.value(),
+                "kp": int(self.custom_kp.currentText()),
                 "ki": self.custom_ki.value(),
                 "polarity": 1 if self.custom_polarity.currentText() == "invert" else 0,
                 "lock_bias_v": self.custom_lock_bias_v.value(),
                 "lock_limit_counts": self.custom_lock_limit_counts.value(),
                 "correction_limit_counts": self.custom_correction_limit_counts.value(),
+            }
+        elif operation == "update-p-lock":
+            params = {
+                "kp": int(self.custom_kp.currentText()),
+                "polarity": 1 if self.custom_polarity.currentText() == "invert" else 0,
             }
         elif operation == "lock":
             if self.selected_lock_point is None:
@@ -1243,9 +1252,15 @@ class MainWindow(QMainWindow):
             captured_setpoint = payload.get("captured_error_setpoint_counts", error_setpoint_counts)
             lines.append(f"ERROR_SETPOINT source: FPGA CAPTURE_LOCK_POINT captured ERROR_MONITOR = {captured_setpoint} counts")
             lines.append("Ideal volts are register-scale estimates only; oscilloscope measurement is the DAC truth.")
-        if operation in {"p-lock", "pi-lock", "lock"}:
+        if operation in {"p-lock", "update-p-lock", "pi-lock", "lock"}:
             lines.append("Current LOCK path is P-only; Ki/PI is disabled in the timing-friendly RTL.")
-            lines.append("Scope-only: keep Kp low; do not connect PZT/current/D2-125 before matrix validation.")
+            lines.append("PZT path: keep Kp low; never connect current modulation or D2-125 outputs.")
+        if operation == "update-p-lock":
+            lines.append(f"APPLY P state: {payload.get('lock_state', '--')}")
+            lines.append(f"current Kp: {payload.get('current_kp', payload.get('kp', '--'))}")
+            lines.append(f"current polarity: {payload.get('current_polarity', payload.get('polarity', '--'))}")
+            lines.append(f"preserved ERROR_SETPOINT: {payload.get('error_setpoint_preserved_counts', error_setpoint_counts)} counts")
+            lines.append(f"preserved LOCK_BIAS: {payload.get('lock_bias_preserved_counts', payload.get('lock_bias_counts', '--'))} counts")
         if operation == "lock":
             lines.append(f"LOCK HERE state: {payload.get('lock_state', '--')}")
             lines.append(f"target wait matched: {payload.get('target_wait_matched', '--')}")
@@ -1259,7 +1274,7 @@ class MainWindow(QMainWindow):
     def apply_output(self, channel: int, control: OutputControl) -> None:
         if not self._official_mode() and not isinstance(self.client, MockRedPitayaClient):
             self.statusBar().showMessage(
-                "Custom FPGA Mode: OUT2 is selected_out2, not SCPI ASG; use scope-only Custom FPGA Control"
+                "Custom FPGA Mode: OUT2 is selected_out2, not SCPI ASG; use Custom FPGA Control for the PZT path"
             )
             return
         try:
@@ -1508,7 +1523,7 @@ class MainWindow(QMainWindow):
                 handle.write("# Red Pitaya Host Experiment Log\n\n")
                 handle.write(f"- current_mode: {mode}\n")
                 handle.write(f"- current_step: {self.lock_step_combo.currentText()}\n")
-                handle.write("- wiring: IN1 PD/MTS < +/-1 V; IN2 4.6 MHz REF < +/-1 V; OUT1/OUT2 scope-only in Custom FPGA Mode\n")
+                handle.write("- wiring: IN1 PD/MTS < +/-1 V; IN2 4.6 MHz REF < +/-1 V; OUT1=laser_error; OUT2=selected_out2 to laser dedicated PZT / Scan input only\n")
                 handle.write(f"- out1_error_vpp: {self.obs_out1_vpp.value():.6g}\n")
                 handle.write(f"- out1_error_min: {self.obs_out1_min.value():.6g}\n")
                 handle.write(f"- out1_error_max: {self.obs_out1_max.value():.6g}\n")
@@ -1601,7 +1616,7 @@ class MainWindow(QMainWindow):
         else:
             self.ch3.set_warning("Custom FPGA Mode: OUT1 is laser_error, not SCPI ASG")
             self.ch4.set_warning(
-                "Custom FPGA Mode: OUT2 is selected_out2; LOCK is P-only and scope-only until validated"
+                "Custom FPGA Mode: OUT2 is selected_out2; LOCK is P-only to the dedicated PZT / Scan input"
             )
 
     def _observe_measurements(self) -> CustomFpgaMeasurements:
@@ -1712,6 +1727,7 @@ class MainWindow(QMainWindow):
             self.custom_pi_lock_button,
             self.custom_capture_bias_button,
             self.custom_lock_button,
+            self.custom_apply_p_button,
             self.custom_arm_auto_lock_button,
             self.custom_abort_auto_lock_button,
             self.custom_unlock_button,
@@ -1762,12 +1778,12 @@ class MainWindow(QMainWindow):
                 "Custom FPGA Lock Host: do not start redpitaya_scpi overlay. "
                 "OUT1=laser_error (mixer+LPF). OUT2=selected_out2 from register-controlled "
                 "SAFE/SCAN/HOLD/P_LOCK modes. Main flow: Probe Registers -> Status -> SAFE -> SCAN -> "
-                "Capture Waveform -> click target -> LOCK HERE -> UNLOCK/SAFE. Current LOCK=P-only; Ki/PI disabled. "
+                "Capture Waveform -> click target -> LOCK HERE -> APPLY P -> UNLOCK/SAFE. Current LOCK=P-only; Ki/PI disabled. "
                 "SCPI ASG output commands do not drive physical OUT2 in the current custom bitstream."
             )
             if all(hasattr(self, name) for name in ("ch3", "ch4")):
                 self.ch3.subtitle_label.setText("Custom FPGA OUT1 = laser_error; not ADC measured")
-                self.ch4.subtitle_label.setText("Custom FPGA OUT2 = selected_out2; scope-only")
+                self.ch4.subtitle_label.setText("Custom FPGA OUT2 = selected_out2; dedicated PZT / Scan path")
         self._set_connected_state(self.client is not None and self.client.connected)
         self._redraw_from_last_waveforms()
 
@@ -1786,25 +1802,25 @@ class MainWindow(QMainWindow):
                 "Next: Control Output Observe."
             ),
             "3. Control Output Observe": (
-                "Wiring: OUT2 -> oscilloscope only.\n"
-                "Scope: selected_out2 SAFE/SCAN first, then HOLD/P_LOCK/PI_LOCK candidate output on OUT2.\n"
+                "Wiring: OUT2 -> laser dedicated PZT / Scan input after limit and SAFE checks.\n"
+                "PZT: selected_out2 SAFE/SCAN first, then LOCK HERE Kp=0 and APPLY P on OUT2.\n"
                 "Pass: OUT2 within safe limit and not rapidly climbing/jumping. Stop: OUT2 near +/-1 V.\n"
                 "Next: Direction / Polarity Check."
             ),
             "4. Direction / Polarity Check": (
-                "Wiring: scope-only observation.\n"
-                "Scope: compare OUT1 error trend and OUT2 control response.\n"
+                "Wiring: OUT2 remains on the dedicated PZT / Scan input; no current modulation or D2-125 output parallel.\n"
+                "Observe: compare OUT1 error trend and OUT2 control response.\n"
                 "Pass: direction is understood. Stop: ambiguous or runaway response.\n"
                 "Next: Gain / Limit Check."
             ),
             "5. Gain / Limit Check": (
-                "Wiring: OUT2 remains scope-only.\n"
-                "Scope: check OUT2/OUT1 ratio, min/max, and Vpp.\n"
+                "Wiring: OUT2 remains on the dedicated PZT / Scan input.\n"
+                "Observe: check OUT2/OUT1 ratio, min/max, and Vpp.\n"
                 "Pass: small, bounded control output. Stop: large Vpp, random jumps, or drift.\n"
                 "Next: Ready for Low-gain Lock Test."
             ),
             "6. Ready for Low-gain Lock Test": (
-                "Wiring: do not connect actuator until safety and polarity are reviewed.\n"
+                "Wiring: OUT2 may drive only the laser dedicated PZT / Scan input after safety and polarity are reviewed.\n"
                 "Pass: input safety, error signal, control output, polarity, and limits are documented.\n"
                 "Next: Future Lock Engage.\n"
                 "Not implemented until FPGA register/debug interface is available."

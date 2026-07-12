@@ -19,8 +19,8 @@ Set-Location E:\new\fpga_lock\v94\software\redpitaya_lock_host
 ## GUI 模式
 
 - Hardware Bring-up：Official SCPI Mode，用于 Probe、Start SCPI Server、Connect SCPI、官方 ASG OUT2 Safe Scan、IN1/IN2 acquisition。
-- Custom FPGA Observe：用于手动记录示波器读数，包括 IN1 PD/MTS、IN2 REF、OUT1 `laser_error`、OUT2 `selected_out2`。Custom FPGA Control 通过 SSH + `/dev/mem` 控制 SAFE/SCAN/HOLD/P_LOCK/PI_LOCK 候选模式。OUT2 当前仍只允许接示波器。
-- Lock Workflow：D2-125 替代路径 checklist，用于记录输入安全、error observation、control observation、polarity、gain/limit，以及未来 lock/relock 步骤。
+- Custom FPGA Observe：用于记录 IN1 PD/MTS、IN2 REF、OUT1 `laser_error`、OUT2 `selected_out2`。Custom FPGA Control 通过 SSH + `/dev/mem` 控制 SAFE/SCAN/LOCK HERE/Apply Kp。OUT2 的目标执行器是激光器专用 PZT / Scan 输入。
+- Lock Workflow：PZT 基础稳频 checklist，用于记录输入安全、error observation、control observation、polarity、gain/limit 和 SAFE 条件。
 - Data Log：把实验日志导出到 `docs/experiment_logs/`。
 
 ## 推荐硬件测试顺序
@@ -29,10 +29,10 @@ Set-Location E:\new\fpga_lock\v94\software\redpitaya_lock_host
 2. 点击 `Probe`。
 3. 如果是 Official SCPI Mode，按需要点击 `Start SCPI Server`。
 4. 点击 `Connect SCPI`。
-5. 只把 OUT2 接到示波器。
-6. 设置 OUT2 为 `triangle / 50 Hz / 0.05 V / offset 0`。
-7. 点击 Apply。
-8. 在示波器上确认 OUT2 波形。
+5. 确认 OUT2 幅度、偏置、limit 和 SAFE 设置。
+6. 将 OUT2 接到激光器专用 PZT / Scan 输入。
+7. 点击 `SCAN`。
+8. 观察 MTS error 色散曲线。
 9. 再把 IN1 接到小信号源测试。
 10. 再把 IN2 接到 4.6 MHz REF 小信号源测试。
 11. 最后才考虑接入实验链路；接入前必须重新确认幅度、偏置和安全边界。
@@ -45,14 +45,16 @@ Custom FPGA Mode
 -> Status
 -> SAFE
 -> SCAN
--> HOLD
--> P_LOCK, Kp=0 first
--> PI_LOCK, Kp=0 and Ki=0 first
+-> Capture Waveform
+-> click selected zero crossing
+-> LOCK HERE, Kp=0 first
+-> Apply Kp, suggested steps 0/4/8/16/32
+-> UNLOCK / SAFE
 ```
 
 `Probe Registers` 和 `Status` 只读。SAFE/SCAN/HOLD/P_LOCK/PI_LOCK 写寄存器前必须确认 `MAGIC=0x4D545330`。
 
-HOLD/P_LOCK/PI_LOCK 当前只是 RTL / software 候选入口，尚未完成 Vivado timing、bitstream、烧录和上板验证。第一次上板必须只接示波器。
+`LOCK HERE` 后不要重新填写历史锁点；FPGA 会同拍捕获 `ERROR_SETPOINT` 和 `LOCK_BIAS`。`Apply Kp` 只调 Kp、polarity 和 limit，不重捕获锁点。错误 polarity、输出接近 limit、持续 saturation 或通信失败时立即 `UNLOCK / SAFE`。
 
 ## OUT1/OUT2 预览
 
@@ -89,4 +91,4 @@ Red Pitaya IN1/IN2 绝对输入电压不得超过 +/-1 V。
 
 推荐初始 OUT2 设置：`50 Hz`、`0.05 V`、`0 offset`。
 
-当前阶段禁止把 OUT2 接到 PZT、Scan input、激光器电流调制、D2-125 Servo Output 或 D2-125 Aux Output，除非已经有单独安全 SOP 和用户明确授权。
+当前阶段 OUT2 允许且目标就是激光器专用 PZT / Scan 输入。禁止把 OUT2 接到激光器电流调制输入、D2-125 Servo Output 或 D2-125 Aux Output，禁止两个设备输出端并联。

@@ -66,18 +66,22 @@ HOLD/P_LOCK/PI_LOCK 尚未完成 Vivado timing、bitstream、烧录和上板验�
 
 ## 硬件安全边界
 
-当前 custom FPGA mode 中，OUT2 仍然只允许接示波器。
+当前 custom FPGA mode 中，OUT2 的目标执行器是激光器专用 PZT / Scan 输入。
+
+允许的当前主线：
+
+- `MODE=1 SCAN`：OUT2 三角波驱动 PZT 扫描激光频率。
+- `MODE=3 P_LOCK`：OUT2 输出 `LOCK_BIAS + P correction`，驱动同一个 PZT 做基础反馈。
+- `MODE=0 SAFE`：OUT2 回安全状态，退出扫描和反馈。
 
 禁止把 OUT2 接到：
 
-- laser scan/PZT
-- Scan input
-- laser current modulation
+- laser current modulation / 激光器电流调制输入
 - D2-125 Servo Output
 - D2-125 Aux Output
-- 任何真实执行器路径
+- 任何其他设备输出端并联节点
 
-只有完成物理电压范围、polarity、bandwidth、timing、SAFE 行为和 lock/scan switching 审查后，才允许单独讨论真实执行器连接 SOP。
+必须先确认物理电压范围、polarity、bandwidth、timing、SAFE 行为和 lock/scan switching；反馈方向错误、输出接近 limit、持续 saturation 或通信失败时立即 SAFE。
 
 ## Official SCPI Mode
 
