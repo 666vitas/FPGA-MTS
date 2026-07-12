@@ -46,3 +46,9 @@
 - SAFE 条件：PZT 范围非法、全零/平坦 capture、OUT2 越过用户 PZT 范围、saturation、无有效候选、通信失败或用户拒绝候选。
 - 测试：`py_compile` 通过；`python -m pytest tests` 通过，`28 passed`。
 - 未运行 Vivado，未生成 bitstream，未烧录，尚未证明真实基础稳频完成。
+## 2026-07-12 - BASIC LOCK 联调阻塞修复
+
+- 本次只修上位机联调阻塞：启动 status 探测、BASIC LOCK 内部 SAFE 不再中断队列、capture 缺失时明确报真实 FPGA 接口不可用。
+- 当前 BASIC LOCK 状态机收敛为 `IDLE -> SAFE -> SCAN -> CANDIDATE_FOUND -> CAPTURE_LOCK_POINT -> P_LOCK`，异常转 SAFE。
+- LOCK HERE 成功后保持 `MODE=3 P_LOCK` 且 `Kp=0`；小步 Kp 由用户手动 `APPLY P`，不自动启用 Ki/PI。
+- 未修改 RTL / Vivado project，未运行 Vivado，未生成 bitstream，未烧录，未声明真实激光稳频已经完成。

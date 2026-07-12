@@ -169,6 +169,7 @@ class MainWindow(QMainWindow):
         self.basic_lock_queue: list[str] = []
         self.basic_lock_config: BasicLockConfig | None = None
         self.basic_lock_candidates: list[Any] = []
+        self.current_custom_operation: str | None = None
         self.connection_state = DISCONNECTED
         self.worker: (
             ProbeWorker
@@ -197,6 +198,8 @@ class MainWindow(QMainWindow):
         self._update_sample_rate_label()
         self._redraw_from_last_waveforms()
         self.statusBar().showMessage("Disconnected")
+        if not self.start_mock:
+            QTimer.singleShot(0, self._startup_custom_register_probe)
 
     def _apply_app_font(self) -> None:
         font = QFont("Microsoft YaHei UI", 9)
@@ -999,8 +1002,21 @@ class MainWindow(QMainWindow):
         worker.finished.connect(self._clear_worker)
         worker.start()
 
-    def _start_custom_fpga_operation(self, operation: str) -> None:
-        if operation == "safe":
+    def _startup_custom_register_probe(self) -> None:
+        if self.worker is not None or self.mock_check.isChecked():
+            return
+        self.custom_register_summary.setText(
+            "startup probe running | MAGIC reading | VERSION reading | MODE reading | "
+            "ENABLE reading | STATUS reading | OUT2 reading"
+        )
+        self.custom_warning_text.setPlainText(
+            "Startup probe: reading Custom FPGA registers over SSH + /dev/mem. "
+            "This only reads status; it does not start redpitaya_scpi and does not write FPGA registers."
+        )
+        self._start_custom_fpga_operation("status", preserve_basic=True)
+
+    def _start_custom_fpga_operation(self, operation: str, *, preserve_basic: bool = False) -> None:
+        if operation == "safe" and not preserve_basic:
             self.basic_lock_active = False
             self.basic_lock_queue = []
         if self._official_mode():
@@ -1063,6 +1079,7 @@ class MainWindow(QMainWindow):
         user = self.ssh_user_edit.text().strip() or "root"
         password = self.ssh_password_edit.text()
         message = f"Custom FPGA {operation}: SSH /dev/mem on {target}, base=0x{base_addr:08X}"
+        self.current_custom_operation = operation
         self.statusBar().showMessage(message)
         self._append_connection_log(message)
         self.custom_warning_text.setPlainText(message)
@@ -1124,8 +1141,15 @@ class MainWindow(QMainWindow):
         if not self.basic_lock_active or not self.basic_lock_queue:
             return
         next_operation = self.basic_lock_queue.pop(0)
-        self.basic_status_label.setText(f"state: {next_operation.upper()}")
-        self._start_custom_fpga_operation(next_operation)
+        state_labels = {
+            "safe": "SAFE",
+            "scan": "SCAN",
+            "capture": "CAPTURE_WAVEFORM",
+            "lock": "CAPTURE_LOCK_POINT",
+            "update-p-lock": "P_LOCK",
+        }
+        self.basic_status_label.setText(f"state: {state_labels.get(next_operation, next_operation.upper())}")
+        self._start_custom_fpga_operation(next_operation, preserve_basic=True)
 
     def _basic_lock_fail(self, reason: str) -> None:
         self.basic_lock_active = False
@@ -1142,7 +1166,8 @@ class MainWindow(QMainWindow):
         reply = QMessageBox.question(
             self,
             "Confirm BASIC LOCK candidate",
-            "Use the highlighted zero-crossing candidate for LOCK HERE with Kp=0, then APPLY P with Kp=4?",
+            "Use the highlighted zero-crossing candidate for LOCK HERE with Kp=0? "
+            "After P_LOCK is stable, use APPLY P manually for Kp=4/8/16/32.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -1152,7 +1177,7 @@ class MainWindow(QMainWindow):
             self.basic_status_label.setText("state: candidate ready, waiting for user")
             return
         self.custom_kp.setCurrentText("0")
-        self.basic_lock_queue = ["lock", "update-p-lock"]
+        self.basic_lock_queue = ["lock"]
         self._continue_basic_lock()
 
     def _continue_basic_lock_after_success(self, operation: str, payload: dict[str, Any]) -> None:
@@ -1161,13 +1186,18 @@ class MainWindow(QMainWindow):
             return
         if operation == "capture":
             if self.basic_lock_candidates:
+                self.basic_status_label.setText("state: CANDIDATE_FOUND | waiting for confirmation")
                 QTimer.singleShot(0, self._confirm_basic_lock_candidate)
             else:
                 self._basic_lock_fail("BASIC LOCK failed: no valid zero-crossing candidate in current capture")
             return
         if operation == "lock":
-            self.custom_kp.setCurrentText("4")
-            QTimer.singleShot(0, self._continue_basic_lock)
+            self.basic_lock_active = False
+            self.basic_lock_queue = []
+            self.custom_kp.setCurrentText("0")
+            self.basic_status_label.setText(
+                "state: P_LOCK | LOCK HERE captured with Kp=0; use APPLY P manually"
+            )
             return
         if operation == "update-p-lock":
             self.basic_lock_active = False
@@ -1236,13 +1266,21 @@ class MainWindow(QMainWindow):
     def _render_custom_capture_payload(self, payload: dict[str, Any]) -> None:
         points = payload.get("points", [])
         if not points:
+            reason = (
+                "custom_debug_capture unavailable: Capture Waveform returned no points from the real FPGA. "
+                "No fake waveform is shown. Required FPGA/register path: CAPTURE_CTRL, CAPTURE_STATUS, "
+                "CAPTURE_DECIMATION, CAPTURE_LENGTH, CAPTURE_READ_INDEX, CAPTURE_DATA_CH1..CH4. "
+                "There is no register-only fallback for IN1/IN2/laser_error/OUT2 waveform capture; "
+                "single status reads only provide snapshots such as ERROR_MONITOR and OUT2_MONITOR."
+            )
             self.custom_scope_data = None
             self.selected_lock_point = None
             self.custom_scope_valid_for_selection = False
             self.custom_lock_marker.setVisible(False)
             self.selected_lock_label.setText("selected lock point: capture current scan waveform first")
-            self.custom_scope_stats.setText("custom_debug_capture not available")
-            self.custom_scope_plot.set_placeholder_text("custom_debug_capture not available")
+            self.basic_candidate_label.setText("candidate: unavailable | custom_debug_capture returned no points")
+            self.custom_scope_stats.setText(reason)
+            self.custom_scope_plot.set_placeholder_text("custom_debug_capture not available: no real FPGA points")
             for curve in self.custom_scope_curves.values():
                 curve.setData([], [])
                 curve.setVisible(False)
@@ -1352,7 +1390,9 @@ class MainWindow(QMainWindow):
             self.custom_candidate_markers.append(marker)
             lines.append(
                 f"candidate {idx + 1}: index {candidate.index}, OUT2 {candidate.out2_counts} counts, "
-                f"score {candidate.score:.1f}"
+                f"PZT {candidate.out2_counts / 8191.0:.5f} V ideal, "
+                f"ERROR {candidate.error_counts} counts, slope {candidate.slope:.3g}, "
+                f"local Vpp {candidate.local_vpp:.1f}, valid yes, score {candidate.score:.1f}"
             )
         best = candidates[0]
         self.selected_lock_point = {
@@ -1382,8 +1422,11 @@ class MainWindow(QMainWindow):
         self._append_connection_log(message)
         self._restore_after_custom_fpga_operation()
         self._continue_basic_lock_after_success(operation, payload)
+        if not self.basic_lock_active:
+            self.current_custom_operation = None
 
     def _on_custom_fpga_failed(self, text: str) -> None:
+        operation = self.current_custom_operation or "custom"
         self._set_connection_state(ERROR)
         guidance = text
         if "actual magic:   0x00000000" in text:
@@ -1395,9 +1438,26 @@ class MainWindow(QMainWindow):
                 "- base address is wrong\n"
                 "- reload the timing-pass bitstream, then Probe again"
             )
+        elif operation == "capture":
+            guidance = (
+                f"{text}\n\n"
+                "GUI guidance: custom_debug_capture did not return usable real FPGA waveform data.\n"
+                "- verify the loaded bitstream includes i_custom_debug_capture\n"
+                "- verify CAPTURE_CTRL/CAPTURE_STATUS/CAPTURE_DATA_CH1..CH4 registers are readable\n"
+                "- no fake waveform will be displayed\n"
+                "- there is no status-register fallback for full IN1/IN2/laser_error/OUT2 traces"
+            )
+        self.custom_register_summary.setText(
+            f"Custom FPGA {operation} failed | MAGIC read failed | VERSION read failed | "
+            "MODE read failed | ENABLE read failed | STATUS read failed | OUT2 read failed"
+        )
         self.custom_warning_text.setPlainText(guidance)
         self.statusBar().showMessage(f"Custom FPGA error: {text.splitlines()[0] if text else 'unknown'}")
         self._append_connection_log(f"Custom FPGA error: {text}")
+        if self.basic_lock_active:
+            self._basic_lock_fail(f"{operation} failed: {text.splitlines()[0] if text else 'unknown'}")
+        else:
+            self.current_custom_operation = None
 
     def _restore_after_custom_fpga_operation(self) -> None:
         if self.last_probe is not None and self.last_probe.port_5000 and self._official_mode():

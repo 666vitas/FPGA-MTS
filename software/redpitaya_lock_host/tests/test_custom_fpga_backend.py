@@ -371,6 +371,129 @@ def test_main_window_constructs_without_legacy_scpi_output_controls() -> None:
         app.processEvents()
 
 
+def test_basic_lock_internal_safe_step_does_not_abort_state_machine() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    calls = []
+    try:
+        def fake_start(operation: str, *, preserve_basic: bool = False) -> None:
+            calls.append((operation, preserve_basic))
+
+        window._start_custom_fpga_operation = fake_start
+        window.basic_lock_active = True
+        window.basic_lock_queue = ["safe", "scan"]
+
+        window._continue_basic_lock()
+
+        assert calls == [("safe", True)]
+        assert window.basic_lock_active
+        assert window.basic_lock_queue == ["scan"]
+        assert "SAFE" in window.basic_status_label.text()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_basic_lock_lock_here_stops_at_p_lock_kp_zero_without_auto_gain() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window.basic_lock_active = True
+        window.basic_lock_queue = []
+        window.custom_kp.setCurrentText("16")
+
+        window._continue_basic_lock_after_success("lock", {})
+
+        assert not window.basic_lock_active
+        assert window.basic_lock_queue == []
+        assert window.custom_kp.currentText() == "0"
+        assert "P_LOCK" in window.basic_status_label.text()
+        assert "Kp=0" in window.basic_status_label.text()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_custom_scope_empty_capture_reports_missing_real_fpga_interface() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload({"points": []})
+
+        stats = window.custom_scope_stats.text()
+        assert "custom_debug_capture unavailable" in stats
+        assert "CAPTURE_CTRL" in stats
+        assert "no register-only fallback" in stats
+        assert "no real FPGA points" in window.custom_scope_plot.placeholder.toPlainText()
+        assert window.basic_candidate_label.text().startswith("candidate: unavailable")
+        assert all(not curve.isVisible() for curve in window.custom_scope_curves.values())
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_basic_lock_capture_failure_transitions_to_safe_fail() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    calls = []
+    try:
+        def fake_start(operation: str, *, preserve_basic: bool = False) -> None:
+            calls.append((operation, preserve_basic))
+
+        window._start_custom_fpga_operation = fake_start
+        window.basic_lock_active = True
+        window.current_custom_operation = "capture"
+
+        window._on_custom_fpga_failed("capture timeout")
+        app.processEvents()
+
+        assert not window.basic_lock_active
+        assert window.basic_lock_queue == []
+        assert "SAFE_FAIL" in window.basic_status_label.text()
+        assert "capture failed" in window.basic_status_label.text()
+        assert calls == [("safe", False)]
+        assert "Custom FPGA capture failed" in window.custom_register_summary.text()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_gui_startup_probe_reads_status_without_scpi_overlay() -> None:
+    source = (ROOT / "redpitaya_lock_host" / "main_window.py").read_text(encoding="utf-8")
+
+    assert "def _startup_custom_register_probe" in source
+    assert '_start_custom_fpga_operation("status", preserve_basic=True)' in source
+    assert "does not start redpitaya_scpi" in source
+
+
 def test_waveform_plot_dark_theme_uses_visible_axes_curves_and_placeholder() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:

@@ -486,3 +486,12 @@ Confirmed project boundary:
 - 测试：`py_compile` 通过；`python -m pytest tests` 通过，`28 passed`。
 - 未运行 Vivado，未生成 bitstream，未烧录，尚未证明真实基础稳频完成。
 - 用户下一步：只输入 PZT safe min/max，点击 `BASIC LOCK`，确认候选过零点后观察 `LOCK HERE -> APPLY P4 -> MONITOR`，异常立即 `SAFE`。
+## 2026-07-12 - BASIC LOCK 联调阻塞修复
+
+- 本次目标：把已有 BASIC LOCK 界面补到可联调的最小闭环路径，优先处理启动寄存器状态为空、`custom_debug_capture not available` 和 BASIC LOCK 队列被 SAFE 打断的问题。
+- 修改代码：仅上位机 GUI 与 pytest；未修改 RTL、testbench、Vivado project；未运行 Vivado、未生成 bitstream、未烧录。
+- 修复内容：启动后自动执行只读 `status` 探测，显示 MAGIC / VERSION / MODE / ENABLE / STATUS / OUT2；失败时写明通信、bitstream、base address 或 register bank 原因。
+- 修复内容：BASIC LOCK 内部 `SAFE` 步骤不再清空自身队列，流程可继续 `SAFE -> SCAN -> CAPTURE -> CANDIDATE_FOUND -> CAPTURE_LOCK_POINT -> P_LOCK`；手动 `SAFE` 仍立即中止流程。
+- 修复内容：`custom_debug_capture` 无点返回时明确显示需要 `CAPTURE_CTRL / CAPTURE_STATUS / CAPTURE_DATA_CH1..CH4`，不伪造波形，也不把单点 status 读数当作四通道波形替代。
+- 安全收敛：LOCK HERE 成功后停在 `MODE=3 P_LOCK` 且 `Kp=0`，后续 Kp 需要用户手动 `APPLY P`；不启用 Ki/PI，不做自动识峰、自动重锁、FSM 或 AI。
+- 尚未完成：尚未真实上板验证 BASIC LOCK 完成激光稳频；真实 PASS 仍需要用户在板上确认 capture 返回真实四通道数据、LOCK HERE 无跳变、小 Kp 方向正确、异常可 SAFE。

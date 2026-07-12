@@ -849,3 +849,9 @@ v2G：FPGA PI 与 D2-125 性能对比
 - 新增 BASIC LOCK 顶层入口：用户只需输入 PZT safe min/max，自动计算 offset/amp/freq/step/capture decimation，并用当前 capture 寻找候选 zero crossing。
 - BASIC LOCK 仍不是 AI、不是自动重锁、不是长期稳频证明；失败或异常必须 SAFE。
 - 已通过 `py_compile` 和 `python -m pytest tests`，结果 `28 passed`；未运行 Vivado、未生成 bitstream、未烧录。
+## 2026-07-12 BASIC LOCK 联调阻塞修复
+- 本次只修改上位机和现有日志，不修改 RTL / testbench / Vivado project，不运行 Vivado，不生成 bitstream，不烧录。
+- 修复 BASIC LOCK 内部 SAFE 步骤会清空自身状态机的问题；内部流程可继续 SAFE -> SCAN -> CAPTURE -> CANDIDATE_FOUND -> CAPTURE_LOCK_POINT -> P_LOCK。
+- 启动时自动做只读 status 探测，显示 MAGIC / VERSION / MODE / ENABLE / STATUS / OUT2；失败时显示通信或寄存器原因，不再只显示 `--`。
+- `custom_debug_capture` 无数据时明确提示真实 FPGA capture 接口不可用，不伪造波形；无完整波形寄存器时不能替代为 status 单点采样。
+- LOCK HERE 成功后停在 MODE=3 P_LOCK 且 Kp=0；后续 Kp 仍需用户手动 APPLY P，禁止自动 Ki/PI。
