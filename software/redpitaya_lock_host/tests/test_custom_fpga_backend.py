@@ -445,7 +445,8 @@ def test_custom_scope_empty_capture_reports_missing_real_fpga_interface() -> Non
         assert "custom_debug_capture unavailable" in stats
         assert "CAPTURE_CTRL" in stats
         assert "no register-only fallback" in stats
-        assert "no real FPGA points" in window.custom_scope_plot.placeholder.toPlainText()
+        assert "no real FPGA points" in window.custom_scope_plot_top.placeholder.toPlainText()
+        assert "no real FPGA points" in window.custom_scope_plot_bottom.placeholder.toPlainText()
         assert window.basic_candidate_label.text().startswith("candidate: unavailable")
         assert all(not curve.isVisible() for curve in window.custom_scope_curves.values())
     finally:
@@ -559,13 +560,78 @@ def test_custom_scope_render_payload_shows_curves_range_and_candidate() -> None:
         for curve in window.custom_scope_curves.values():
             assert len(curve.xData) == count
             assert len(curve.yData) == count
-        assert not window.custom_scope_plot.placeholder.isVisible()
-        y_range = window.custom_scope_plot.plot_item.vb.viewRange()[1]
-        assert y_range[0] <= float(np.nanmin(error))
-        assert y_range[1] >= float(np.nanmax(ch4))
+        assert not window.custom_scope_plot_top.placeholder.isVisible()
+        assert not window.custom_scope_plot_bottom.placeholder.isVisible()
+        top_y_range = window.custom_scope_plot_top.plot_item.vb.viewRange()[1]
+        bottom_y_range = window.custom_scope_plot_bottom.plot_item.vb.viewRange()[1]
+        assert top_y_range[0] <= float(np.nanmin(error))
+        assert top_y_range[1] >= float(np.nanmax(error))
+        assert bottom_y_range[0] <= float(np.nanmin(ch4))
+        assert bottom_y_range[1] >= float(np.nanmax(ch4))
         assert window.basic_lock_candidates
         assert window.selected_lock_point is not None
         assert int(window.selected_lock_point["index"]) != 0
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_custom_scope_embedded_split_plots_render_real_capture_points() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window.show()
+        app.processEvents()
+        count = 2048
+        phase = np.linspace(0.0, 2.0 * np.pi, count, endpoint=False)
+        triangle = 6962.0 + 410.0 * (2.0 * np.abs(2.0 * (np.arange(count) / count) - 1.0) - 1.0)
+        error = 42.0 * np.sin(phase) + 8.0 * np.sin(phase * 3.0)
+        payload = {
+            "capture_decimation": 1024,
+            "mode": 1,
+            "saturated": False,
+            "out2_counts": int(triangle[count // 2]),
+            "lock_correction_limit_counts": 128,
+            "points": [
+                {
+                    "index": idx,
+                    "ch1_counts": int(120 * np.sin(phase[idx])),
+                    "ch2_counts": int(2800 * np.sin(phase[idx] * 64.0)),
+                    "ch3_counts": int(error[idx]),
+                    "ch4_counts": int(triangle[idx]),
+                }
+                for idx in range(count)
+            ],
+        }
+
+        window._render_custom_capture_payload(payload)
+        app.processEvents()
+
+        assert hasattr(window, "custom_scope_plot_top")
+        assert hasattr(window, "custom_scope_plot_bottom")
+        assert window.custom_scope_plot_top.plot_item.graphicsItem() is window.custom_scope_plot_top.plot_item
+        assert window.custom_scope_plot_bottom.plot_item.graphicsItem() is window.custom_scope_plot_bottom.plot_item
+        assert window.custom_scope_plot_top.plot_item.vb.parentItem() is window.custom_scope_plot_top.plot_item
+        assert window.custom_scope_plot_bottom.plot_item.vb.parentItem() is window.custom_scope_plot_bottom.plot_item
+        assert window.custom_scope_plot_top.plot_item.getAxis("bottom").isVisible()
+        assert window.custom_scope_plot_top.plot_item.getAxis("left").isVisible()
+        assert window.custom_scope_plot_bottom.plot_item.getAxis("bottom").isVisible()
+        assert window.custom_scope_plot_bottom.plot_item.getAxis("left").isVisible()
+
+        for curve in window.custom_scope_curves.values():
+            assert len(curve.xData) == count
+            assert len(curve.yData) == count
+        assert window.custom_scope_curves["ch3"].isVisible()
+        assert window.custom_scope_curves["ch4"].isVisible()
+        assert not window.custom_scope_plot_top.placeholder.isVisible()
+        assert not window.custom_scope_plot_bottom.placeholder.isVisible()
     finally:
         window.close()
         app.processEvents()
