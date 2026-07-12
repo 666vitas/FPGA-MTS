@@ -925,68 +925,112 @@ class MainWindow(QMainWindow):
         self.plots_panel = panel
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
+
         self.custom_scope_group = QGroupBox("Custom FPGA Scope")
         scope_layout = QVBoxLayout(self.custom_scope_group)
         scope_layout.setContentsMargins(10, 18, 10, 10)
-        channel_defs = {
-            "ch1": ("CH1 IN1 / PD", "photodiode / absorption feature", "#1f77b4"),
-            "ch3": ("CH3 OUT1 / laser_error", "FPGA demodulated error observation", "#2ca02c"),
-            "ch4": ("CH4 OUT2 / selected_out2", "SCAN/P_LOCK output to dedicated PZT path", "#d62728"),
-            "ch2": ("CH2 IN2 / REF", "4.6 MHz REF debug input", "#ff7f0e"),
-        }
-        self.custom_channel_panels: dict[str, ChannelPanel] = {}
-        self.custom_scope_plots: dict[str, WaveformPlot] = {}
-        self.custom_scope_curves = {}
-        self.custom_scope_checks = {}
-        self.custom_target_markers: dict[str, pg.InfiniteLine] = {}
-        self.custom_zero_markers: dict[str, pg.InfiniteLine] = {}
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(8)
-        for position, (key, (title, subtitle, color)) in enumerate(channel_defs.items()):
-            channel = ChannelPanel(title, subtitle, "Counts")
-            channel.plot.clear()
-            channel.plot.set_placeholder_text("custom_debug_capture not available")
-            channel.plot.curve.setPen(pg.mkPen(color, width=1.4))
-            channel.visible_check.setChecked(key in {"ch1", "ch3", "ch4"})
-            channel.visible_check.toggled.connect(self._update_custom_scope_visibility)
-            channel.auto_y_check.toggled.connect(self._update_custom_scope_visibility)
-            channel.scale_counts_div.valueChanged.connect(self._update_custom_scope_visibility)
-            channel.center_counts.valueChanged.connect(self._update_custom_scope_visibility)
-            channel.reset_button.clicked.connect(self._update_custom_scope_visibility)
-            channel.plot.scene().sigMouseClicked.connect(self._on_custom_scope_clicked)
-            target_marker = pg.InfiniteLine(
-                angle=90,
-                movable=False,
-                pen=pg.mkPen("#7f3fbf", width=1.1, style=Qt.PenStyle.DotLine),
-            )
-            zero_marker = pg.InfiniteLine(
-                angle=90,
-                movable=False,
-                pen=pg.mkPen("#ffcc00", width=1.2, style=Qt.PenStyle.DashLine),
-            )
-            target_marker.setVisible(False)
-            zero_marker.setVisible(False)
-            channel.plot.plot_item.addItem(target_marker)
-            channel.plot.plot_item.addItem(zero_marker)
-            self.custom_channel_panels[key] = channel
-            self.custom_scope_plots[key] = channel.plot
-            self.custom_scope_curves[key] = channel.plot.curve
-            self.custom_scope_checks[key] = channel.visible_check
-            self.custom_target_markers[key] = target_marker
-            self.custom_zero_markers[key] = zero_marker
-            grid.addWidget(channel, position // 2, position % 2)
-        self.custom_scope_plot_top = self.custom_scope_plots["ch1"]
-        self.custom_scope_plot_bottom = self.custom_scope_plots["ch4"]
-        self.custom_scope_plot = self.custom_scope_plot_top
-        self.custom_lock_marker = self.custom_zero_markers["ch1"]
-        self.custom_lock_marker_bottom = self.custom_zero_markers["ch4"]
-        self.custom_candidate_markers: list[pg.InfiniteLine] = []
+        scope_layout.setSpacing(6)
+
+        # Stats summary at top (compact)
         self.custom_scope_stats = QLabel("custom_debug_capture not available")
         self.custom_scope_stats.setWordWrap(True)
         scope_layout.addWidget(self.custom_scope_stats)
-        scope_layout.addLayout(grid, stretch=1)
+
+        # Single pyqtgraph PlotWidget — 4 curves overlaid
+        self.custom_scope_plot = pg.PlotWidget()
+        self.custom_scope_plot.setBackground("#05070a")
+        self.custom_scope_plot.showGrid(x=True, y=True, alpha=0.25)
+        self.custom_scope_plot.setLabel("bottom", "time", units="s")
+        self.custom_scope_plot.setLabel("left", "Counts")
+        self.custom_scope_plot.setMinimumHeight(300)
+        self.custom_scope_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.custom_scope_plot.setMenuEnabled(False)
+        self.custom_scope_plot.setMouseEnabled(x=True, y=True)
+
+        # Axis theme (dark)
+        axis_pen = pg.mkPen("#e6edf3", width=1.0)
+        for axis_name in ("bottom", "left", "top", "right"):
+            axis = self.custom_scope_plot.getAxis(axis_name)
+            axis.setPen(axis_pen)
+            axis.setTextPen(axis_pen)
+            axis.setTickPen(axis_pen)
+
+        # 4 overlaid curves
+        curve_colors = {
+            "ch1": "#1f77b4",
+            "ch2": "#ff7f0e",
+            "ch3": "#2ca02c",
+            "ch4": "#d62728",
+        }
+        curve_labels = {
+            "ch1": "CH1 IN1 / PD",
+            "ch2": "CH2 IN2 / REF",
+            "ch3": "CH3 OUT1 / laser_error",
+            "ch4": "CH4 OUT2 / selected_out2",
+        }
+        self.custom_scope_curves = {}
+        for key in ("ch1", "ch3", "ch4", "ch2"):
+            color = curve_colors[key]
+            curve = self.custom_scope_plot.plot(
+                [], [], pen=pg.mkPen(color, width=1.4), name=curve_labels[key]
+            )
+            curve.setDownsampling(auto=True, method="peak")
+            curve.setClipToView(True)
+            self.custom_scope_curves[key] = curve
+
+        # Placeholder text centered in view box
+        self.custom_scope_placeholder = pg.TextItem(
+            text="custom_debug_capture not available",
+            color="#e6edf3", anchor=(0.5, 0.5),
+        )
+        self.custom_scope_plot.addItem(self.custom_scope_placeholder)
+
+        # Target peak marker (purple dotted) and zero-crossing marker (yellow dashed)
+        self.custom_target_marker = pg.InfiniteLine(
+            angle=90, movable=False,
+            pen=pg.mkPen("#7f3fbf", width=1.1, style=Qt.PenStyle.DotLine),
+        )
+        self.custom_zero_marker = pg.InfiniteLine(
+            angle=90, movable=False,
+            pen=pg.mkPen("#ffcc00", width=1.2, style=Qt.PenStyle.DashLine),
+        )
+        self.custom_target_marker.setVisible(False)
+        self.custom_zero_marker.setVisible(False)
+        self.custom_scope_plot.addItem(self.custom_target_marker)
+        self.custom_scope_plot.addItem(self.custom_zero_marker)
+        self.custom_candidate_markers: list[pg.InfiniteLine] = []
+
+        # Click handler for target selection (CH1/PD only)
+        self.custom_scope_plot.scene().sigMouseClicked.connect(self._on_custom_scope_clicked)
+
+        scope_layout.addWidget(self.custom_scope_plot, stretch=1)
+
+        # Compact control row: checkboxes + auto range + reset
+        controls_row = QHBoxLayout()
+        controls_row.setSpacing(10)
+
+        self.custom_scope_checks = {}
+        default_visible = {"ch1", "ch3", "ch4"}
+        for key in ("ch1", "ch3", "ch4", "ch2"):
+            cb = QCheckBox(f"Show {curve_labels[key]}")
+            cb.setChecked(key in default_visible)
+            cb.toggled.connect(self._update_custom_scope_visibility)
+            self.custom_scope_checks[key] = cb
+            controls_row.addWidget(cb)
+
+        self.custom_scope_auto_range_check = QCheckBox("Auto Range")
+        self.custom_scope_auto_range_check.setChecked(True)
+        self.custom_scope_auto_range_check.toggled.connect(self._update_custom_scope_visibility)
+        controls_row.addWidget(self.custom_scope_auto_range_check)
+
+        self.custom_scope_reset_button = QPushButton("Reset View")
+        self.custom_scope_reset_button.clicked.connect(self._reset_custom_scope_view)
+        self._style_button(self.custom_scope_reset_button)
+        controls_row.addWidget(self.custom_scope_reset_button)
+
+        controls_row.addStretch()
+        scope_layout.addLayout(controls_row)
         layout.addWidget(self.custom_scope_group, stretch=1)
         return panel
 
@@ -1210,7 +1254,10 @@ class MainWindow(QMainWindow):
         self.custom_capture_length.setValue(2048)
         self.custom_capture_decimation.setValue(self._capture_decimation_for_view())
         if hasattr(self, "custom_scope_checks"):
-            visible = {"ch2"} if mode == "REF Debug" else {"ch1", "ch3", "ch4"}
+            if mode == "REF Debug":
+                visible = {"ch2"}
+            else:
+                visible = {"ch1", "ch3", "ch4"}
             for key, checkbox in self.custom_scope_checks.items():
                 checkbox.setChecked(key in visible)
         self._update_capture_time_window_label()
@@ -1424,20 +1471,20 @@ class MainWindow(QMainWindow):
             "CAPTURE_CTRL, CAPTURE_STATUS, CAPTURE_DECIMATION, CAPTURE_LENGTH, CAPTURE_READ_INDEX,",
             "CAPTURE_DATA_CH1, CAPTURE_DATA_CH2, CAPTURE_DATA_CH3, CAPTURE_DATA_CH4.",
             "",
-            "4.6 MHz REF may alias when decimation is high.",
+            "CH1=IN1/PD, CH2=IN2/REF, CH3=OUT1/laser_error, CH4=OUT2/selected_out2.",
+            "All four channels are overlaid in a single Custom FPGA Scope plot.",
+            "4.6 MHz REF (CH2) may alias when decimation is high; it is hidden by default.",
         ]
         self.custom_warning_text.setPlainText("\n".join(lines))
         self.custom_scope_stats.setText("custom_debug_capture not available")
         self.statusBar().showMessage("Custom FPGA waveform capture requires the new debug_capture bitstream")
 
     def _update_custom_scope_visibility(self) -> None:
-        for key, curve in getattr(self, "custom_scope_curves", {}).items():
+        for key, curve in self.custom_scope_curves.items():
             checkbox = self.custom_scope_checks.get(key)
             curve.setVisible(bool(checkbox is None or checkbox.isChecked()))
         self._fit_custom_scope_ranges()
-        for plot in (self.custom_scope_plot_top, self.custom_scope_plot_bottom):
-            plot.plot_item.update()
-            plot.update()
+        self.custom_scope_plot.update()
 
     def _on_custom_scope_clicked(self, event: object) -> None:
         if not self.custom_select_target_check.isChecked():
@@ -1446,11 +1493,10 @@ class MainWindow(QMainWindow):
             self.selected_lock_label.setText("selected lock point: capture and validate current waveform first")
             return
         scene_pos = event.scenePos()
-        plot = self.custom_scope_plots["ch1"]
-        if not plot.plot_item.sceneBoundingRect().contains(scene_pos):
-            self.selected_lock_label.setText("target selection uses CH1 IN1 / PD only")
+        plot_item = self.custom_scope_plot.getPlotItem()
+        if not plot_item.sceneBoundingRect().contains(scene_pos):
             return
-        view_pos = plot.plot_item.vb.mapSceneToView(scene_pos)
+        view_pos = plot_item.vb.mapSceneToView(scene_pos)
         t = self.custom_scope_data.get("time_s")
         out2 = self.custom_scope_data.get("ch4")
         error = self.custom_scope_data.get("ch3")
@@ -1489,12 +1535,10 @@ class MainWindow(QMainWindow):
             "slope": float(resolved.slope),
             "local_vpp": float(resolved.local_vpp),
         }
-        for marker in self.custom_target_markers.values():
-            marker.setValue(float(t[clicked_index]))
-            marker.setVisible(True)
-        for marker in self.custom_zero_markers.values():
-            marker.setValue(float(t[resolved.index]))
-            marker.setVisible(True)
+        self.custom_target_marker.setValue(float(t[clicked_index]))
+        self.custom_target_marker.setVisible(True)
+        self.custom_zero_marker.setValue(float(t[resolved.index]))
+        self.custom_zero_marker.setVisible(True)
         self.selected_lock_label.setText(
             "pending lock point: "
             f"clicked index {clicked_index}, target OUT2 {int(round(float(out2[clicked_index])))} counts | "
@@ -1532,13 +1576,12 @@ class MainWindow(QMainWindow):
             self.pending_lock_point = None
             self.pending_target_peak = None
             self.custom_scope_valid_for_selection = False
-            for marker in list(self.custom_target_markers.values()) + list(self.custom_zero_markers.values()):
-                marker.setVisible(False)
+            self.custom_target_marker.setVisible(False)
+            self.custom_zero_marker.setVisible(False)
             self.selected_lock_label.setText("selected lock point: capture current scan waveform first")
             self.basic_candidate_label.setText("candidate: unavailable | custom_debug_capture returned no points")
             self.custom_scope_stats.setText(reason)
-            for plot in self.custom_scope_plots.values():
-                plot.set_placeholder_text("custom_debug_capture not available: no real FPGA points")
+            self.custom_scope_placeholder.setVisible(True)
             for curve in self.custom_scope_curves.values():
                 curve.setData([], [])
                 curve.setVisible(False)
@@ -1565,36 +1608,73 @@ class MainWindow(QMainWindow):
         self.selected_lock_point = None
         self.pending_lock_point = None
         self.pending_target_peak = None
-        for key, channel in self.custom_channel_panels.items():
-            channel.set_data(t, data[key])
-            channel.plot.hide_placeholder()
-        for marker in list(self.custom_target_markers.values()) + list(self.custom_zero_markers.values()):
-            marker.setVisible(False)
+
+        # Set data on all 4 curves in the single plot
+        for key in ("ch1", "ch2", "ch3", "ch4"):
+            curve = self.custom_scope_curves[key]
+            curve.setData(t, data[key])
+            curve.setVisible(True)
+
+        self.custom_scope_placeholder.setVisible(False)
+
+        # Hide markers on new capture
+        self.custom_target_marker.setVisible(False)
+        self.custom_zero_marker.setVisible(False)
+
+        # Apply per-channel visibility (checkboxes)
         self._update_custom_scope_visibility()
         self._fit_custom_scope_ranges()
-        for plot in self.custom_scope_plots.values():
-            plot.show()
-            plot.plot_item.showAxis("bottom", True)
-            plot.plot_item.showAxis("left", True)
-            plot.plot_item.update()
-            plot.update()
 
+        # Force plot update
+        self.custom_scope_plot.update()
+        self.custom_scope_plot.repaint()
+
+        # Verify curves have data after setData
+        rendered_ok = True
+        for key in ("ch1", "ch2", "ch3", "ch4"):
+            xd = self.custom_scope_curves[key].xData
+            if xd is None or len(xd) == 0:
+                rendered_ok = False
+                break
+        if not rendered_ok:
+            self.custom_warning_text.setPlainText(
+                "capture data exists but plot render failed: "
+                "one or more curves have zero-length xData after setData. "
+                "Check pyqtgraph PlotDataItem.setData() call."
+            )
+
+        # Find BASIC LOCK candidates
         self.basic_lock_candidates = self._find_and_render_basic_candidates(payload, data)
 
+        # Build stats summary
         stats_lines = []
         for key, label in labels.items():
             values = data[key]
             if values.size:
+                vpp = np.nanmax(values) - np.nanmin(values)
                 stats_lines.append(
-                    f"{label}: Vpp {np.nanmax(values) - np.nanmin(values):.0f} counts | "
+                    f"{label}: Vpp {vpp:.0f} counts | "
                     f"min {np.nanmin(values):.0f} | max {np.nanmax(values):.0f} | mean {np.nanmean(values):.1f}"
                 )
-        stats_lines.append("4.6 MHz REF may alias when decimation is high.")
+        stats_lines.append("CH2 4.6 MHz REF may alias when decimation is high.")
+        out2_counts = payload.get("out2_counts", "--")
+        out2_volts = payload.get("out2_volts", "--")
+        try:
+            out2_volts_str = f"{float(out2_volts):.6g} V"
+        except (TypeError, ValueError):
+            out2_volts_str = "-- V"
         stats_lines.append(
-            f"MODE {payload.get('mode', '--')} | Kp not captured in status | "
-            f"current OUT2 {payload.get('out2_counts', '--')} | "
-            f"correction_limit {payload.get('lock_correction_limit_counts', '--')}"
+            f"MODE {payload.get('mode', '--')} | "
+            f"OUT2 {out2_counts} counts / {out2_volts_str} | "
+            f"correction_limit {payload.get('lock_correction_limit_counts', '--')} counts"
         )
+        lock_bias = payload.get("captured_lock_bias_counts")
+        if lock_bias is not None:
+            try:
+                lock_bias_v = payload.get("captured_lock_bias_volts_ideal", "--")
+                stats_lines.append(f"LOCK_BIAS {lock_bias} counts / {lock_bias_v} V ideal")
+            except Exception:
+                pass
         self.custom_scope_stats.setText("\n".join(stats_lines))
 
     def _fit_custom_scope_ranges(self) -> None:
@@ -1603,17 +1683,48 @@ class MainWindow(QMainWindow):
         t = self.custom_scope_data.get("time_s")
         if t is None or t.size == 0:
             return
-        for key, channel in getattr(self, "custom_channel_panels", {}).items():
-            if key in self.custom_scope_data:
-                channel.apply_display_range()
+        if not self.custom_scope_auto_range_check.isChecked():
+            return
+        # Auto-fit X range from time array
+        finite_t = t[np.isfinite(t)]
+        if finite_t.size:
+            x_min = float(np.nanmin(finite_t))
+            x_max = float(np.nanmax(finite_t))
+            if x_max <= x_min:
+                x_max = x_min + 1e-9
+            self.custom_scope_plot.setXRange(x_min, x_max, padding=0.02)
+        # Auto-fit Y range from visible curves
+        y_min = float("inf")
+        y_max = float("-inf")
+        for key, curve in self.custom_scope_curves.items():
+            if not curve.isVisible():
+                continue
+            y_data = curve.yData
+            if y_data is None or len(y_data) == 0:
+                continue
+            finite_y = y_data[np.isfinite(y_data)]
+            if finite_y.size:
+                y_min = min(y_min, float(np.nanmin(finite_y)))
+                y_max = max(y_max, float(np.nanmax(finite_y)))
+        if np.isfinite(y_min) and np.isfinite(y_max):
+            if y_max <= y_min:
+                pad = max(abs(y_min) * 0.05, 1.0)
+                y_min -= pad
+                y_max += pad
+            self.custom_scope_plot.setYRange(y_min, y_max, padding=0.08)
+
+    def _reset_custom_scope_view(self) -> None:
+        self.custom_scope_auto_range_check.setChecked(True)
+        self._fit_custom_scope_ranges()
+        self.custom_scope_plot.autoRange()
+        self.custom_scope_plot.update()
 
     def _clear_candidate_markers(self) -> None:
-        for marker in getattr(self, "custom_candidate_markers", []):
-            for plot in self.custom_scope_plots.values():
-                try:
-                    plot.plot_item.removeItem(marker)
-                except (RuntimeError, ValueError):
-                    pass
+        for marker in self.custom_candidate_markers:
+            try:
+                self.custom_scope_plot.removeItem(marker)
+            except (RuntimeError, ValueError):
+                pass
         self.custom_candidate_markers = []
 
     def _find_and_render_basic_candidates(self, payload: dict[str, Any], data: dict[str, np.ndarray]) -> list[Any]:
@@ -1651,15 +1762,14 @@ class MainWindow(QMainWindow):
         lines = []
         colors = ["#ffcc00", "#72d6ff", "#f472b6"]
         for idx, candidate in enumerate(candidates):
-            for plot in self.custom_scope_plots.values():
-                marker = pg.InfiniteLine(
-                    pos=float(t[candidate.index]),
-                    angle=90,
-                    movable=False,
-                    pen=pg.mkPen(colors[idx % len(colors)], width=1.1, style=Qt.PenStyle.DashLine),
-                )
-                plot.plot_item.addItem(marker)
-                self.custom_candidate_markers.append(marker)
+            marker = pg.InfiniteLine(
+                pos=float(t[candidate.index]),
+                angle=90,
+                movable=False,
+                pen=pg.mkPen(colors[idx % len(colors)], width=1.1, style=Qt.PenStyle.DashLine),
+            )
+            self.custom_scope_plot.addItem(marker)
+            self.custom_candidate_markers.append(marker)
             lines.append(
                 f"candidate {idx + 1}: index {candidate.index}, OUT2 {candidate.out2_counts} counts, "
                 f"PZT {candidate.out2_counts / 8191.0:.5f} V ideal, "
@@ -1681,9 +1791,8 @@ class MainWindow(QMainWindow):
             "time_s": float(t[best.index]),
             "out2_counts": best.out2_counts,
         }
-        for marker in self.custom_zero_markers.values():
-            marker.setValue(float(t[best.index]))
-            marker.setVisible(True)
+        self.custom_zero_marker.setValue(float(t[best.index]))
+        self.custom_zero_marker.setVisible(True)
         self.selected_lock_label.setText(
             f"pending lock point: candidate 1, index {best.index}, OUT2 {best.out2_counts} counts, "
             f"ERROR {best.error_counts} counts; press Confirm Lock Point before LOCK HERE"
@@ -1703,7 +1812,18 @@ class MainWindow(QMainWindow):
             )
             out2_counts = int(payload.get("out2_counts", 0))
             if out2_counts < config.safe_min_counts or out2_counts > config.safe_max_counts:
-                return "OUT2 is outside the configured PZT safe range; Live stopped"
+                out2_volts_val = float(payload.get("out2_volts", 0))
+                safe_min_v = config.safe_min_counts / 8191.0
+                safe_max_v = config.safe_max_counts / 8191.0
+                return (
+                    f"OUT2 is outside the configured PZT safe range; Live stopped.\n"
+                    f"  current OUT2: {out2_counts} counts / {out2_volts_val:.6g} V ideal\n"
+                    f"  configured safe_min: {config.safe_min_counts} counts / {safe_min_v:.6g} V\n"
+                    f"  configured safe_max: {config.safe_max_counts} counts / {safe_max_v:.6g} V\n"
+                    f"  suggestion: adjust SCAN offset/amp to keep OUT2 within "
+                    f"[{config.safe_min_counts}, {config.safe_max_counts}] counts, "
+                    f"or widen PZT safe min/max range in BASIC LOCK panel"
+                )
         except (CustomFpgaBackendError, TypeError, ValueError):
             pass
         try:

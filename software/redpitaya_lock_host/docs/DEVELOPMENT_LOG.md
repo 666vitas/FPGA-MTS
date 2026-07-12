@@ -1,5 +1,35 @@
 # 开发日志
 
+## 2026-07-12 - 修复 Custom FPGA Scope 曲线不显示：四通道合并为单窗口
+
+- 本次问题：新 bitstream (`VERSION=0x00030001`) 烧录后，`Capture Waveform` 返回真实 points，统计量非零（IN1/PD, IN2/REF, OUT1/laser_error, OUT2/selected_out2 的 Vpp > 0），但右侧四个独立 `ChannelPanel` plot 黑框里没有显示曲线。
+- 根因定位：四个独立 `WaveformPlot`（GraphicsLayoutWidget）通过 2×2 QGridLayout 排布，每个 plot 内嵌 placeholder、curve、marker、axis 多条 item，`ChannelPanel.apply_display_range()` 与 `_update_custom_scope_visibility()` 的交互可能导致 curve setVisible 状态与 plot 渲染不同步；同时四个大窗口占用空间太大、界面显示不完整。
+- 修复方式：把四个独立大窗口收敛为一个紧凑的 `Custom FPGA Scope` 单窗口，使用单个 `pg.PlotWidget`，四条曲线（CH1/CH2/CH3/CH4）在同一 plot 叠加显示。
+- 修改文件：`main_window.py`（`_build_plots`, `_render_custom_capture_payload`, `_on_custom_scope_clicked`, `_update_custom_scope_visibility`, `_fit_custom_scope_ranges`, `_clear_candidate_markers`, `_find_and_render_basic_candidates`, `_capture_payload_hazard`, `_show_custom_waveform_capture_plan`, `_apply_capture_view_mode`，新增 `_reset_custom_scope_view`）、`tests/test_custom_fpga_backend.py`（更新 5 个旧测试，新增 7 个测试）、`docs/DEVELOPMENT_LOG.md`、`../../version/STATUS.md`。
+- 本轮只改上位机，不改 RTL / testbench / Vivado project / bitstream；不运行 Vivado，不需重新 bitstream，不需重新烧录。
+- 单窗口布局：
+  - 顶部：紧凑统计摘要（四通道 Vpp/min/max/mean + MODE + OUT2 + LOCK_BIAS + correction_limit）
+  - 中间：一个 `pg.PlotWidget`，四条 pyqtgraph PlotDataItem 曲线叠加
+  - 下方：紧凑 checkbox 行（`Show CH1/PD`、`Show CH3/laser_error`、`Show CH4/selected_out2`、`Show CH2/REF`）+ `Auto Range` + `Reset View`
+  - 默认显示 CH1/CH3/CH4；CH2（4.6 MHz REF）默认隐藏
+- curve 显示确保：
+  - capture points 非空时 `custom_scope_data` 包含 ch1/ch2/ch3/ch4/time_s
+  - 每条曲线 `setData(t, data[key])` 后调用 `setVisible(True)`，placeholder hide
+  - 渲染后校验 xData 长度 > 0，否则在 warning_text 提示 "capture data exists but plot render failed"
+  - auto-range 根据可见曲线 Y 数据拟合
+  - plot.repaint() 确保刷新
+- marker 功能保留：
+  - target marker (purple dotted) 和 zero-crossing marker (yellow dashed) 在单 plot 上显示
+  - 点击仍使用 CH1/PD only；`Select Target Transition` 后点击 plot 内任意位置，GUI 解析 CH3/error 附近零交叉
+  - candidate markers 在单 plot 上叠加
+  - `Confirm Lock Point` / `LOCK HERE` / `APPLY P` 逻辑保持不变
+- safe range 提示增强：
+  - `_capture_payload_hazard()` 在 OUT2 超 safe range 时显示：当前 OUT2 counts / V ideal、configured safe_min counts / V、configured safe_max counts / V、以及建议（调整 SCAN offset/amp 或扩大 PZT safe range）
+  - 不自动扩大 safe range，不自动继续 Live，不自动 LOCK HERE
+- 测试结果：`.venv\Scripts\python.exe -m pytest tests` 通过，`49 passed`；`.venv\Scripts\python.exe -m py_compile scripts\custom_fpga_scan_control.py redpitaya_lock_host\custom_fpga_backend.py redpitaya_lock_host\connection_workers.py redpitaya_lock_host\main_window.py redpitaya_lock_host\waveform_plot.py` 通过。
+- 上板预期：`Capture Waveform` 后 Custom FPGA Scope 单窗口中应叠加显示 CH1/CH3/CH4 三条曲线，CH2 默认隐藏；stats 显示四通道非零 Vpp；点击 CH1 目标峰附近后 target/zero marker 正确显示；safe range 越限时提示当前值和范围。
+- PASS 判据：capture points 非空 → 曲线在单 plot 中显示 → stats 非零 Vpp → placeholder hidden → 点击 marker 逻辑正常 → safe range 越限详细提示。FAIL 判据：capture 返回数据但 GUI 不显示曲线、placeholder 仍可见、stats 为 0、marker 异常、safe range 提示不清、任何 RTL/Vivado/bitstream 被修改。
+
 ## 2026-07-12 - v3LOCK-P0 上位机准实时观察与人工锁点工作台
 
 - 本次目标：只修改上位机 Python 和既有记录，完成用于 10 Hz PZT 扫描的“实验工作台”，不是高速示波器，也不声称已经真实激光锁定。

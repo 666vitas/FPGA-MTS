@@ -432,7 +432,7 @@ def test_main_window_constructs_without_legacy_scpi_output_controls() -> None:
         assert window.custom_start_live_button.text() == "Start Live"
         assert window.custom_stop_live_button.text() == "Stop Live"
         assert window.custom_live_interval_ms.currentText() == "1000"
-        assert set(window.custom_channel_panels) == {"ch1", "ch2", "ch3", "ch4"}
+        assert set(window.custom_scope_curves) == {"ch1", "ch2", "ch3", "ch4"}
     finally:
         window.close()
         app.processEvents()
@@ -552,14 +552,16 @@ def test_channel_scale_and_center_do_not_mutate_raw_capture_data() -> None:
         window._render_custom_capture_payload(make_capture_payload())
         before = window.custom_scope_data["ch1"].copy()
 
-        panel = window.custom_channel_panels["ch1"]
-        panel.auto_y_check.setChecked(False)
-        panel.scale_counts_div.setValue(64)
-        panel.center_counts.setValue(123)
-        panel.apply_display_range()
+        # Toggle auto range off/on — display changes, raw data unchanged
+        window.custom_scope_auto_range_check.setChecked(False)
+        window._fit_custom_scope_ranges()
+        window.custom_scope_auto_range_check.setChecked(True)
+        window._fit_custom_scope_ranges()
 
         np.testing.assert_array_equal(window.custom_scope_data["ch1"], before)
-        assert panel.plot.plot_item.vb.viewRange()[1] == [-133.0, 379.0]
+        # Y range should be set (non-empty)
+        y_range = window.custom_scope_plot.viewRange()[1]
+        assert y_range[0] < y_range[1]
     finally:
         window.close()
         app.processEvents()
@@ -689,8 +691,7 @@ def test_custom_scope_empty_capture_reports_missing_real_fpga_interface() -> Non
         assert "custom_debug_capture unavailable" in stats
         assert "CAPTURE_CTRL" in stats
         assert "no register-only fallback" in stats
-        assert "no real FPGA points" in window.custom_scope_plot_top.placeholder.toPlainText()
-        assert "no real FPGA points" in window.custom_scope_plot_bottom.placeholder.toPlainText()
+        assert window.custom_scope_placeholder.isVisible()
         assert window.basic_candidate_label.text().startswith("candidate: unavailable")
         assert all(not curve.isVisible() for curve in window.custom_scope_curves.values())
     finally:
@@ -801,21 +802,25 @@ def test_custom_scope_render_payload_shows_curves_range_and_candidate() -> None:
 
         window._render_custom_capture_payload(payload)
 
-        for curve in window.custom_scope_curves.values():
-            assert len(curve.xData) == count
-            assert len(curve.yData) == count
-        assert not window.custom_scope_plot_top.placeholder.isVisible()
-        assert not window.custom_scope_plot_bottom.placeholder.isVisible()
-        error_y_range = window.custom_scope_plots["ch3"].plot_item.vb.viewRange()[1]
-        bottom_y_range = window.custom_scope_plot_bottom.plot_item.vb.viewRange()[1]
-        assert error_y_range[0] <= float(np.nanmin(error))
-        assert error_y_range[1] >= float(np.nanmax(error))
-        assert bottom_y_range[0] <= float(np.nanmin(ch4))
-        assert bottom_y_range[1] >= float(np.nanmax(ch4))
+        # All 4 curves have data
+        for key in ("ch1", "ch2", "ch3", "ch4"):
+            curve = window.custom_scope_curves[key]
+            assert len(curve.xData) == count, f"{key} xData length mismatch"
+            assert len(curve.yData) == count, f"{key} yData length mismatch"
+        # Placeholder hidden
+        assert not window.custom_scope_placeholder.isVisible()
+        # Y range includes data
+        y_range = window.custom_scope_plot.viewRange()[1]
+        assert y_range[0] <= float(np.nanmin(error))
+        assert y_range[1] >= float(np.nanmax(ch4))
+        # BASIC LOCK candidates found
         assert window.basic_lock_candidates
         assert window.selected_lock_point is None
         assert window.pending_lock_point is not None
         assert int(window.pending_lock_point["index"]) != 0
+        # Stats show non-zero Vpp
+        stats = window.custom_scope_stats.text()
+        assert "Vpp" in stats
     finally:
         window.close()
         app.processEvents()
@@ -859,24 +864,199 @@ def test_custom_scope_embedded_split_plots_render_real_capture_points() -> None:
         window._render_custom_capture_payload(payload)
         app.processEvents()
 
-        assert hasattr(window, "custom_scope_plot_top")
-        assert hasattr(window, "custom_scope_plot_bottom")
-        assert window.custom_scope_plot_top.plot_item.graphicsItem() is window.custom_scope_plot_top.plot_item
-        assert window.custom_scope_plot_bottom.plot_item.graphicsItem() is window.custom_scope_plot_bottom.plot_item
-        assert window.custom_scope_plot_top.plot_item.vb.parentItem() is window.custom_scope_plot_top.plot_item
-        assert window.custom_scope_plot_bottom.plot_item.vb.parentItem() is window.custom_scope_plot_bottom.plot_item
-        assert window.custom_scope_plot_top.plot_item.getAxis("bottom").isVisible()
-        assert window.custom_scope_plot_top.plot_item.getAxis("left").isVisible()
-        assert window.custom_scope_plot_bottom.plot_item.getAxis("bottom").isVisible()
-        assert window.custom_scope_plot_bottom.plot_item.getAxis("left").isVisible()
+        # Single plot with 4 overlaid curves
+        assert hasattr(window, "custom_scope_plot")
+        plot_item = window.custom_scope_plot.getPlotItem()
+        assert plot_item.getAxis("bottom").isVisible()
+        assert plot_item.getAxis("left").isVisible()
 
-        for curve in window.custom_scope_curves.values():
-            assert len(curve.xData) == count
-            assert len(curve.yData) == count
+        # All 4 curves have data
+        for key in ("ch1", "ch2", "ch3", "ch4"):
+            curve = window.custom_scope_curves[key]
+            assert len(curve.xData) == count, f"{key} xData length mismatch"
+            assert len(curve.yData) == count, f"{key} yData length mismatch"
         assert window.custom_scope_curves["ch3"].isVisible()
         assert window.custom_scope_curves["ch4"].isVisible()
-        assert not window.custom_scope_plot_top.placeholder.isVisible()
-        assert not window.custom_scope_plot_bottom.placeholder.isVisible()
+        assert not window.custom_scope_placeholder.isVisible()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_custom_scope_data_has_all_four_channels_after_capture() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+
+        assert window.custom_scope_data is not None
+        for key in ("ch1", "ch2", "ch3", "ch4", "time_s"):
+            assert key in window.custom_scope_data, f"missing {key} in custom_scope_data"
+            assert window.custom_scope_data[key].size > 0, f"{key} is empty"
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_custom_scope_stats_shows_nonzero_vpp_after_capture() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+
+        stats = window.custom_scope_stats.text()
+        assert "Vpp" in stats
+        assert "IN1 / PD" in stats
+        assert "IN2 / REF" in stats
+        assert "OUT1 / laser_error" in stats
+        assert "OUT2 / selected_out2" in stats
+        assert "MODE" in stats
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_custom_scope_empty_points_shows_placeholder_not_fake_waveform() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload({"points": []})
+
+        assert window.custom_scope_data is None
+        assert window.custom_scope_placeholder.isVisible()
+        for curve in window.custom_scope_curves.values():
+            assert not curve.isVisible()
+            xd = curve.xData
+            assert xd is None or len(xd) == 0
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_safe_range_violation_shows_out2_value_and_range() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window.basic_pzt_min_v.setValue(0.80)
+        window.basic_pzt_max_v.setValue(0.90)
+        config = build_basic_lock_config(safe_min_v=0.80, safe_max_v=0.90)
+
+        # OUT2 outside safe range
+        payload = {
+            "magic": "0x4D545330",
+            "version": "0x00030001",
+            "saturated": False,
+            "out2_counts": config.safe_min_counts - 100,
+            "out2_volts": (config.safe_min_counts - 100) / 8191.0,
+            "lock_error_counts": 0,
+        }
+        hazard = window._capture_payload_hazard(payload)
+
+        assert hazard is not None
+        assert "OUT2 is outside" in hazard
+        assert "safe_min" in hazard
+        assert "safe_max" in hazard
+        assert "suggestion" in hazard
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_custom_scope_reset_view_restores_auto_range() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+
+        window.custom_scope_auto_range_check.setChecked(False)
+        assert not window.custom_scope_auto_range_check.isChecked()
+
+        window._reset_custom_scope_view()
+
+        assert window.custom_scope_auto_range_check.isChecked()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_single_plot_curves_rendered_with_data_after_capture() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        payload = make_capture_payload(count=512)
+        window._render_custom_capture_payload(payload)
+
+        for key in ("ch1", "ch2", "ch3", "ch4"):
+            curve = window.custom_scope_curves[key]
+            xd = curve.xData
+            yd = curve.yData
+            assert xd is not None and len(xd) == 512, f"{key} xData wrong"
+            assert yd is not None and len(yd) == 512, f"{key} yData wrong"
+        assert not window.custom_scope_placeholder.isVisible()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_default_ch2_hidden_ch1_ch3_ch4_visible() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+
+        assert window.custom_scope_checks["ch1"].isChecked()
+        assert window.custom_scope_checks["ch3"].isChecked()
+        assert window.custom_scope_checks["ch4"].isChecked()
+        assert not window.custom_scope_checks["ch2"].isChecked()
     finally:
         window.close()
         app.processEvents()

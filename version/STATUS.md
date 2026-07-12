@@ -1,5 +1,25 @@
 # STATUS
 
+## 2026-07-12 修复 Custom FPGA Scope 曲线不显示：四通道合并为单窗口
+
+本次问题：新 bitstream 烧录后 `Capture Waveform` 返回真实 points，统计量非零（IN1/PD, IN2/REF, OUT1/laser_error, OUT2/selected_out2 Vpp > 0），但右侧四个独立 ChannelPanel plot 黑框没有显示曲线。
+
+根因：四个独立 `WaveformPlot`（GraphicsLayoutWidget）通过 2×2 QGridLayout 排布，`ChannelPanel.apply_display_range()` 与 `_update_custom_scope_visibility()` 的交互可能导致 curve setVisible 状态与 plot 渲染不同步，且四个大窗口占用空间太大。
+
+修复方式：把四个独立大窗口收敛为紧凑的 `Custom FPGA Scope` 单窗口，使用单个 `pg.PlotWidget`，四条曲线（CH1/CH2/CH3/CH4）在同一 plot 叠加显示。
+
+本轮只改上位机 Python（`main_window.py` + tests），不修改 RTL / testbench / Vivado project / bitstream；不运行 Vivado，不需重新 bitstream，不需重新烧录。
+
+修改文件：`main_window.py`、`tests/test_custom_fpga_backend.py`、`docs/DEVELOPMENT_LOG.md`、`version/STATUS.md`。
+
+测试结果：`.venv\Scripts\python.exe -m pytest tests` 在上位机目录通过，`49 passed`；`py_compile` 通过。
+
+上板预期：`Capture Waveform` 后 Custom FPGA Scope 单窗口中应叠加显示 CH1/CH3/CH4 三条曲线，CH2 默认隐藏；stats 显示四通道非零 Vpp；点击 CH1 目标峰附近后 target/zero marker 正确显示；safe range 越限时提示当前值和建议。
+
+PASS 判据：capture points 非空 → 曲线在单 plot 中显示 → stats 非零 Vpp → placeholder hidden。FAIL 判据：capture 返回数据但 GUI 不显示曲线、placeholder 仍可见、stats 为 0、任何 RTL/Vivado/bitstream 被修改。
+
+下一步唯一任务：用户重新启动上位机，`Probe Registers -> Status -> SCAN -> Capture Waveform`，确认单窗口中有三条叠加曲线（CH1/CH3/CH4）。
+
 ## 2026-07-12 v3LOCK-P0 上位机准实时观察与人工锁点工作台
 
 本次目标：只修改上位机 Python 和既有文档记录，实现用于 10 Hz PZT 扫描的实验工作台：准实时 capture、四通道独立显示、人工点击 PD 后解析 CH3/error 过零、Confirm 后才允许 `LOCK HERE`，并保持最小 P-only `APPLY P` 链路。
