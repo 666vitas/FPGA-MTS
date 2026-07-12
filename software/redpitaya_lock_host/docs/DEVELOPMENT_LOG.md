@@ -1,5 +1,21 @@
 # 开发日志
 
+## 2026-07-12 - v3LOCK-P0 上位机准实时观察与人工锁点工作台
+
+- 本次目标：只修改上位机 Python 和既有记录，完成用于 10 Hz PZT 扫描的“实验工作台”，不是高速示波器，也不声称已经真实激光锁定。
+- 修改文件：`redpitaya_lock_host/main_window.py`、`tests/test_custom_fpga_backend.py`、`../../version/STATUS.md`、`../../version/v3/DEVELOPMENT_LOG.md`、`docs/DEVELOPMENT_LOG.md`。
+- 未修改：RTL、Vivado project、bitstream、寄存器地址、寄存器语义均未修改；未新增 AI、自动重锁 FSM、自动 PID 调参或自动 polarity 判断。
+- 准实时采集：新增 `Start Live`、`Stop Live`、`Capture Once` 与 `refresh interval 500/1000/2000 ms`，默认 `1000 ms`。Live 使用 `capture_in_flight` 防重入，流程为 capture 完成 -> GUI 更新/安全检查 -> single-shot 延时 -> 下一次 capture；capture/SSH/MAGIC/VERSION/saturation/OUT2 safe range/连续 LOCK_ERROR 异常或窗口关闭会停止 Live。
+- 四通道显示：右侧改为四个独立 `WaveformPlot`：CH1 IN1/PD、CH3 OUT1/laser_error、CH4 OUT2/selected_out2、CH2 IN2/REF。每通道有 `Visible`、`Auto Y`、`Scale counts/div`、`Center counts`、`Reset`；这些控件只改变显示范围和可见性，不改 capture 原始数据，不写 FPGA。
+- 视图模式：`Lock View` 默认显示 CH1/CH3/CH4、隐藏 CH2，capture length 默认 2048，并按 scan freq 估算 decimation 以覆盖约一个扫描周期，同时显示当前 capture 时间窗；`REF Debug` 默认只显示 CH2，decimation 仅 1/2/4/8，并提示不能同时完整显示 10 Hz 慢速扫描周期。
+- 人工锁点：新增 `Select Target Transition` 与 `Confirm Lock Point`。用户在 CH1/PD 图点击目标峰附近后，GUI 记录 clicked index/time/OUT2，并在附近窗口搜索 CH3/error 有效零交叉；有效性检查包括局部 Vpp、斜率、capture 边缘、OUT2 安全范围和 saturation。找到后只生成 pending lock point，并在四通道画 target marker 与 resolved zero-crossing marker；只有 `Confirm Lock Point` 更新 `selected_lock_point`。
+- 最小 P-only：`LOCK HERE` 必须已有 confirmed lock point；随后等待 OUT2 到 target window，触发 FPGA `CAPTURE_LOCK_POINT`，由 FPGA 捕获 `ERROR_SETPOINT` 和 `LOCK_BIAS` 并进入 `MODE=3 P_LOCK`，Kp 从 0 开始。`APPLY P` 不覆盖锁点，只允许用户手动 Kp `0/4/8/16/32` 与 polarity；Ki/Kd 禁用，不自动加 Kp，不自动判断 polarity，不自动重锁。
+- GUI 说明：补充 offset-v、amp-v、freq-hz、step-counts、limit-counts、hold-v、Kp manual step、polarity、correction-limit-counts、target-window-counts、capture-length、capture-decimation、LOCK_BIAS、ERROR_SETPOINT、LOCK_ERROR 等简短 tooltip/状态说明。
+- 测试结果：`.venv\Scripts\python.exe -m pytest tests` 通过，`42 passed`；`.venv\Scripts\python.exe -m py_compile scripts\custom_fpga_scan_control.py redpitaya_lock_host\custom_fpga_backend.py redpitaya_lock_host\connection_workers.py redpitaya_lock_host\main_window.py redpitaya_lock_host\waveform_plot.py` 通过。
+- 上板预期现象：SCAN 后 Lock View Live 能看到 CH1/CH3/CH4，CH2 默认隐藏；点击 CH1 目标峰附近后，CH3 附近解析出过零并显示 marker；Confirm 后 `LOCK HERE` 进入 P_LOCK Kp=0；之后仅用户手动 `APPLY P` 小步增益。
+- PASS 判据：Live 不重入，Stop 后不继续 capture；capture 完成后才排下一轮；四通道显示控制不改原始数据；无过零拒绝 Confirm；未 Confirm 阻止 LOCK HERE；APPLY P 不覆盖 `LOCK_BIAS` / `ERROR_SETPOINT`。FAIL 判据：收到 capture 但不显示、Live 重入、未 Confirm 可 LOCK HERE、APPLY P 重新捕获或覆盖锁点、任何 RTL/Vivado/bitstream 被改动。
+- 下一步唯一任务：用户上板执行 `SCAN -> Lock View Live/Capture Once -> CH1 点击目标峰附近 -> Confirm Lock Point -> LOCK HERE -> 手动 APPLY P 0/4/8/16/32 -> 判断 polarity -> 异常 SAFE`，记录真实 capture 和 LOCK HERE 现象。
+
 ## 2026-07-11 - v3LOCK-P0 人工 LOCK HERE 与同拍锁点捕获候选
 
 - 本次重要纠正：历史 `board(1).csv` 中的 `54 counts`、`0.704 V`、`0.784 V`、`49.75 Hz` 以及任何峰值、基线、扫描位置，只允许作为问题分析证据，禁止硬编码进 RTL、Python、GUI、测试默认值或锁点配置。

@@ -1,5 +1,29 @@
 # STATUS
 
+## 2026-07-12 v3LOCK-P0 上位机准实时观察与人工锁点工作台
+
+本次目标：只修改上位机 Python 和既有文档记录，实现用于 10 Hz PZT 扫描的实验工作台：准实时 capture、四通道独立显示、人工点击 PD 后解析 CH3/error 过零、Confirm 后才允许 `LOCK HERE`，并保持最小 P-only `APPLY P` 链路。
+
+修改文件：`software/redpitaya_lock_host/redpitaya_lock_host/main_window.py`、`software/redpitaya_lock_host/tests/test_custom_fpga_backend.py`、`version/STATUS.md`、`version/v3/DEVELOPMENT_LOG.md`、`software/redpitaya_lock_host/docs/DEVELOPMENT_LOG.md`。继续沿用既有 `custom_fpga_backend.py` / `custom_fpga_scan_control.py` 的 `lock-here` 与 `update-p-lock` 寄存器语义，未修改 RTL、Vivado 工程、bitstream、寄存器地址或寄存器语义。
+
+实现功能：新增 `Start Live`、`Stop Live`、`Capture Once`、`refresh interval 500/1000/2000 ms`；Live 使用 `capture_in_flight` 防重入，并且只在 capture 完成、GUI 更新和安全检查后用 single-shot timer 安排下一次 capture。右侧改为四个独立 `WaveformPlot`：CH1 IN1/PD、CH3 OUT1/laser_error、CH4 OUT2/selected_out2、CH2 IN2/REF；每通道有 `Visible`、`Auto Y`、`Scale counts/div`、`Center counts`、`Reset`，这些只改变显示范围和可见性，不改原始 capture 数据、不写 FPGA。新增 `Lock View` / `REF Debug`：Lock View 默认 CH1/CH3/CH4、隐藏 CH2、capture length 2048 并按 scan freq 估算一个扫描周期；REF Debug 默认只显示 CH2，decimation 只选 1/2/4/8，并提示不能同时完整显示 10 Hz 慢扫描周期。
+
+人工锁点：新增 `Select Target Transition` 与 `Confirm Lock Point`。用户必须先在 CH1/PD 图点击目标峰附近；GUI 记录 clicked index/time/OUT2，再在附近窗口搜索 CH3 laser_error 有效零交叉，检查局部 Vpp、斜率、capture 边缘、OUT2 安全范围和 saturation；找到后只生成 pending lock point，并在四通道画 target peak marker 与 resolved zero-crossing marker。只有 `Confirm Lock Point` 会更新 `selected_lock_point`；`LOCK HERE` 必须已有 confirmed lock point。
+
+最小 P-only 行为：`LOCK HERE` 仍等待 OUT2 进入 confirmed target window 后触发 FPGA `CAPTURE_LOCK_POINT`，由 FPGA 同拍捕获 `ERROR_SETPOINT` 和 `LOCK_BIAS` 并进入 `MODE=3 P_LOCK`，Kp 从 0 开始。`APPLY P` 仍只允许 Kp `0/4/8/16/32` 和 polarity 手动更新；不覆盖 `LOCK_BIAS` / `ERROR_SETPOINT`，不触发重新捕获，不启用 Ki/Kd，不自动增加 Kp，不自动判断 polarity，不自动重锁。
+
+安全行为：capture 失败、SSH 失败、MAGIC/VERSION 异常、capture timeout、saturation、OUT2 超出配置 PZT safe range、`LOCK_ERROR` 连续超阈值、用户 SAFE/ABORT/Stop Live 或窗口关闭都会停止 Live 并提示 SAFE；不会自动提高 Kp、切 polarity 或重新 LOCK HERE。
+
+尚未实现/未声明：未做 AI 自动识峰、自动重锁 FSM、自动 PID 调参、自动 polarity 判断、Ki/Kd、真实激光闭环完成声明；未运行 Vivado，未生成 bitstream，未烧录，未上板验证本轮 GUI 工作台。
+
+测试结果：`.venv\Scripts\python.exe -m pytest tests` 在上位机目录通过，`42 passed`；`py_compile` 通过，覆盖 `custom_fpga_scan_control.py`、`custom_fpga_backend.py`、`connection_workers.py`、`main_window.py`、`waveform_plot.py`。
+
+上板预期现象：烧录当前 `VERSION=0x00030001` bitstream 后，先读 `MAGIC=0x4D545330` / `VERSION=0x00030001`；SCAN 时 Live 约 1 Hz 刷新四通道，CH1/CH3/CH4 在 Lock View 可见且 CH2 默认隐藏；点击 CH1 峰附近后，GUI 应在 CH3 附近解析出过零并显示两类 marker；Confirm 后 `LOCK HERE` 等待 OUT2 回到 target window，进入 P_LOCK Kp=0，随后用户手动 `APPLY P` 小步测试。
+
+PASS 判据：Live 不重入且 Stop 后不再 capture；capture 完成后才安排下一次刷新；四通道曲线和显示控制正常且不改原始数据；无有效 CH3 过零时拒绝 Confirm；未 Confirm 时 `LOCK HERE` 被阻止；`APPLY P` 不改 `LOCK_BIAS` / `ERROR_SETPOINT`；异常能停止 Live 并提示 SAFE。FAIL 判据：GUI 明明收到 capture 却不显示；Live 重入；Stop 后仍 capture；点击 PD 峰后把峰顶直接当锁点；未 Confirm 也能 LOCK HERE；APPLY P 重新捕获或覆盖锁点；任何 RTL/Vivado/bitstream 被本轮修改。
+
+下一步唯一任务：用户上板按 `SCAN -> Lock View Live/Capture Once -> CH1 点击目标峰附近 -> Confirm Lock Point -> LOCK HERE -> Kp=0/4/8/16/32 手动 APPLY P -> 判断 polarity -> 异常 SAFE` 做真实工作台验证，并记录 capture/LOCK HERE 现象。
+
 ## 2026-07-12 PZT 基础稳频主线纠正与最小闭环
 
 项目最终目标固定为：基于 Red Pitaya 的全自动深度学习参数优化 MTS 激光稳频系统。当前阶段只做最简单、可人工操作的 PZT 基础稳频：`OUT2 -> 激光器专用 PZT / Scan 输入`，`SCAN -> 观察 MTS error -> 人工选择色散过零点 -> LOCK HERE -> 同拍捕获 ERROR_SETPOINT 和 LOCK_BIAS -> P-only 小增益反馈 -> SAFE`。

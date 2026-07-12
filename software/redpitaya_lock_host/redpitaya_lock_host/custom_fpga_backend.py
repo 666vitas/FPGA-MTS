@@ -94,6 +94,18 @@ class ZeroCrossingCandidate:
 
 
 @dataclass(frozen=True)
+class ResolvedLockPoint:
+    clicked_index: int
+    index: int
+    out2_counts: int
+    error_counts: int
+    slope: float
+    local_vpp: float
+    valid: bool
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class LockHereConfig:
     polarity: int
     lock_limit_counts: int
@@ -275,6 +287,76 @@ def find_zero_crossing_candidates(
         if len(unique) >= max_candidates:
             break
     return sorted(unique.values(), key=lambda candidate: candidate.score, reverse=True)
+
+
+def resolve_target_transition(
+    *,
+    error_counts: np.ndarray | list[float],
+    out2_counts: np.ndarray | list[float],
+    clicked_index: int,
+    safe_min_counts: int,
+    safe_max_counts: int,
+    saturated: bool = False,
+    search_radius: int = 128,
+) -> ResolvedLockPoint:
+    """Resolve a user PD-click to a nearby valid CH3/error zero crossing."""
+    if saturated:
+        raise CustomFpgaBackendError("target rejected: FPGA status reports saturation")
+    error = np.asarray(error_counts, dtype=float)
+    out2 = np.asarray(out2_counts, dtype=float)
+    count = min(error.size, out2.size)
+    if count < 16:
+        raise CustomFpgaBackendError("target rejected: capture is too short")
+    click = int(clicked_index)
+    if click < 0 or click >= count:
+        raise CustomFpgaBackendError("target rejected: clicked index is outside capture")
+    edge = max(4, int(round(count * 0.03)))
+    if click < edge or click >= count - edge:
+        raise CustomFpgaBackendError("target rejected: clicked point is too close to capture edge")
+    radius = max(4, int(search_radius))
+    left = max(0, click - radius)
+    right = min(count, click + radius + 1)
+    if right - left < 8:
+        raise CustomFpgaBackendError("target rejected: search window is too small")
+
+    candidates = find_zero_crossing_candidates(
+        error_counts=error[left:right],
+        out2_counts=out2[left:right],
+        max_candidates=8,
+    )
+    if not candidates:
+        raise CustomFpgaBackendError("target rejected: no valid CH3/error zero crossing near clicked PD feature")
+
+    adjusted: list[ZeroCrossingCandidate] = []
+    for item in candidates:
+        idx = left + int(item.index)
+        if idx < edge or idx >= count - edge:
+            continue
+        out2_value = int(round(float(out2[idx])))
+        if out2_value < int(safe_min_counts) or out2_value > int(safe_max_counts):
+            continue
+        adjusted.append(
+            ZeroCrossingCandidate(
+                index=idx,
+                out2_counts=out2_value,
+                error_counts=int(round(float(error[idx]))),
+                score=float(item.score) / max(1.0, abs(idx - click)),
+                slope=float(item.slope),
+                local_vpp=float(item.local_vpp),
+            )
+        )
+    if not adjusted:
+        raise CustomFpgaBackendError("target rejected: zero crossing is outside the PZT safe range or capture edge")
+    best = min(adjusted, key=lambda item: (abs(item.index - click), -item.score))
+    return ResolvedLockPoint(
+        clicked_index=click,
+        index=int(best.index),
+        out2_counts=int(best.out2_counts),
+        error_counts=int(best.error_counts),
+        slope=float(best.slope),
+        local_vpp=float(best.local_vpp),
+        valid=True,
+    )
 
 
 def build_scan_config(

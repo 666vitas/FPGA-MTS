@@ -12,6 +12,7 @@ from redpitaya_lock_host.custom_fpga_backend import (
     build_update_p_lock_config,
     build_lock_config_from_counts,
     find_zero_crossing_candidates,
+    resolve_target_transition,
     status_payload_has_expected_magic,
     missing_magic_guidance,
     validate_basic_lock_capture,
@@ -19,6 +20,34 @@ from redpitaya_lock_host.custom_fpga_backend import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def make_capture_payload(count: int = 256) -> dict:
+    x = np.linspace(-1.0, 1.0, count)
+    config = build_basic_lock_config(safe_min_v=0.80, safe_max_v=0.90)
+    ch4 = np.linspace(config.safe_min_counts, config.safe_max_counts, count)
+    error = 260.0 * x * np.exp(-(x * 3.5) ** 2)
+    return {
+        "magic": "0x4D545330",
+        "version": "0x00030001",
+        "mode": 1,
+        "enable": 1,
+        "saturated": False,
+        "out2_counts": int(ch4[count // 2]),
+        "lock_error_counts": 0,
+        "lock_correction_limit_counts": 128,
+        "capture_decimation": 1024,
+        "points": [
+            {
+                "index": idx,
+                "ch1_counts": int(80 * np.exp(-((x[idx]) * 6.0) ** 2)),
+                "ch2_counts": int(3000 * np.sin(idx / 3)),
+                "ch3_counts": int(error[idx]),
+                "ch4_counts": int(ch4[idx]),
+            }
+            for idx in range(count)
+        ],
+    }
 
 
 def load_scan_control_module():
@@ -309,6 +338,39 @@ def test_basic_lock_zero_crossing_finder_detects_dispersion_candidate() -> None:
     assert 6500 <= candidates[0].out2_counts <= 7300
 
 
+def test_pd_click_resolves_nearby_ch3_error_zero_crossing() -> None:
+    count = 512
+    x = np.linspace(-1.0, 1.0, count)
+    error = 260.0 * x * np.exp(-(x * 3.5) ** 2)
+    out2 = np.linspace(6500, 7300, count)
+
+    resolved = resolve_target_transition(
+        error_counts=error,
+        out2_counts=out2,
+        clicked_index=250,
+        safe_min_counts=6400,
+        safe_max_counts=7400,
+        saturated=False,
+        search_radius=80,
+    )
+
+    assert resolved.valid
+    assert abs(resolved.index - 255) < 20
+    assert 6500 <= resolved.out2_counts <= 7300
+    assert abs(resolved.slope) > 0
+
+
+def test_pd_click_without_zero_crossing_is_rejected() -> None:
+    with np.testing.assert_raises(CustomFpgaBackendError):
+        resolve_target_transition(
+            error_counts=np.ones(256) * 42,
+            out2_counts=np.linspace(6500, 7300, 256),
+            clicked_index=128,
+            safe_min_counts=6400,
+            safe_max_counts=7400,
+        )
+
+
 def test_gui_text_separates_scpi_and_custom_fpga_out2_paths() -> None:
     source = (ROOT / "redpitaya_lock_host" / "main_window.py").read_text(encoding="utf-8")
 
@@ -366,6 +428,138 @@ def test_main_window_constructs_without_legacy_scpi_output_controls() -> None:
         assert [window.custom_kp.itemText(index) for index in range(window.custom_kp.count())] == ["0", "4", "8", "16", "32"]
         assert window.custom_correction_limit_counts.value() == 128
         assert window.custom_lock_limit_counts.value() == 8191
+        assert window.custom_capture_once_button.text() == "Capture Once"
+        assert window.custom_start_live_button.text() == "Start Live"
+        assert window.custom_stop_live_button.text() == "Stop Live"
+        assert window.custom_live_interval_ms.currentText() == "1000"
+        assert set(window.custom_channel_panels) == {"ch1", "ch2", "ch3", "ch4"}
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_live_capture_does_not_reenter_while_capture_in_flight() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    calls = []
+    try:
+        window.live_capture_active = True
+        window.capture_in_flight = True
+        window._start_custom_fpga_operation = lambda operation, preserve_basic=False: calls.append(operation)
+
+        window._run_live_capture_cycle()
+
+        assert calls == []
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_live_capture_schedules_next_only_after_capture_finished() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    class FakeTimer:
+        def __init__(self) -> None:
+            self.started = []
+            self.stopped = False
+
+        def start(self, interval: int) -> None:
+            self.started.append(interval)
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    fake_timer = FakeTimer()
+    try:
+        window.custom_live_timer = fake_timer
+        window.live_capture_active = True
+        window.capture_in_flight = True
+        window.current_custom_operation = "capture"
+        window._restore_after_custom_fpga_operation = lambda: None
+        window._continue_basic_lock_after_success = lambda operation, payload: None
+
+        window._on_custom_fpga_finished({"operation": "capture", "payload": make_capture_payload(), "stderr": ""})
+
+        assert not window.capture_in_flight
+        assert fake_timer.started == [1000]
+        assert window.current_custom_operation is None
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_stop_live_prevents_future_capture_scheduling() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    class FakeTimer:
+        def __init__(self) -> None:
+            self.started = []
+            self.stopped = False
+
+        def start(self, interval: int) -> None:
+            self.started.append(interval)
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    fake_timer = FakeTimer()
+    try:
+        window.custom_live_timer = fake_timer
+        window.live_capture_active = True
+        window._stop_live_capture("test stop")
+        window._schedule_next_live_capture()
+
+        assert not window.live_capture_active
+        assert fake_timer.stopped
+        assert fake_timer.started == []
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_channel_scale_and_center_do_not_mutate_raw_capture_data() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+        before = window.custom_scope_data["ch1"].copy()
+
+        panel = window.custom_channel_panels["ch1"]
+        panel.auto_y_check.setChecked(False)
+        panel.scale_counts_div.setValue(64)
+        panel.center_counts.setValue(123)
+        panel.apply_display_range()
+
+        np.testing.assert_array_equal(window.custom_scope_data["ch1"], before)
+        assert panel.plot.plot_item.vb.viewRange()[1] == [-133.0, 379.0]
     finally:
         window.close()
         app.processEvents()
@@ -396,6 +590,56 @@ def test_basic_lock_internal_safe_step_does_not_abort_state_machine() -> None:
         assert window.basic_lock_active
         assert window.basic_lock_queue == ["scan"]
         assert "SAFE" in window.basic_status_label.text()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_lock_here_requires_confirmed_lock_point_not_pending_candidate() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+
+        assert window.pending_lock_point is not None
+        assert window.selected_lock_point is None
+
+        window._start_custom_fpga_operation("lock")
+
+        assert "LOCK HERE requires" in window.custom_warning_text.toPlainText()
+        assert window.current_custom_operation is None
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_confirm_lock_point_promotes_pending_zero_crossing_only() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._confirm_pending_lock_point()
+        assert window.selected_lock_point is None
+
+        window._render_custom_capture_payload(make_capture_payload())
+        pending = dict(window.pending_lock_point)
+        window._confirm_pending_lock_point()
+
+        assert window.selected_lock_point == pending
+        assert "confirmed" in window.selected_lock_label.text()
     finally:
         window.close()
         app.processEvents()
@@ -562,15 +806,16 @@ def test_custom_scope_render_payload_shows_curves_range_and_candidate() -> None:
             assert len(curve.yData) == count
         assert not window.custom_scope_plot_top.placeholder.isVisible()
         assert not window.custom_scope_plot_bottom.placeholder.isVisible()
-        top_y_range = window.custom_scope_plot_top.plot_item.vb.viewRange()[1]
+        error_y_range = window.custom_scope_plots["ch3"].plot_item.vb.viewRange()[1]
         bottom_y_range = window.custom_scope_plot_bottom.plot_item.vb.viewRange()[1]
-        assert top_y_range[0] <= float(np.nanmin(error))
-        assert top_y_range[1] >= float(np.nanmax(error))
+        assert error_y_range[0] <= float(np.nanmin(error))
+        assert error_y_range[1] >= float(np.nanmax(error))
         assert bottom_y_range[0] <= float(np.nanmin(ch4))
         assert bottom_y_range[1] >= float(np.nanmax(ch4))
         assert window.basic_lock_candidates
-        assert window.selected_lock_point is not None
-        assert int(window.selected_lock_point["index"]) != 0
+        assert window.selected_lock_point is None
+        assert window.pending_lock_point is not None
+        assert int(window.pending_lock_point["index"]) != 0
     finally:
         window.close()
         app.processEvents()
