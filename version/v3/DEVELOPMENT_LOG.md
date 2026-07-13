@@ -79,3 +79,12 @@
 - PASS：capture 数据非零且曲线可见。FAIL：capture 返回数据但图空白、曲线不可辨识、通信/寄存器身份异常或 OUT2 异常。
 - 必须 SAFE：OUT2 越界或接近 limit、saturation、通信失败、MAGIC/VERSION 异常、异常跳变、反馈方向疑似错误，或准备连接禁止端口/并联输出时。
 - 下一步唯一任务：设计并实现示波器式三/四通道显示层。
+
+## 2026-07-13 Codex 当前状态文档清理
+
+- 执行 Agent：Codex。本次只修规则和状态文档：更新 `AGENTS.md`、`version/STATUS.md`、`version/CURRENT_REVIEW_MANIFEST.md`，并向两份已有开发日志追加记录。
+- 清理旧结论：将“`custom_debug_capture` 等待 bitstream/烧录/上板验证”、“`VERSION=0x00030001` 候选仍等待 synthesis/implementation/timing/bitstream/烧录”以及“BRAM 修复仍等待 Vivado 验证”标记为已被后续 timing PASS、bitstream、烧录、`VERSION` 读回和四通道 capture 覆盖的历史阶段记录，不再作为当前待办。
+- 当前真实验证等级：synthesis / implementation / timing 已完成；bitstream 已生成并烧录；`MAGIC=0x4D545330`、`VERSION=0x00030001`；四通道 capture 非零且 GUI 可显示真实曲线。
+- 仍等待验证：HOLD、LOCK HERE 真实切换、P_LOCK 真实 PZT 闭环、polarity/小 Kp、长时间稳频、FSM 自动重锁和 AI 参数优化。当前不启用 `KI`、integral、PI_LOCK 实验主线、自动 polarity、自动增加 Kp、自动重锁或 AI 自动识峰。
+- 未修改代码、测试、RTL、Vivado 工程、寄存器、bitstream 或历史版本目录；未运行测试、未运行 Vivado、未生成 bitstream、未烧录。
+- 下一步唯一任务：实现示波器式三/四通道显示层。

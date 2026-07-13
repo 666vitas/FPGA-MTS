@@ -552,3 +552,12 @@ Confirmed project boundary:
 - PASS：四通道 capture 数据非零且 GUI 曲线可见。FAIL：capture 已返回但 plot 空白、曲线不可辨识、通信/寄存器身份异常或 OUT2 异常。
 - 必须 SAFE：OUT2 越界/接近 limit、saturation、通信失败、MAGIC/VERSION 异常、异常跳变、反馈方向疑似错误或准备连接禁止端口/并联输出时。
 - 下一步唯一任务：设计并实现示波器式三/四通道显示层。
+
+## 2026-07-13 Codex 当前状态文档清理
+
+- 执行 Agent：Codex。本次只修规则和状态文档；未修改任何上位机 Python、测试、RTL、Vivado 工程、寄存器、bitstream 或历史版本目录。
+- 清理旧结论：将 `custom_debug_capture`、`VERSION=0x00030001` 和 BRAM 修复的“仍等待 Vivado/bitstream/烧录”文字降为已被后续验证覆盖的历史阶段记录，不再作为当前 GUI 任务待办。
+- 当前真实验证等级：synthesis / implementation / timing 已完成；bitstream 已生成并烧录；`MAGIC=0x4D545330`、`VERSION=0x00030001`；四通道 capture 非零，GUI 已可显示真实曲线。
+- 未验证：HOLD、LOCK HERE 真实切换、P_LOCK 真实 PZT 闭环、polarity/小 Kp、长时间稳频、FSM 自动重锁与 AI 参数优化。当前不启用 `KI`、integral、PI_LOCK 实验主线、自动 polarity、自动增加 Kp、自动重锁或 AI 自动识峰。
+- 本次未运行测试、未运行 Vivado、未生成 bitstream、未烧录。
+- 下一步唯一任务：实现示波器式三/四通道显示层。

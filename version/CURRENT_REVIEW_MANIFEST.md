@@ -16,6 +16,8 @@ Root entrypoint: AI_REVIEW_README.md
 Shared Codex/Claude Code rules: AGENTS.md
 ```
 
+当前状态优先级：`version/STATUS.md` 顶部快照与本 Manifest 的“当前验证等级”优先于历史段落。`version/AI_STRICT_REVIEW_ENTRY.md` 目前含未解决合并标记和过期验证文字；在用户另行授权修复前，只能作为规则读取，不得将其中的旧验证结论覆盖当前快照。
+
 ## 2. 当前结论基线
 
 ```text
@@ -29,7 +31,7 @@ MODE=4 PI_LOCK，当前暂时退化为 P_LOCK，KI / integral 当前不要恢复
 laser_control / pi_controller_seq = 内部候选或历史路径，不是当前 DAC B / OUT2 最终输出
 ```
 
-v3REG-0 SAFE/SCAN 已由用户上板验证：base address `0x40600000`，`MAGIC=0x4D545330`，`VERSION=0x00030000`，GUI/monitor 可控制 OUT2 三角波，并可用 SAFE 关闭。
+历史 v3REG-0 的 `VERSION=0x00030000` SAFE/SCAN 记录已被后续 v3LOCK-P0 板上记录覆盖。当前已验证板端身份为 `MAGIC=0x4D545330`、`VERSION=0x00030001`；后续 `git fetch`、本地 `git rev-parse HEAD` 与用户 push 后的 GitHub `main` 用于确认代码版本，而不是把历史记录中的 commit 当作永久最新状态。
 
 当前 OUT2 的目标执行器是激光器专用 PZT / Scan 输入。`MODE=1 SCAN` 输出三角波驱动同一个 PZT 扫描激光频率；`MODE=3 P_LOCK` 输出 `LOCK_BIAS + P correction` 驱动同一个 PZT 完成基础反馈；`MODE=0 SAFE` 退出扫描和锁定。必须默认小 Kp、小 `LOCK_CORRECTION_LIMIT`，失败必须 SAFE；禁止接入激光器电流调制、D2-125 Servo Output 或 D2-125 Aux Output，也禁止任何输出端并联。
 
@@ -182,9 +184,9 @@ OUTPUT_MODE=3 时 OUT1 为 mixer + post-mixer LPF
 control_o / pi_controller_seq 仍存在，但不是当前 OUT2 的最终来源
 ```
 
-## 6. 实验与工程状态判定规则
+## 6. 当前验证等级与工程状态
 
-可以说“已经实现”的内容：
+### FPGA / bitstream 已验证
 
 ```text
 代码层面已经加入 custom_register_bank
@@ -193,30 +195,46 @@ control_o / pi_controller_seq 仍存在，但不是当前 OUT2 的最终来源
 代码层面 OUT2 已经改为 selected_out2 SAFE/SCAN/HOLD/P_LOCK/PI_LOCK 候选
 代码层面已经加入 P_LOCK correction limit
 代码层面已经加入 custom_debug_capture
+v3LOCK-P0 synthesis / implementation / timing 已完成
+对应 bitstream 已生成并由用户烧录
+MAGIC = 0x4D545330
+VERSION = 0x00030001
 用户截图已证明 custom_debug_capture 可返回 CH1/IN1、CH2/IN2、CH3/OUT1、CH4/OUT2 四通道非零 capture 数据
 当前 GUI 已可显示真实 capture 曲线；空白 plot 问题已修复
-v3REG-0 SAFE/SCAN 已有用户上板验证记录
 ```
 
-只能说“等待验证”的内容：
+### 仍等待实验验证
 
 ```text
-HOLD/P_LOCK/PI_LOCK 等待最新 Vivado synthesis
-HOLD/P_LOCK/PI_LOCK 等待最新 implementation
-HOLD/P_LOCK/PI_LOCK 等待最新 timing 检查
-HOLD/P_LOCK/PI_LOCK 等待 bitstream 生成
-HOLD/P_LOCK/PI_LOCK 等待烧录
-HOLD/P_LOCK/PI_LOCK 等待上板示波器验证
-人工 LOCK HERE / P_LOCK 的真实 PZT 闭环效果等待用户实验验证
+HOLD 的真实行为
+LOCK HERE 的真实切换
+P_LOCK 的真实 PZT 闭环效果
+polarity 与小 Kp 的实验效果
+长时间稳频
+FSM 自动重锁
+AI 参数优化
 当前 GUI 的剩余问题是示波器式分层显示布局；不是 FPGA capture 数据链路失效
-KI / integral 当前不要恢复
+```
+
+### 当前不启用
+
+```text
+KI
+integral
+PI_LOCK 实验主线
+自动 polarity
+自动增加 Kp
+自动重锁
+AI 自动识峰
 ```
 
 纯上位机 GUI 修改判定：只要不修改 RTL、Vivado 工程、寄存器地址或寄存器语义、bitstream，就不需要重新运行 Vivado、不需要重新生成 bitstream、不需要重新烧录。GUI 显示验证与 FPGA bitstream 验证必须分开记录，不得相互替代或混写。
 
-2026-07-11 资源修复基线：`custom_debug_capture` 初版四通道 4096 深度存储曾被 Vivado 推断为 LUTRAM / RAM64M / RAM64X1D，导致 place_design `[Place 30-484]`，`LUTRAM/SRL capable slices` 超限。本次已将 `mem_ch1..mem_ch4` 标记为 `(* ram_style = "block" *)`，并把 debug capture 读路径改为同步读，读数据允许 1 个 `clk_i` 周期延迟。四通道仍完整保留，默认 `DEPTH=4096` 未变。该修复尚需用户重新运行 Vivado synthesis / implementation 确认，不得声称 implementation 已通过。
+### 历史阶段记录（已被后续验证覆盖，不再作为当前待办）
 
-2026-07-11 v3LOCK-P0 人工选点基线：当前第一版不是自动识峰、不是 AI 自动锁定。禁止把 `board(1).csv` 或任何历史实验中的 `54 counts`、`0.704 V`、`0.784 V`、`49.75 Hz`、峰值、基线、扫描位置写成生产默认值或锁点配置。当前候选协议版本为 `0x00030001`，新增 `ERROR_SETPOINT`、`LOCK_ERROR_MONITOR`、`CAPTURE_LOCK_POINT`。真实锁点必须来自当前扫描波形：用户点击当前目标后执行 `LOCK HERE`，FPGA 在同一 `clk_i` 域捕获 `ERROR_SETPOINT` 和 `LOCK_BIAS`，P_LOCK 使用校正后的 `lock_error`。该候选尚未完成 Vivado synthesis / implementation / timing / bitstream / 烧录 / 上板验证。
+2026-07-11 资源修复基线：`custom_debug_capture` 初版四通道 4096 深度存储曾被 Vivado 推断为 LUTRAM / RAM64M / RAM64X1D，导致 place_design `[Place 30-484]`，`LUTRAM/SRL capable slices` 超限。本次已将 `mem_ch1..mem_ch4` 标记为 `(* ram_style = "block" *)`，并把 debug capture 读路径改为同步读，读数据允许 1 个 `clk_i` 周期延迟。该“等待 Vivado 验证”的阶段结论已被后续 timing PASS、bitstream 生成与烧录、`VERSION=0x00030001` 读回及四通道非零 capture 实验覆盖，不再作为当前待办。
+
+2026-07-11 v3LOCK-P0 人工选点基线：当前第一版不是自动识峰、不是 AI 自动锁定。禁止把 `board(1).csv` 或任何历史实验中的 `54 counts`、`0.704 V`、`0.784 V`、`49.75 Hz`、峰值、基线、扫描位置写成生产默认值或锁点配置。`VERSION=0x00030001` 的“候选仍等待 synthesis / implementation / timing / bitstream / 烧录”阶段结论，已被后续 timing PASS、bitstream、烧录、`VERSION` 读回和四通道 capture 覆盖，不再作为当前待办；`LOCK HERE` 与 `P_LOCK` 的真实 PZT 闭环效果仍属于当前待验证事项。
 
 禁止说的内容：
 

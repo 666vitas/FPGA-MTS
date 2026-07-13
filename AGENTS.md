@@ -31,6 +31,18 @@
 3. 涉及 `OUT2`、`SCAN`、`P_LOCK` 或 `LOCK HERE` 时，完成交接必须给出用户实验操作、PASS/FAIL 判据和必须 SAFE 条件。
 4. 发现通信失败、寄存器身份不匹配、saturation、输出越界、异常跳变、反馈方向疑似错误或用户准备连接禁止端口时，必须要求停止并执行 SAFE；不得自动提高 Kp、自动切换 polarity 或自动重新锁定。
 
+## 提交纯净性
+
+每次准备提交前必须依次检查：
+
+```text
+git status --short
+git diff --name-only
+git diff --cached --name-only
+```
+
+文档或 Python 任务不得混入 Vivado 自动生成 metadata、`.jou`、`.log`、cache、usage statistics、临时文件或与本任务无关的修改。发现无关文件时，不得删除用户文件、不得覆盖用户修改；只从本次 staged commit 中排除，并在交接结果中如实报告。
+
 ## 完成交接
 
 完成时说明：实际修改文件、验证结果与未运行项、用户下一步实验操作、PASS/FAIL 判据、必须 SAFE 条件，以及下一步唯一任务。没有用户实验反馈时，结论必须止于“等待验证”。

@@ -1,17 +1,20 @@
 # STATUS
 
-## 当前状态快照（2026-07-13）
+## 当前状态快照（生成于 2026-07-13）
 
 ```text
-日期：2026-07-13
+记录生成时间：2026-07-13
 执行 Agent：Codex（默认）；Claude Code 仅在 Codex 额度不足或用户明确指定时接管
-branch：HEAD detached（仓库主线为 main）
-HEAD commit：da665458a04505d475442f0222be32e61068bccd
-当前版本/子阶段：v3LOCK-P0；上位机 Custom FPGA Scope 显示布局收敛阶段
-已完成并验证：用户截图已证明 custom_debug_capture 可返回四通道非零数据；Custom FPGA Scope 已从空白 plot 修复为可以显示真实曲线
-代码完成但未实验验证：上位机显示布局后续优化、人工锁点与最小 P-only 工作台的真实 PZT/激光实验效果，均等待用户实验反馈
+记录时本地 branch：HEAD detached；该值只是本次记录环境，不是长期项目状态
+记录时本地 HEAD：dd4770de296574cb0d5625cf44c9105f7ee697e5；该值只用于追溯本次快照
+GitHub 主线：main；接管时以实际 `git rev-parse HEAD`、`git status --short --branch` 和用户 push 后的 GitHub main 为准
+当前版本：v3LOCK-P0
+当前子阶段：Custom FPGA Scope 示波器式显示布局
+已完成并验证：synthesis / implementation / timing 已完成；bitstream 已生成并烧录；MAGIC=0x4D545330；VERSION=0x00030001；用户截图已证明 custom_debug_capture 返回四通道非零数据；GUI 已从空白 plot 修复为可显示真实 capture 曲线
+仍等待实验验证：HOLD 真实行为、LOCK HERE 真实切换、P_LOCK 真实 PZT 闭环、polarity 和小 Kp、长时间稳频、FSM 自动重锁、AI 参数优化
+当前不启用：KI、integral、PI_LOCK 实验主线、自动 polarity、自动增加 Kp、自动重锁、AI 自动识峰
 当前问题：四路共用原始 Y 轴时，OUT2 大偏置会压缩其他通道；当前界面尚未达到类似台式示波器的简易分层效果
-当前允许修改范围：下一任务仅上位机显示层及既有状态/日志记录；无需修改 RTL、无需 Vivado、无需生成 bitstream、无需重新烧录
+当前允许修改范围：仅上位机显示层、测试、状态和日志；不需要 RTL、不需要 Vivado、不需要生成 bitstream、不需要重新烧录
 当前用户实验操作：重新启动上位机，执行 Probe Registers -> Status -> SCAN -> Capture Waveform，确认四通道真实数据与曲线可见，并记录布局/量程现象
 PASS：capture 四通道数据非零，GUI 可见真实曲线，且无异常输出
 FAIL：capture 已返回数据但图仍空白；曲线因共用 Y 轴不可辨识；通信/寄存器身份错误；OUT2 出现越界、饱和或异常跳变
