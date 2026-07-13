@@ -541,3 +541,14 @@ Confirmed project boundary:
 - 修复内容：`custom_debug_capture` 无点返回时明确显示需要 `CAPTURE_CTRL / CAPTURE_STATUS / CAPTURE_DATA_CH1..CH4`，不伪造波形，也不把单点 status 读数当作四通道波形替代。
 - 安全收敛：LOCK HERE 成功后停在 `MODE=3 P_LOCK` 且 `Kp=0`，后续 Kp 需要用户手动 `APPLY P`；不启用 Ki/PI，不做自动识峰、自动重锁、FSM 或 AI。
 - 尚未完成：尚未真实上板验证 BASIC LOCK 完成激光稳频；真实 PASS 仍需要用户在板上确认 capture 返回真实四通道数据、LOCK HERE 无跳变、小 Kp 方向正确、异常可 SAFE。
+## 2026-07-13 Codex / Claude Code 统一接管与上位机交接规则
+
+- 本次目标：只统一 Codex 与 Claude Code 的项目接管、修改、记录和实验交接规则；Codex 为默认执行 Agent，Claude Code 仅在 Codex 额度不足或用户明确指定时接管。
+- 修改文件：新增根目录 `AGENTS.md`；更新 `version/CURRENT_REVIEW_MANIFEST.md`、`version/STATUS.md`、`version/v3/DEVELOPMENT_LOG.md` 与本日志。未修改任何上位机 Python、RTL、Vivado 工程、测试、寄存器、bitstream 或历史版本路径。
+- 上位机状态：用户截图已证明 `custom_debug_capture` 返回四通道非零数据，Custom FPGA Scope 已从空白 plot 修复为可显示真实 capture 曲线；当前问题是四路共用原始 Y 轴时 OUT2 大偏置压缩其他通道，界面尚未达到台式示波器式简易分层。
+- 规则：纯 GUI 修改不触发 Vivado、bitstream 或烧录要求；没有用户实验反馈时只记录“等待验证”。每次上位机相关修改完成后，更新 `STATUS.md` 快照并向本日志末尾追加。
+- 验证：本次仅审查文档和 git 状态；未运行 Vivado、未生成 bitstream、未烧录、未做新的板上实验。
+- 用户实验操作：重新启动上位机，执行 `Probe Registers -> Status -> SCAN -> Capture Waveform`，确认真实曲线可见并记录布局现象。
+- PASS：四通道 capture 数据非零且 GUI 曲线可见。FAIL：capture 已返回但 plot 空白、曲线不可辨识、通信/寄存器身份异常或 OUT2 异常。
+- 必须 SAFE：OUT2 越界/接近 limit、saturation、通信失败、MAGIC/VERSION 异常、异常跳变、反馈方向疑似错误或准备连接禁止端口/并联输出时。
+- 下一步唯一任务：设计并实现示波器式三/四通道显示层。

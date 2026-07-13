@@ -1,5 +1,24 @@
 # STATUS
 
+## 当前状态快照（2026-07-13）
+
+```text
+日期：2026-07-13
+执行 Agent：Codex（默认）；Claude Code 仅在 Codex 额度不足或用户明确指定时接管
+branch：HEAD detached（仓库主线为 main）
+HEAD commit：da665458a04505d475442f0222be32e61068bccd
+当前版本/子阶段：v3LOCK-P0；上位机 Custom FPGA Scope 显示布局收敛阶段
+已完成并验证：用户截图已证明 custom_debug_capture 可返回四通道非零数据；Custom FPGA Scope 已从空白 plot 修复为可以显示真实曲线
+代码完成但未实验验证：上位机显示布局后续优化、人工锁点与最小 P-only 工作台的真实 PZT/激光实验效果，均等待用户实验反馈
+当前问题：四路共用原始 Y 轴时，OUT2 大偏置会压缩其他通道；当前界面尚未达到类似台式示波器的简易分层效果
+当前允许修改范围：下一任务仅上位机显示层及既有状态/日志记录；无需修改 RTL、无需 Vivado、无需生成 bitstream、无需重新烧录
+当前用户实验操作：重新启动上位机，执行 Probe Registers -> Status -> SCAN -> Capture Waveform，确认四通道真实数据与曲线可见，并记录布局/量程现象
+PASS：capture 四通道数据非零，GUI 可见真实曲线，且无异常输出
+FAIL：capture 已返回数据但图仍空白；曲线因共用 Y 轴不可辨识；通信/寄存器身份错误；OUT2 出现越界、饱和或异常跳变
+必须 SAFE：OUT2 越界或接近安全 limit、saturation、通信失败、MAGIC/VERSION 异常、异常跳变、反馈方向疑似错误，或准备连接激光器电流调制/D2-125 输出/任何并联输出时
+下一步唯一任务：设计并实现示波器式三/四通道显示层
+```
+
 ## 2026-07-12 修复 Custom FPGA Scope 曲线不显示：四通道合并为单窗口
 
 本次问题：新 bitstream 烧录后 `Capture Waveform` 返回真实 points，统计量非零（IN1/PD, IN2/REF, OUT1/laser_error, OUT2/selected_out2 Vpp > 0），但右侧四个独立 ChannelPanel plot 黑框没有显示曲线。

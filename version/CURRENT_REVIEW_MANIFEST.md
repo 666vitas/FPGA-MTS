@@ -13,6 +13,7 @@ Primary Vivado project: v0.94/project/redpitaya.xpr
 Primary status file: version/STATUS.md
 Strict review rules: version/AI_STRICT_REVIEW_ENTRY.md
 Root entrypoint: AI_REVIEW_README.md
+Shared Codex/Claude Code rules: AGENTS.md
 ```
 
 ## 2. 当前结论基线
@@ -38,6 +39,7 @@ v3REG-0 SAFE/SCAN 已由用户上板验证：base address `0x40600000`，`MAGIC=
 
 ```text
 AI_REVIEW_README.md
+AGENTS.md
 version/AI_STRICT_REVIEW_ENTRY.md
 version/CURRENT_REVIEW_MANIFEST.md
 version/STATUS.md
@@ -190,8 +192,9 @@ control_o / pi_controller_seq 仍存在，但不是当前 OUT2 的最终来源
 代码层面已经加入 out2_lock_controller
 代码层面 OUT2 已经改为 selected_out2 SAFE/SCAN/HOLD/P_LOCK/PI_LOCK 候选
 代码层面已经加入 P_LOCK correction limit
-代码层面已经加入 custom_debug_capture 候选
-上位机代码层面已经加入 ARM AUTO LOCK / ABORT AUTO LOCK 候选
+代码层面已经加入 custom_debug_capture
+用户截图已证明 custom_debug_capture 可返回 CH1/IN1、CH2/IN2、CH3/OUT1、CH4/OUT2 四通道非零 capture 数据
+当前 GUI 已可显示真实 capture 曲线；空白 plot 问题已修复
 v3REG-0 SAFE/SCAN 已有用户上板验证记录
 ```
 
@@ -204,10 +207,12 @@ HOLD/P_LOCK/PI_LOCK 等待最新 timing 检查
 HOLD/P_LOCK/PI_LOCK 等待 bitstream 生成
 HOLD/P_LOCK/PI_LOCK 等待烧录
 HOLD/P_LOCK/PI_LOCK 等待上板示波器验证
-Auto Lock candidate 等待 Vivado timing / bitstream / 烧录 / 上板验证
-custom_debug_capture 单窗口波形等待 Vivado timing / bitstream / 烧录 / 上板验证
+人工 LOCK HERE / P_LOCK 的真实 PZT 闭环效果等待用户实验验证
+当前 GUI 的剩余问题是示波器式分层显示布局；不是 FPGA capture 数据链路失效
 KI / integral 当前不要恢复
 ```
+
+纯上位机 GUI 修改判定：只要不修改 RTL、Vivado 工程、寄存器地址或寄存器语义、bitstream，就不需要重新运行 Vivado、不需要重新生成 bitstream、不需要重新烧录。GUI 显示验证与 FPGA bitstream 验证必须分开记录，不得相互替代或混写。
 
 2026-07-11 资源修复基线：`custom_debug_capture` 初版四通道 4096 深度存储曾被 Vivado 推断为 LUTRAM / RAM64M / RAM64X1D，导致 place_design `[Place 30-484]`，`LUTRAM/SRL capable slices` 超限。本次已将 `mem_ch1..mem_ch4` 标记为 `(* ram_style = "block" *)`，并把 debug capture 读路径改为同步读，读数据允许 1 个 `clk_i` 周期延迟。四通道仍完整保留，默认 `DEPTH=4096` 未变。该修复尚需用户重新运行 Vivado synthesis / implementation 确认，不得声称 implementation 已通过。
 
@@ -227,13 +232,11 @@ KI / integral 当前不要恢复
 ## 7. 下一步最小安全动作
 
 ```text
-1. 不继续扩大 RTL。
-2. 用户明确授权后，才允许手动进入 Vivado synthesis / implementation / timing 检查。
-3. timing 通过后，才允许生成 bitstream。
-4. 烧录后先用上位机读 MAGIC / VERSION。
-5. OUT2 连接激光器专用 PZT / Scan 输入前，先确认幅度、偏置、limit、correction_limit 和 SAFE。
-6. 按 `SCAN -> 选择锁点 -> LOCK HERE -> Kp=0 -> Apply Kp 小步 0/4/8/16/32 -> 判断 polarity -> SAFE` 验证。
-7. 禁止接激光器电流调制输入、D2-125 Servo Output、D2-125 Aux Output，禁止任何输出端并联。
+1. 当前唯一任务是设计并实现示波器式三/四通道显示层。
+2. 本任务只允许上位机 GUI 与状态/日志记录；不修改 RTL、不运行 Vivado、不生成 bitstream、不烧录。
+3. 用户实验只需重新启动上位机，执行 `Probe Registers -> Status -> SCAN -> Capture Waveform`，确认真实 capture 曲线可见并记录布局现象。
+4. PASS：capture 数据非零且 GUI 曲线可见；FAIL：capture 已返回数据但图仍空白，或 OUT2 出现异常。
+5. OUT2 异常、saturation、通信/寄存器身份失败、输出越界或准备连接禁止端口时，立即 SAFE；禁止接激光器电流调制输入、D2-125 Servo Output、D2-125 Aux Output，禁止任何输出端并联。
 ```
 
 ## 8. 审查输出必须包含

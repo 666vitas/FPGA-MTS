@@ -68,3 +68,14 @@
 - 当前 BASIC LOCK 状态机收敛为 `IDLE -> SAFE -> SCAN -> CANDIDATE_FOUND -> CAPTURE_LOCK_POINT -> P_LOCK`，异常转 SAFE。
 - LOCK HERE 成功后保持 `MODE=3 P_LOCK` 且 `Kp=0`；小步 Kp 由用户手动 `APPLY P`，不自动启用 Ki/PI。
 - 未修改 RTL / Vivado project，未运行 Vivado，未生成 bitstream，未烧录，未声明真实激光稳频已经完成。
+## 2026-07-13 Codex / Claude Code 统一接管与交接规则
+
+- 本次目标：只统一 Codex 与 Claude Code 的项目接管、修改、记录和实验交接规则；Codex 为默认执行 Agent，Claude Code 仅在 Codex 额度不足或用户明确指定时接管。
+- 修改文件：新增根目录 `AGENTS.md`；更新 `version/CURRENT_REVIEW_MANIFEST.md`、`version/STATUS.md`、本日志与 `software/redpitaya_lock_host/docs/DEVELOPMENT_LOG.md`。未修改 Python、RTL、Vivado 工程、约束、测试、寄存器、bitstream 或历史版本路径。
+- 规则实现：两种 Agent 每次读取相同的入口、STATUS、MANIFEST、git 状态、任务关联文件和现有日志；每次只完成一个任务，不重新规划主线或扩大范围。`STATUS.md` 顶部维护当前快照，`DEVELOPMENT_LOG.md` 只在末尾追加历史；涉及上位机时同步追加上位机日志。
+- 状态纠正：用户截图已证明 `custom_debug_capture` 返回四通道非零数据，当前 GUI 已能显示真实 capture 曲线；剩余问题是示波器式显示布局，不能再写成 FPGA capture 失效，也不能把纯 GUI 修改与 Vivado、bitstream、烧录混为一谈。
+- 验证：仅完成文档一致性审查和 git 状态记录；未运行 Vivado、未生成 bitstream、未烧录、未进行新的硬件实验。未得到用户实验反馈的项目结论均保持“等待验证”。
+- 用户实验操作：重新启动上位机后执行 `Probe Registers -> Status -> SCAN -> Capture Waveform`，观察四通道真实曲线及量程/布局。
+- PASS：capture 数据非零且曲线可见。FAIL：capture 返回数据但图空白、曲线不可辨识、通信/寄存器身份异常或 OUT2 异常。
+- 必须 SAFE：OUT2 越界或接近 limit、saturation、通信失败、MAGIC/VERSION 异常、异常跳变、反馈方向疑似错误，或准备连接禁止端口/并联输出时。
+- 下一步唯一任务：设计并实现示波器式三/四通道显示层。
