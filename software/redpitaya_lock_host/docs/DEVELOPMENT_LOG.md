@@ -561,3 +561,15 @@ Confirmed project boundary:
 - 未验证：HOLD、LOCK HERE 真实切换、P_LOCK 真实 PZT 闭环、polarity/小 Kp、长时间稳频、FSM 自动重锁与 AI 参数优化。当前不启用 `KI`、integral、PI_LOCK 实验主线、自动 polarity、自动增加 Kp、自动重锁或 AI 自动识峰。
 - 本次未运行测试、未运行 Vivado、未生成 bitstream、未烧录。
 - 下一步唯一任务：实现示波器式三/四通道显示层。
+
+## 2026-07-13 Custom FPGA Scope 简易台式示波器式分层显示
+
+- 执行 Agent：Codex。本次只改上位机显示层、已有测试和状态/日志；未修改 RTL、仿真、Vivado 工程、寄存器、custom capture 协议、bitstream 或历史版本目录。
+- 本次问题：四路原始 counts 直接共用一个 Y 轴时，CH4/OUT2 的大直流偏置压缩 CH1/PD 和 CH3/laser_error，GUI 虽有曲线但不便实验观察。
+- 修复：单一紧凑 Scope 采用显示副本 `display_y = (raw_y - display_center) * display_gain + vertical_offset`。默认 CH4 上、CH3 中、CH1 下、CH2 隐藏；新增 `Scope Default`；每通道有 Visible、Auto scale、Scale、Vertical position、Reset display。center/gain 从当前 capture 的中位数与稳健范围计算，不写死实验 counts。
+- 原始数据边界：capture、stats、保存、marker、点击 index/time 均保持原始数据；只有曲线显示数据变换。完整 raw min/max/mean/Vpp counts 与 V ideal 放在 stats tooltip，主区域只保留 MODE、OUT2、correction_limit、CH1/CH3/CH4 Vpp 与现有安全告警。
+- 测试：`.venv\Scripts\python.exe -m pytest tests` 通过，`55 passed`；`py_compile` 通过。未运行 Vivado、未生成 bitstream、未烧录。
+- 用户验证：`Probe Registers -> Status -> SCAN -> Capture Waveform`，确认三路分层、CH2 默认隐藏，点击 CH1 后 target/zero marker 时间正确；`Scope Default` 可恢复默认布局。
+- PASS：CH1/CH3 不再被 OUT2 压缩，显示控制不改 raw capture/stats/marker，`Scope Default` 正常。FAIL：显示控件影响原始数据或 FPGA 参数、marker 偏移、图空白或 OUT2 异常。
+- 必须 SAFE：OUT2 越界/接近 limit、saturation、通信或 MAGIC/VERSION 异常、异常跳变、反馈方向疑似错误或准备连接禁止端口/并联输出时。
+- 下一步唯一任务：用户上板验证 Custom FPGA Scope 分层显示与人工选点 marker 映射。

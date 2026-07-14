@@ -46,3 +46,10 @@ git diff --cached --name-only
 ## 完成交接
 
 完成时说明：实际修改文件、验证结果与未运行项、用户下一步实验操作、PASS/FAIL 判据、必须 SAFE 条件，以及下一步唯一任务。没有用户实验反馈时，结论必须止于“等待验证”。
+
+## Project Skill
+
+* FPGA-MTS 项目开发、审查、调试、上位机、RTL、Vivado、寄存器、实验和文档任务优先使用 `$mts-redpitaya-project`。
+* Skill 路径为 `.agents/skills/mts-redpitaya-project/SKILL.md`。
+* AGENTS.md 定义始终生效的仓库底线；Skill 定义任务工作流；STATUS 定义当前动态状态。
+* Skill 不得覆盖 AGENTS.md 的安全和 Git 规则。

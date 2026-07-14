@@ -47,6 +47,7 @@ from .connection_workers import (
     StartScpiServerWorker,
 )
 from .custom_fpga_backend import (
+    COUNTS_PER_VOLT,
     EXPECTED_MAGIC,
     BasicLockConfig,
     CustomFpgaBackendError,
@@ -91,6 +92,32 @@ DECIMATIONS = [
     32768,
     65536,
 ]
+
+
+def scope_display_transform(
+    raw_y: np.ndarray,
+    *,
+    center: float,
+    gain: float,
+    vertical_offset: float,
+) -> np.ndarray:
+    """Return a display-only waveform copy without changing captured counts."""
+    values = np.asarray(raw_y, dtype=float)
+    return (values - float(center)) * float(gain) + float(vertical_offset)
+
+
+def scope_auto_display_parameters(raw_y: np.ndarray) -> tuple[float, float]:
+    """Choose robust display-only centering and gain for one scope channel."""
+    values = np.asarray(raw_y, dtype=float)
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return 0.0, 1.0
+    center = float(np.nanmedian(finite))
+    low, high = np.nanpercentile(finite, [2.0, 98.0])
+    span = float(high - low)
+    if span <= 0.0:
+        span = float(np.nanmax(finite) - np.nanmin(finite))
+    return center, 1.0 if span <= 0.0 else 2.0 / span
 
 DISCONNECTED = "DISCONNECTED"
 PROBING = "PROBING"
@@ -216,6 +243,9 @@ class MainWindow(QMainWindow):
         self.last_probe: ProbeResult | None = None
         self.last_waveforms = self._empty_waveforms()
         self.custom_scope_data: dict[str, np.ndarray] | None = None
+        self.custom_scope_display_data: dict[str, np.ndarray] = {}
+        self.custom_scope_display_state: dict[str, dict[str, float]] = {}
+        self._updating_scope_display_controls = False
         self.custom_last_capture_payload: dict[str, Any] = {}
         self.selected_lock_point: dict[str, int | float] | None = None
         self.pending_lock_point: dict[str, int | float] | None = None
@@ -942,7 +972,7 @@ class MainWindow(QMainWindow):
         self.custom_scope_plot.setBackground("#05070a")
         self.custom_scope_plot.showGrid(x=True, y=True, alpha=0.25)
         self.custom_scope_plot.setLabel("bottom", "time", units="s")
-        self.custom_scope_plot.setLabel("left", "Counts")
+        self.custom_scope_plot.setLabel("left", "Display units")
         self.custom_scope_plot.setMinimumHeight(300)
         self.custom_scope_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.custom_scope_plot.setMenuEnabled(False)
@@ -1006,29 +1036,75 @@ class MainWindow(QMainWindow):
 
         scope_layout.addWidget(self.custom_scope_plot, stretch=1)
 
-        # Compact control row: checkboxes + auto range + reset
+        # Display controls operate only on plot copies, never captured counts.
+        self.custom_scope_curve_labels = curve_labels
+        self.custom_scope_vertical_defaults = {"ch4": 3.0, "ch3": 0.0, "ch1": -3.0, "ch2": -6.0}
+        self.custom_scope_checks = {}
+        self.custom_scope_auto_scale_checks = {}
+        self.custom_scope_scale_spins = {}
+        self.custom_scope_vertical_spins = {}
+        self.custom_scope_channel_reset_buttons = {}
+        controls_grid = QGridLayout()
+        controls_grid.setHorizontalSpacing(8)
+        controls_grid.setVerticalSpacing(3)
+        for column, label in enumerate(("Channel", "Visible", "Auto scale", "Scale", "Vertical position", "")):
+            controls_grid.addWidget(QLabel(label), 0, column)
+
+        default_visible = {"ch1", "ch3", "ch4"}
+        for row, key in enumerate(("ch4", "ch3", "ch1", "ch2"), start=1):
+            controls_grid.addWidget(QLabel(curve_labels[key]), row, 0)
+            visible = QCheckBox()
+            visible.setChecked(key in default_visible)
+            visible.setToolTip("Display only: does not change captured data or FPGA state.")
+            auto_scale = QCheckBox()
+            auto_scale.setChecked(True)
+            auto_scale.setToolTip("Recalculate display center and gain from the current capture only.")
+            scale = QDoubleSpinBox()
+            scale.setRange(0.000001, 1_000_000.0)
+            scale.setDecimals(6)
+            scale.setValue(1.0)
+            scale.setToolTip("Display gain only: does not change captured counts or physical gain.")
+            vertical = QDoubleSpinBox()
+            vertical.setRange(-20.0, 20.0)
+            vertical.setDecimals(2)
+            vertical.setSingleStep(0.5)
+            vertical.setValue(self.custom_scope_vertical_defaults[key])
+            vertical.setToolTip("Display-only vertical position. Markers and click time stay on raw capture indices.")
+            reset = QPushButton("Reset display")
+            reset.setToolTip("Restore this channel's automatic display center, gain, and default vertical position.")
+            self._style_button(reset)
+            controls_grid.addWidget(visible, row, 1)
+            controls_grid.addWidget(auto_scale, row, 2)
+            controls_grid.addWidget(scale, row, 3)
+            controls_grid.addWidget(vertical, row, 4)
+            controls_grid.addWidget(reset, row, 5)
+            self.custom_scope_checks[key] = visible
+            self.custom_scope_auto_scale_checks[key] = auto_scale
+            self.custom_scope_scale_spins[key] = scale
+            self.custom_scope_vertical_spins[key] = vertical
+            self.custom_scope_channel_reset_buttons[key] = reset
+            visible.toggled.connect(self._update_custom_scope_visibility)
+            auto_scale.toggled.connect(lambda _checked, scope_key=key: self._refresh_scope_display(scope_key))
+            scale.valueChanged.connect(lambda _value, scope_key=key: self._refresh_scope_display(scope_key))
+            vertical.valueChanged.connect(lambda _value, scope_key=key: self._refresh_scope_display(scope_key))
+            reset.clicked.connect(lambda _checked=False, scope_key=key: self._reset_scope_channel_display(scope_key))
+        scope_layout.addLayout(controls_grid)
+
         controls_row = QHBoxLayout()
         controls_row.setSpacing(10)
-
-        self.custom_scope_checks = {}
-        default_visible = {"ch1", "ch3", "ch4"}
-        for key in ("ch1", "ch3", "ch4", "ch2"):
-            cb = QCheckBox(f"Show {curve_labels[key]}")
-            cb.setChecked(key in default_visible)
-            cb.toggled.connect(self._update_custom_scope_visibility)
-            self.custom_scope_checks[key] = cb
-            controls_row.addWidget(cb)
-
-        self.custom_scope_auto_range_check = QCheckBox("Auto Range")
+        self.custom_scope_default_button = QPushButton("Scope Default")
+        self.custom_scope_default_button.setToolTip("Restore CH4 top, CH3 middle, CH1 bottom, and hide CH2.")
+        self.custom_scope_default_button.clicked.connect(self._apply_scope_default_layout)
+        self._style_button(self.custom_scope_default_button)
+        controls_row.addWidget(self.custom_scope_default_button)
+        self.custom_scope_auto_range_check = QCheckBox("View Auto Range")
         self.custom_scope_auto_range_check.setChecked(True)
         self.custom_scope_auto_range_check.toggled.connect(self._update_custom_scope_visibility)
         controls_row.addWidget(self.custom_scope_auto_range_check)
-
         self.custom_scope_reset_button = QPushButton("Reset View")
         self.custom_scope_reset_button.clicked.connect(self._reset_custom_scope_view)
         self._style_button(self.custom_scope_reset_button)
         controls_row.addWidget(self.custom_scope_reset_button)
-
         controls_row.addStretch()
         scope_layout.addLayout(controls_row)
         layout.addWidget(self.custom_scope_group, stretch=1)
@@ -1472,12 +1548,51 @@ class MainWindow(QMainWindow):
             "CAPTURE_DATA_CH1, CAPTURE_DATA_CH2, CAPTURE_DATA_CH3, CAPTURE_DATA_CH4.",
             "",
             "CH1=IN1/PD, CH2=IN2/REF, CH3=OUT1/laser_error, CH4=OUT2/selected_out2.",
-            "All four channels are overlaid in a single Custom FPGA Scope plot.",
+            "Custom FPGA Scope uses display-only layered traces; raw capture counts remain unchanged.",
             "4.6 MHz REF (CH2) may alias when decimation is high; it is hidden by default.",
         ]
         self.custom_warning_text.setPlainText("\n".join(lines))
         self.custom_scope_stats.setText("custom_debug_capture not available")
         self.statusBar().showMessage("Custom FPGA waveform capture requires the new debug_capture bitstream")
+
+    def _refresh_scope_display(self, key: str | None = None) -> None:
+        if self._updating_scope_display_controls or self.custom_scope_data is None:
+            return
+        t = self.custom_scope_data.get("time_s")
+        if t is None or t.size == 0:
+            return
+        keys = (key,) if key is not None else ("ch1", "ch2", "ch3", "ch4")
+        for scope_key in keys:
+            raw_y = self.custom_scope_data.get(scope_key)
+            if raw_y is None:
+                continue
+            state = self.custom_scope_display_state.setdefault(scope_key, {})
+            auto_scale = self.custom_scope_auto_scale_checks[scope_key].isChecked()
+            if auto_scale or "center" not in state:
+                center, gain = scope_auto_display_parameters(raw_y)
+                state["center"] = center
+                state["gain"] = gain
+                self._updating_scope_display_controls = True
+                try:
+                    self.custom_scope_scale_spins[scope_key].setValue(gain)
+                finally:
+                    self._updating_scope_display_controls = False
+            gain = float(self.custom_scope_scale_spins[scope_key].value())
+            vertical_offset = float(self.custom_scope_vertical_spins[scope_key].value())
+            state["gain"] = gain
+            state["vertical_offset"] = vertical_offset
+            display_y = scope_display_transform(
+                raw_y,
+                center=float(state["center"]),
+                gain=gain,
+                vertical_offset=vertical_offset,
+            )
+            self.custom_scope_display_data[scope_key] = display_y
+            curve = self.custom_scope_curves[scope_key]
+            curve.setData(t, display_y)
+            curve.setVisible(self.custom_scope_checks[scope_key].isChecked())
+        self._fit_custom_scope_ranges()
+        self.custom_scope_plot.update()
 
     def _update_custom_scope_visibility(self) -> None:
         for key, curve in self.custom_scope_curves.items():
@@ -1485,6 +1600,29 @@ class MainWindow(QMainWindow):
             curve.setVisible(bool(checkbox is None or checkbox.isChecked()))
         self._fit_custom_scope_ranges()
         self.custom_scope_plot.update()
+
+    def _reset_scope_channel_display(self, key: str) -> None:
+        self._updating_scope_display_controls = True
+        try:
+            self.custom_scope_auto_scale_checks[key].setChecked(True)
+            self.custom_scope_vertical_spins[key].setValue(self.custom_scope_vertical_defaults[key])
+        finally:
+            self._updating_scope_display_controls = False
+        self.custom_scope_display_state.pop(key, None)
+        self._refresh_scope_display(key)
+
+    def _apply_scope_default_layout(self) -> None:
+        self._updating_scope_display_controls = True
+        try:
+            for key in ("ch4", "ch3", "ch1", "ch2"):
+                self.custom_scope_checks[key].setChecked(key != "ch2")
+                self.custom_scope_auto_scale_checks[key].setChecked(True)
+                self.custom_scope_vertical_spins[key].setValue(self.custom_scope_vertical_defaults[key])
+            self.custom_scope_auto_range_check.setChecked(True)
+        finally:
+            self._updating_scope_display_controls = False
+        self.custom_scope_display_state.clear()
+        self._refresh_scope_display()
 
     def _on_custom_scope_clicked(self, event: object) -> None:
         if not self.custom_select_target_check.isChecked():
@@ -1572,6 +1710,7 @@ class MainWindow(QMainWindow):
                 "single status reads only provide snapshots such as ERROR_MONITOR and OUT2_MONITOR."
             )
             self.custom_scope_data = None
+            self.custom_scope_display_data.clear()
             self.selected_lock_point = None
             self.pending_lock_point = None
             self.pending_target_peak = None
@@ -1609,21 +1748,14 @@ class MainWindow(QMainWindow):
         self.pending_lock_point = None
         self.pending_target_peak = None
 
-        # Set data on all 4 curves in the single plot
-        for key in ("ch1", "ch2", "ch3", "ch4"):
-            curve = self.custom_scope_curves[key]
-            curve.setData(t, data[key])
-            curve.setVisible(True)
-
         self.custom_scope_placeholder.setVisible(False)
 
         # Hide markers on new capture
         self.custom_target_marker.setVisible(False)
         self.custom_zero_marker.setVisible(False)
 
-        # Apply per-channel visibility (checkboxes)
-        self._update_custom_scope_visibility()
-        self._fit_custom_scope_ranges()
+        # Plot display copies only; custom_scope_data remains the raw capture source.
+        self._refresh_scope_display()
 
         # Force plot update
         self.custom_scope_plot.update()
@@ -1648,34 +1780,41 @@ class MainWindow(QMainWindow):
 
         # Build stats summary
         stats_lines = []
+        detail_lines = []
         for key, label in labels.items():
             values = data[key]
             if values.size:
                 vpp = np.nanmax(values) - np.nanmin(values)
-                stats_lines.append(
-                    f"{label}: Vpp {vpp:.0f} counts | "
-                    f"min {np.nanmin(values):.0f} | max {np.nanmax(values):.0f} | mean {np.nanmean(values):.1f}"
+                detail_lines.append(
+                    f"{label}: Vpp {vpp:.0f} counts / {vpp / COUNTS_PER_VOLT:.6g} V ideal | "
+                    f"min {np.nanmin(values):.0f} counts / {np.nanmin(values) / COUNTS_PER_VOLT:.6g} V ideal | "
+                    f"max {np.nanmax(values):.0f} counts / {np.nanmax(values) / COUNTS_PER_VOLT:.6g} V ideal | "
+                    f"mean {np.nanmean(values):.1f} counts / {np.nanmean(values) / COUNTS_PER_VOLT:.6g} V ideal"
                 )
-        stats_lines.append("CH2 4.6 MHz REF may alias when decimation is high.")
+        for key in ("ch1", "ch3", "ch4"):
+            values = data[key]
+            if values.size:
+                stats_lines.append(f"{key.upper()} Vpp {np.nanmax(values) - np.nanmin(values):.0f} counts")
         out2_counts = payload.get("out2_counts", "--")
         out2_volts = payload.get("out2_volts", "--")
         try:
             out2_volts_str = f"{float(out2_volts):.6g} V"
         except (TypeError, ValueError):
             out2_volts_str = "-- V"
-        stats_lines.append(
-            f"MODE {payload.get('mode', '--')} | "
-            f"OUT2 {out2_counts} counts / {out2_volts_str} | "
-            f"correction_limit {payload.get('lock_correction_limit_counts', '--')} counts"
+        stats_lines.insert(
+            0,
+            f"MODE {payload.get('mode', '--')} | OUT2 {out2_counts} counts / {out2_volts_str} | "
+            f"correction_limit {payload.get('lock_correction_limit_counts', '--')} counts",
         )
         lock_bias = payload.get("captured_lock_bias_counts")
         if lock_bias is not None:
             try:
                 lock_bias_v = payload.get("captured_lock_bias_volts_ideal", "--")
-                stats_lines.append(f"LOCK_BIAS {lock_bias} counts / {lock_bias_v} V ideal")
+                detail_lines.append(f"LOCK_BIAS {lock_bias} counts / {lock_bias_v} V ideal")
             except Exception:
                 pass
         self.custom_scope_stats.setText("\n".join(stats_lines))
+        self.custom_scope_stats.setToolTip("\n".join(detail_lines))
 
     def _fit_custom_scope_ranges(self) -> None:
         if self.custom_scope_data is None:

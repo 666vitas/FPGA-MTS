@@ -88,3 +88,16 @@
 - 仍等待验证：HOLD、LOCK HERE 真实切换、P_LOCK 真实 PZT 闭环、polarity/小 Kp、长时间稳频、FSM 自动重锁和 AI 参数优化。当前不启用 `KI`、integral、PI_LOCK 实验主线、自动 polarity、自动增加 Kp、自动重锁或 AI 自动识峰。
 - 未修改代码、测试、RTL、Vivado 工程、寄存器、bitstream 或历史版本目录；未运行测试、未运行 Vivado、未生成 bitstream、未烧录。
 - 下一步唯一任务：实现示波器式三/四通道显示层。
+
+## 2026-07-13 Custom FPGA Scope 简易台式示波器式分层显示
+
+- 执行 Agent：Codex。本次只修改上位机 GUI、已有 Python 测试和既有状态/日志记录；未修改 RTL、仿真、Vivado 工程、约束、寄存器、custom capture 协议、bitstream 或历史版本目录。
+- 本次问题：四路原始 counts 共用一个 Y 轴直接叠加时，CH4/OUT2 的大直流偏置与幅度压缩 CH1/PD 和 CH3/laser_error，曲线虽可显示但不适合实验观察。
+- 显示层修复：单个紧凑 `Custom FPGA Scope` 保持共享 X 时间轴，采用 `display_y = (raw_y - display_center) * display_gain + vertical_offset`。默认 CH4 上层、CH3 中层、CH1 下层，CH2 默认隐藏；`Scope Default` 可恢复该布局。每通道保留 Visible、Auto scale、Scale、Vertical position、Reset display，center/gain 按当前 capture 的中位数和稳健 2%~98% 范围自动估算。
+- 数据边界：`custom_scope_data`、CSV 保存、stats、LOCK HERE 选点与 marker 均继续使用原始 capture；仅 PlotDataItem 使用显示副本。OUT2 的大直流中心仅在显示层移除，完整原始 min/max/mean/Vpp counts 与 V ideal 仍在 stats tooltip 中。
+- 修改文件：`software/redpitaya_lock_host/redpitaya_lock_host/main_window.py`、`software/redpitaya_lock_host/tests/test_custom_fpga_backend.py`、`version/STATUS.md`、本日志、`software/redpitaya_lock_host/docs/DEVELOPMENT_LOG.md`。
+- 测试：在上位机 `.venv` 运行 `python -m pytest tests`，`55 passed`；`python -m py_compile redpitaya_lock_host/main_window.py redpitaya_lock_host/waveform_plot.py` 通过。未运行 Vivado、未生成 bitstream、未烧录。
+- 用户验证：`Probe Registers -> Status -> SCAN -> Capture Waveform`；确认 CH4/CH3/CH1 三层、CH2 默认隐藏；点击 CH1 后确认 target/zero marker 时间不偏移；必要时点击 `Scope Default` 恢复布局。
+- PASS：CH1/CH3 不再被 OUT2 压缩，原始 stats/保存/选点不变，`Scope Default` 正常。FAIL：显示控件改写原始数据或参数、marker 偏移、capture 返回数据但图空白，或 OUT2 异常。
+- 必须 SAFE：OUT2 越界或接近 limit、saturation、通信失败、MAGIC/VERSION 异常、异常跳变、反馈方向疑似错误或准备连接禁止端口/并联输出时。
+- 下一步唯一任务：用户上板验证 Custom FPGA Scope 分层显示与人工选点 marker 映射。

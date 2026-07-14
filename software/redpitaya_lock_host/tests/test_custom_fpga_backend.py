@@ -809,10 +809,14 @@ def test_custom_scope_render_payload_shows_curves_range_and_candidate() -> None:
             assert len(curve.yData) == count, f"{key} yData length mismatch"
         # Placeholder hidden
         assert not window.custom_scope_placeholder.isVisible()
-        # Y range includes data
+        # Y range follows layered display copies, not the raw OUT2 DC offset.
         y_range = window.custom_scope_plot.viewRange()[1]
-        assert y_range[0] <= float(np.nanmin(error))
-        assert y_range[1] >= float(np.nanmax(ch4))
+        visible_curves = [curve for curve in window.custom_scope_curves.values() if curve.isVisible()]
+        display_min = min(float(np.nanmin(curve.yData)) for curve in visible_curves)
+        display_max = max(float(np.nanmax(curve.yData)) for curve in visible_curves)
+        assert y_range[0] <= display_min
+        assert y_range[1] >= display_max
+        assert not np.array_equal(window.custom_scope_curves["ch4"].yData, ch4)
         # BASIC LOCK candidates found
         assert window.basic_lock_candidates
         assert window.selected_lock_point is None
@@ -821,6 +825,162 @@ def test_custom_scope_render_payload_shows_curves_range_and_candidate() -> None:
         # Stats show non-zero Vpp
         stats = window.custom_scope_stats.text()
         assert "Vpp" in stats
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_scope_display_transform_returns_a_scaled_offset_copy() -> None:
+    from redpitaya_lock_host.main_window import scope_display_transform
+
+    raw = np.asarray([4000.0, 4500.0, 5000.0])
+    display = scope_display_transform(raw, center=4500.0, gain=0.01, vertical_offset=3.0)
+
+    assert np.array_equal(raw, np.asarray([4000.0, 4500.0, 5000.0]))
+    assert np.allclose(display, np.asarray([-2.0, 3.0, 8.0]))
+    assert not np.shares_memory(raw, display)
+
+
+def test_scope_default_layers_display_copies_but_keeps_raw_capture_stats() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        payload = make_capture_payload(count=512)
+        raw_ch4 = np.asarray([point["ch4_counts"] for point in payload["points"]], dtype=float)
+        raw_ch1 = np.asarray([point["ch1_counts"] for point in payload["points"]], dtype=float)
+        window._render_custom_capture_payload(payload)
+
+        assert np.array_equal(window.custom_scope_data["ch4"], raw_ch4)
+        assert np.array_equal(window.custom_scope_data["ch1"], raw_ch1)
+        assert not np.array_equal(window.custom_scope_curves["ch4"].yData, raw_ch4)
+        assert np.median(window.custom_scope_curves["ch4"].yData) > np.median(window.custom_scope_curves["ch3"].yData)
+        assert np.median(window.custom_scope_curves["ch3"].yData) > np.median(window.custom_scope_curves["ch1"].yData)
+        assert np.ptp(window.custom_scope_curves["ch1"].yData) > 1.0
+        assert np.ptp(window.custom_scope_curves["ch3"].yData) > 1.0
+        assert f"mean {np.nanmean(raw_ch4):.1f}" in window.custom_scope_stats.toolTip()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_scope_default_restores_three_layer_visibility_and_positions() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+        window.custom_scope_checks["ch2"].setChecked(True)
+        window.custom_scope_vertical_spins["ch4"].setValue(-9.0)
+        window.custom_scope_auto_scale_checks["ch1"].setChecked(False)
+
+        window.custom_scope_default_button.click()
+
+        assert window.custom_scope_checks["ch4"].isChecked()
+        assert window.custom_scope_checks["ch3"].isChecked()
+        assert window.custom_scope_checks["ch1"].isChecked()
+        assert not window.custom_scope_checks["ch2"].isChecked()
+        assert window.custom_scope_auto_scale_checks["ch1"].isChecked()
+        assert window.custom_scope_vertical_spins["ch4"].value() == 3.0
+        assert window.custom_scope_vertical_spins["ch3"].value() == 0.0
+        assert window.custom_scope_vertical_spins["ch1"].value() == -3.0
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_scope_manual_scale_and_vertical_position_only_change_display_copy() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+        raw = window.custom_scope_data["ch4"].copy()
+        center = window.custom_scope_display_state["ch4"]["center"]
+        window.custom_scope_auto_scale_checks["ch4"].setChecked(False)
+        window.custom_scope_scale_spins["ch4"].setValue(0.02)
+        window.custom_scope_vertical_spins["ch4"].setValue(5.0)
+
+        assert np.array_equal(window.custom_scope_data["ch4"], raw)
+        assert np.allclose(window.custom_scope_curves["ch4"].yData, (raw - center) * 0.02 + 5.0)
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_scope_markers_keep_raw_capture_time_after_display_transform() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+
+        assert window.basic_lock_candidates
+        assert len(window.custom_candidate_markers) == len(window.basic_lock_candidates)
+        for marker, candidate in zip(window.custom_candidate_markers, window.basic_lock_candidates):
+            assert marker.value() == window.custom_scope_data["time_s"][candidate.index]
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_target_and_zero_markers_keep_raw_time_after_layered_display() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtCore import QPointF
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    class ScopeClick:
+        def __init__(self, scene_pos) -> None:
+            self._scene_pos = scene_pos
+
+        def scenePos(self):
+            return self._scene_pos
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window.show()
+        window._render_custom_capture_payload(make_capture_payload())
+        app.processEvents()
+        clicked_index = window.basic_lock_candidates[0].index
+        raw_time = window.custom_scope_data["time_s"]
+        plot_item = window.custom_scope_plot.getPlotItem()
+        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(raw_time[clicked_index]), 0.0))
+        window.custom_select_target_check.setChecked(True)
+
+        window._on_custom_scope_clicked(ScopeClick(scene_pos))
+
+        assert window.pending_lock_point is not None
+        assert window.custom_target_marker.value() == raw_time[clicked_index]
+        assert window.custom_zero_marker.value() == raw_time[window.pending_lock_point["index"]]
     finally:
         window.close()
         app.processEvents()
@@ -920,11 +1080,15 @@ def test_custom_scope_stats_shows_nonzero_vpp_after_capture() -> None:
 
         stats = window.custom_scope_stats.text()
         assert "Vpp" in stats
-        assert "IN1 / PD" in stats
-        assert "IN2 / REF" in stats
-        assert "OUT1 / laser_error" in stats
-        assert "OUT2 / selected_out2" in stats
+        assert "CH1 Vpp" in stats
+        assert "CH3 Vpp" in stats
+        assert "CH4 Vpp" in stats
         assert "MODE" in stats
+        detail = window.custom_scope_stats.toolTip()
+        assert "IN1 / PD" in detail
+        assert "IN2 / REF" in detail
+        assert "OUT1 / laser_error" in detail
+        assert "OUT2 / selected_out2" in detail
     finally:
         window.close()
         app.processEvents()
