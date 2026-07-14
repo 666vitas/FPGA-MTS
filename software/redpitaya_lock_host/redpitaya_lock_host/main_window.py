@@ -214,13 +214,13 @@ def resolve_lock_point_selection(
         if ramp_diffs.size < 4:
             continue
         median_ramp = float(np.nanmedian(ramp_diffs))
-        if abs(median_ramp) <= 1e-9:
+        if abs(median_ramp) < 0.5:
             continue
         same_direction = float(np.mean(np.sign(ramp_diffs) == np.sign(median_ramp)))
         if same_direction < 0.8:
             continue
         delta_out2 = float(out2[index + 1] - out2[index])
-        if not np.isfinite(delta_out2) or abs(delta_out2) <= 1e-9:
+        if not np.isfinite(delta_out2) or abs(delta_out2) < 0.5:
             continue
         slope = float((error[index + 1] - error[index]) / delta_out2)
         if not np.isfinite(slope):
@@ -235,7 +235,7 @@ def resolve_lock_point_selection(
         # Distinguish an undetermined ramp from an ordinary missing crossing.
         local_diffs = np.diff(out2[max(edge, peak - 8):min(count - edge, peak + 9)])
         finite_diffs = local_diffs[np.isfinite(local_diffs)]
-        if finite_diffs.size == 0 or abs(float(np.nanmedian(finite_diffs))) <= 1e-9:
+        if finite_diffs.size == 0 or abs(float(np.nanmedian(finite_diffs))) < 0.5:
             raise LockPointSelectionError("Ramp direction unavailable; cannot confirm lock point.")
         raise LockPointSelectionError("No valid zero crossing near selected transition; adjust scan offset/amp or target window.")
 
@@ -2107,38 +2107,12 @@ class MainWindow(QMainWindow):
         if not candidates:
             self.basic_candidate_label.setText("candidate: none | click CH1 to search the selected peak window")
             return []
-        try:
-            selected = resolve_lock_point_selection(
-                ch1_counts=data["ch1"],
-                error_counts=data["ch3"],
-                out2_counts=data["ch4"],
-                clicked_index=int(candidates[0].index),
-                error_setpoint_counts=float(payload.get("error_setpoint_counts", 0)),
-                safe_min_counts=config.safe_min_counts,
-                safe_max_counts=config.safe_max_counts,
-                saturated=bool(payload.get("saturated", False)),
-            )
-            zero_index = int(selected["zero_crossing_index"])
-            peak_index = int(selected["selected_peak_index"])
-            time_s = data["time_s"]
-            selected["clicked_index"] = int(candidates[0].index)
-            selected["time_s"] = float(time_s[zero_index])
-            selected["out2_counts"] = int(selected["target_out2_counts"])
-            selected["error_counts"] = int(round(float(data["ch3"][zero_index])))
-            self.pending_lock_point = {**selected, "index": zero_index}
-            self.pending_target_peak = {
-                "index": peak_index,
-                "time_s": float(time_s[peak_index]),
-                "out2_counts": int(round(float(data["ch4"][peak_index]))),
-            }
-            self._update_lock_point_markers(self.pending_lock_point)
-        except (CustomFpgaBackendError, LockPointSelectionError, IndexError, TypeError, ValueError):
-            self.pending_lock_point = None
-            self.pending_target_peak = None
+        # candidates found but NOT auto-selected: pending_lock_point stays None
+        # user must click via _on_custom_scope_clicked to generate pending_lock_point
         lines = []
         colors = ["#ffcc00", "#72d6ff", "#f472b6"]
         for idx, candidate in enumerate(candidates):
-            marker_pos = float(data["time_s"][candidate.index])
+            marker_pos = self._scope_x_value(candidate.index)
             marker = pg.InfiniteLine(
                 pos=marker_pos,
                 angle=90,

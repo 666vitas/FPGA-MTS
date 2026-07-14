@@ -1,5 +1,30 @@
 # STATUS
 
+## 2026-07-14 Claude Code Takeover — v3LOCK-P0 Codex 修复接管与完成
+
+- 本轮任务：接管 Codex 未完成的 v3LOCK-P0 Host Lock Point Selector 修复，只改上位机，不改 RTL/Vivado/bitstream/寄存器。
+- 执行 Agent：Claude Code（接管）。修改文件：`main_window.py`、`tests/test_custom_fpga_backend.py`、`AGENTS.md`、`version/STATUS.md`、`docs/DEVELOPMENT_LOG.md`。删除文件：`before_claude_takeover.patch`。
+
+**接管修复（四项）：**
+1. **`_find_and_render_basic_candidates()` 不再自动写入 `pending_lock_point`**：
+   - 根因：旧代码在自动候选检测成功后直接调用 `resolve_lock_point_selection` 并将结果写入 `self.pending_lock_point`，与 `_on_custom_scope_clicked` 的语义冲突。
+   - 修复：删除自动选择代码块；`pending_lock_point` 仅由用户点击 `_on_custom_scope_clicked` 设置。
+2. **候选 marker 坐标跟随 X 轴**：
+   - 根因：`_find_and_render_basic_candidates` 中的 marker 位置硬编码为 `data["time_s"][candidate.index]`，不跟随 X 轴 OUT2 counts / time(ms) 切换。
+   - 修复：改用 `self._scope_x_value(candidate.index)`。`_refresh_scope_display` 已有 `_update_lock_point_markers` 调用，X 轴切换自动刷新。
+3. **ramp/delta_out2 阈值回退到 `0.5`**：
+   - 根因：Codex 将 `abs(median_ramp) <= 1e-9` 误改为 `<= 1e-9`（浮点 epsilon），对整数 DAC counts 完全错误。
+   - 修复：三处阈值统一回退到 `< 0.5`（整数 count 语义：0.5 counts/sample 以上才算有效 ramp）。
+4. **AGENTS.md Project Skill 段移除**：用户已删除 `.agents/skills/mts-redpitaya-project/`，AGENTS.md 中对应段落已移除。
+5. **`before_claude_takeover.patch` 已 git rm**。
+6. **测试断言修正**：`test_custom_scope_render_payload_shows_curves_range_and_candidate` 中 `pending_lock_point is not None` → `is None`（自动检测不再写入 pending）。
+
+**测试状态：** 代码已完成，待用户手动运行 pytest 和 py_compile（VM workspace 不可用）。
+
+**结论：** Lock Point Selector 上位机代码与测试完成，等待用户真实 GUI、capture 和人工选点验证。即使全部软件测试通过，结论也只能是"等待验证"。
+
+---
+
 ## 2026-07-14 v3LOCK-P0 Host Lock Point Selector 最小实现与审查
 
 - 本轮任务：v3LOCK-P0 Host Lock Point Selector，只改上位机，不改 RTL，不运行 Vivado，不生成 bitstream，不烧录。

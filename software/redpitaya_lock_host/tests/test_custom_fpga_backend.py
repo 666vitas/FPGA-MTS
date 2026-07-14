@@ -1136,8 +1136,7 @@ def test_custom_scope_render_payload_shows_curves_range_and_candidate() -> None:
         # BASIC LOCK candidates found
         assert window.basic_lock_candidates
         assert window.selected_lock_point is None
-        assert window.pending_lock_point is not None
-        assert int(window.pending_lock_point["index"]) != 0
+        assert window.pending_lock_point is None  # auto-detection no longer writes pending
         # Stats show non-zero Vpp
         stats = window.custom_scope_stats.text()
         assert "Vpp" in stats

@@ -58,6 +58,44 @@ python -m py_compile scripts\custom_fpga_scan_control.py
 - 禁止接激光器电流调制、D2-125 Servo Output、D2-125 Aux Output、任何并联输出
 - PZT safe range 在 Red Pitaya DAC ±1 V 内
 - saturation、通信失败、MAGIC/VERSION 异常、OUT2 越界、反馈方向疑似错误时必须 SAFE
+
+## 2026-07-14 Claude Code Takeover — Codex 遗留问题修复
+
+- 执行 Agent：Claude Code（接管 Codex 的未完成修复）。本轮只改上位机，不改 RTL/Vivado/bitstream/寄存器。
+- 修改文件：`main_window.py`、`tests/test_custom_fpga_backend.py`。另修改 `../../AGENTS.md`、`../../version/STATUS.md`、本日志。删除 `../../before_claude_takeover.patch`。
+
+**接管修复四项：**
+
+1. **`_find_and_render_basic_candidates()` 语义修复**：删除自动选择 `pending_lock_point` 的代码块（约 30 行）。自动候选检测只负责显示 candidates，不再写入 `pending_lock_point`。`pending_lock_point` 仅由用户点击 `_on_custom_scope_clicked` 设置。这解决了自动检测与用户手动选点之间的语义冲突。
+
+2. **候选 marker 坐标修复**：`_find_and_render_basic_candidates` 中 marker 位置从硬编码 `data["time_s"][candidate.index]` 改为 `self._scope_x_value(candidate.index)`，标记跟随 X 轴（OUT2 counts / time(ms)）。`_refresh_scope_display` 已有 `_update_lock_point_markers` 调用，X 轴切换时自动刷新。
+
+3. **ramp / delta_out2 阈值修复**：Codex 将三处阈值从 `abs(…) < 0.5`（整数 count 语义）改为 `abs(…) <= 1e-9`（浮点 epsilon）。OUT2 是整数 DAC counts，0.5 counts/sample 是合理的最小 ramp 检测阈值，`1e-9` 会使平坦/噪声 ramp 被错误判为有效。三处已统一回退。
+
+4. **AGENTS.md 清理**：移除"Project Skill"段（引用已被用户删除的 `.agents/skills/mts-redpitaya-project/`），替换为简短说明。
+
+5. **`before_claude_takeover.patch` 已删除**。
+
+6. **测试修正**：`test_custom_scope_render_payload_shows_curves_range_and_candidate` 断言从 `pending_lock_point is not None` 改为 `is None`，与修复后语义一致。
+
+**修改的具体行（main_window.py）：**
+- `_find_and_render_basic_candidates` (~line 2106-2137)：删除 `try: selected = resolve_lock_point_selection(...)` 至 `except Exception: self.pending_lock_point = None` 代码块
+- `_find_and_render_basic_candidates` marker 位置 (~5 行)：`float(data["time_s"][candidate.index])` → `self._scope_x_value(candidate.index)`
+- `_select_manual_lock_target` (~3 处)：`abs(median_ramp) <= 1e-9` → `abs(median_ramp) < 0.5`、`abs(delta_out2) <= 1e-9` → `abs(delta_out2) < 0.5`
+
+**未修改：** RTL、testbench、Vivado 工程、寄存器语义、bitstream、LOCK HERE/APPLY P 语义、`_on_custom_scope_clicked`、`_confirm_pending_lock_point`、`_render_custom_capture_payload`。
+
+**测试命令：**
+```bash
+cd E:\new\fpga_lock\v94\software\redpitaya_lock_host
+.\.venv\Scripts\python.exe -m pytest -q tests/test_custom_fpga_backend.py
+.\.venv\Scripts\python.exe -m pytest -q tests
+.\.venv\Scripts\python.exe -m py_compile redpitaya_lock_host\main_window.py redpitaya_lock_host\waveform_plot.py redpitaya_lock_host\custom_fpga_backend.py redpitaya_lock_host\connection_workers.py scripts\custom_fpga_scan_control.py
+```
+
+**测试结果：** 待用户手动运行。
+
+**结论：** Lock Point Selector 上位机代码与测试完成。即使全部软件测试通过，结论也只能是"等待用户真实 GUI、capture 和人工选点验证"。下一步是上板人工操作 Lock Point Selector 完整工作流（Capture → 选点 → Confirm → 截图审查），确认 marker 坐标、pending/selected lock point 参数正确后再考虑 LOCK HERE。
 - 不允许声称已经完成锁定
 - 不允许声称已经替代 D2-125
 - 本轮未修改 RTL、未运行 Vivado、未生成 bitstream、未烧录
