@@ -119,6 +119,124 @@ def scope_auto_display_parameters(raw_y: np.ndarray) -> tuple[float, float]:
         span = float(np.nanmax(finite) - np.nanmin(finite))
     return center, 1.0 if span <= 0.0 else 2.0 / span
 
+
+class LockPointSelectionError(ValueError):
+    """Raised when the current capture cannot yield a safe lock point."""
+
+
+def _nearest_ch1_peak(ch1: np.ndarray, clicked_index: int, search_radius: int) -> int:
+    values = np.asarray(ch1, dtype=float)
+    count = values.size
+    if count < 5:
+        raise LockPointSelectionError("No valid CH1 peak near selected transition")
+    click = int(np.clip(clicked_index, 0, count - 1))
+    left = max(1, click - max(4, int(search_radius)))
+    right = min(count - 1, click + max(4, int(search_radius)))
+    finite = np.isfinite(values)
+    peaks = [
+        index for index in range(left, right)
+        if finite[index]
+        and finite[index - 1]
+        and finite[index + 1]
+        and abs(values[index]) >= abs(values[index - 1])
+        and abs(values[index]) >= abs(values[index + 1])
+    ]
+    if not peaks:
+        window = np.arange(left, right + 1, dtype=int)
+        window = window[finite[window]]
+        if window.size == 0:
+            raise LockPointSelectionError("No valid CH1 peak near selected transition")
+        return int(window[np.argmax(np.abs(values[window]))])
+    return int(min(peaks, key=lambda index: (abs(index - click), -abs(values[index]))))
+
+
+def resolve_lock_point_selection(
+    *,
+    ch1_counts: np.ndarray | list[float],
+    error_counts: np.ndarray | list[float],
+    out2_counts: np.ndarray | list[float],
+    clicked_index: int,
+    error_setpoint_counts: float = 0.0,
+    safe_min_counts: int = -8191,
+    safe_max_counts: int = 8191,
+    search_radius: int = 128,
+    target_window_counts: int = 64,
+    saturated: bool = False,
+) -> dict[str, int | float | str]:
+    """Resolve a CH1 click into the safest nearby CH3/CH4 lock-point candidate."""
+    ch1 = np.asarray(ch1_counts, dtype=float)
+    error = np.asarray(error_counts, dtype=float)
+    out2 = np.asarray(out2_counts, dtype=float)
+    count = min(ch1.size, error.size, out2.size)
+    if saturated:
+        raise LockPointSelectionError("No valid zero crossing near selected transition; adjust scan offset/amp or target window.")
+    if count < 16:
+        raise LockPointSelectionError("No valid zero crossing near selected transition; adjust scan offset/amp or target window.")
+    ch1 = ch1[:count]
+    error = error[:count]
+    out2 = out2[:count]
+    clicked = int(np.clip(clicked_index, 0, count - 1))
+    peak = _nearest_ch1_peak(ch1, clicked, search_radius)
+    edge = max(4, int(round(count * 0.03)))
+    if peak < edge or peak >= count - edge:
+        raise LockPointSelectionError("No valid zero crossing near selected transition; adjust scan offset/amp or target window.")
+
+    left = max(edge, peak - max(4, int(search_radius)))
+    right = min(count - edge - 1, peak + max(4, int(search_radius)))
+    setpoint = float(error_setpoint_counts)
+    candidates: list[tuple[float, int, float, str, int, float]] = []
+    for index in range(left, right):
+        e0 = float(error[index] - setpoint)
+        e1 = float(error[index + 1] - setpoint)
+        if not np.isfinite(e0) or not np.isfinite(e1) or e0 * e1 > 0.0:
+            continue
+        local_left = max(edge, index - 8)
+        local_right = min(count - 1 - edge, index + 8)
+        ramp_diffs = np.diff(out2[local_left:local_right + 1])
+        ramp_diffs = ramp_diffs[np.isfinite(ramp_diffs)]
+        if ramp_diffs.size < 4:
+            continue
+        median_ramp = float(np.nanmedian(ramp_diffs))
+        if abs(median_ramp) < 0.5:
+            continue
+        same_direction = float(np.mean(np.sign(ramp_diffs) == np.sign(median_ramp)))
+        if same_direction < 0.8:
+            continue
+        delta_out2 = float(out2[index + 1] - out2[index])
+        if not np.isfinite(delta_out2) or abs(delta_out2) < 0.5:
+            continue
+        slope = float((error[index + 1] - error[index]) / delta_out2)
+        if not np.isfinite(slope):
+            continue
+        target_out2 = float(out2[index] if abs(e0) <= abs(e1) else out2[index + 1])
+        if target_out2 < int(safe_min_counts) or target_out2 > int(safe_max_counts):
+            continue
+        direction = "rising" if median_ramp > 0.0 else "falling"
+        candidates.append((abs(slope), abs(index - peak), slope, direction, index, target_out2))
+
+    if not candidates:
+        # Distinguish an undetermined ramp from an ordinary missing crossing.
+        local_diffs = np.diff(out2[max(edge, peak - 8):min(count - edge, peak + 9)])
+        finite_diffs = local_diffs[np.isfinite(local_diffs)]
+        if finite_diffs.size == 0 or abs(float(np.nanmedian(finite_diffs))) < 0.5:
+            raise LockPointSelectionError("Ramp direction unavailable; cannot confirm lock point.")
+        raise LockPointSelectionError("No valid zero crossing near selected transition; adjust scan offset/amp or target window.")
+
+    # Maximum |dError/dOut2| is primary; distance to the selected CH1 peak breaks ties.
+    best_abs_slope, best_distance, best_slope, direction, zero_index, target_out2 = max(
+        candidates, key=lambda item: (item[0], -item[1])
+    )
+    return {
+        "selected_peak_index": int(peak),
+        "zero_crossing_index": int(zero_index),
+        "target_out2_counts": int(round(target_out2)),
+        "target_out2_volts": target_out2 / COUNTS_PER_VOLT,
+        "error_setpoint_counts": int(round(setpoint)),
+        "slope": float(best_slope),
+        "ramp_direction": direction,
+        "target_window_counts": int(max(1, target_window_counts)),
+    }
+
 DISCONNECTED = "DISCONNECTED"
 PROBING = "PROBING"
 SSH_AVAILABLE = "SSH_AVAILABLE"
@@ -968,10 +1086,20 @@ class MainWindow(QMainWindow):
         scope_layout.addWidget(self.custom_scope_stats)
 
         # Single pyqtgraph PlotWidget — 4 curves overlaid
+        scope_axis_row = QHBoxLayout()
+        scope_axis_row.addWidget(QLabel("Lock View X axis"))
+        self.custom_scope_x_axis_combo = QComboBox()
+        self.custom_scope_x_axis_combo.addItems(["OUT2 counts", "time (ms)"])
+        self.custom_scope_x_axis_combo.setToolTip("Display-only Lock View axis; raw capture indices and values remain unchanged.")
+        self.custom_scope_x_axis_combo.currentTextChanged.connect(lambda _text: self._refresh_scope_display())
+        scope_axis_row.addWidget(self.custom_scope_x_axis_combo)
+        scope_axis_row.addStretch()
+        scope_layout.addLayout(scope_axis_row)
+
         self.custom_scope_plot = pg.PlotWidget()
         self.custom_scope_plot.setBackground("#05070a")
         self.custom_scope_plot.showGrid(x=True, y=True, alpha=0.25)
-        self.custom_scope_plot.setLabel("bottom", "time", units="s")
+        self.custom_scope_plot.setLabel("bottom", "OUT2", units="counts")
         self.custom_scope_plot.setLabel("left", "Display units")
         self.custom_scope_plot.setMinimumHeight(300)
         self.custom_scope_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -1029,6 +1157,16 @@ class MainWindow(QMainWindow):
         self.custom_zero_marker.setVisible(False)
         self.custom_scope_plot.addItem(self.custom_target_marker)
         self.custom_scope_plot.addItem(self.custom_zero_marker)
+        self.custom_target_window_region = pg.LinearRegionItem(
+            values=(0.0, 0.0),
+            orientation="vertical",
+            movable=False,
+            brush=pg.mkBrush(127, 63, 191, 45),
+            pen=pg.mkPen("#7f3fbf", width=0.8, style=Qt.PenStyle.DotLine),
+        )
+        self.custom_target_window_region.setVisible(False)
+        self.custom_target_window_region.setZValue(-10)
+        self.custom_scope_plot.addItem(self.custom_target_window_region)
         self.custom_candidate_markers: list[pg.InfiniteLine] = []
 
         # Click handler for target selection (CH1/PD only)
@@ -1555,12 +1693,57 @@ class MainWindow(QMainWindow):
         self.custom_scope_stats.setText("custom_debug_capture not available")
         self.statusBar().showMessage("Custom FPGA waveform capture requires the new debug_capture bitstream")
 
+    def _scope_x_values(self) -> np.ndarray:
+        if self.custom_scope_data is None:
+            return np.asarray([], dtype=float)
+        if self.custom_scope_x_axis_combo.currentText() == "time (ms)":
+            return np.asarray(self.custom_scope_data.get("time_s", []), dtype=float) * 1000.0
+        return np.asarray(self.custom_scope_data.get("ch4", []), dtype=float)
+
+    def _scope_x_value(self, index: int) -> float:
+        values = self._scope_x_values()
+        if values.size == 0:
+            return 0.0
+        return float(values[int(np.clip(index, 0, values.size - 1))])
+
+    def _set_scope_x_axis_label(self) -> None:
+        if self.custom_scope_x_axis_combo.currentText() == "time (ms)":
+            self.custom_scope_plot.setLabel("bottom", "time", units="ms")
+        else:
+            self.custom_scope_plot.setLabel("bottom", "OUT2", units="counts")
+
+    def _update_lock_point_markers(self, lock_point: dict[str, int | float | str] | None) -> None:
+        if lock_point is None:
+            self.custom_target_marker.setVisible(False)
+            self.custom_zero_marker.setVisible(False)
+            self.custom_target_window_region.setVisible(False)
+            self.custom_target_window_region.setVisible(False)
+            return
+        target_index = int(lock_point.get("selected_peak_index", lock_point.get("clicked_index", 0)))
+        zero_index = int(lock_point.get("zero_crossing_index", lock_point.get("index", target_index)))
+        target_x = self._scope_x_value(target_index)
+        zero_x = self._scope_x_value(zero_index)
+        target_out2 = float(lock_point.get("target_out2_counts", lock_point.get("out2_counts", 0)))
+        window_counts = float(lock_point.get("target_window_counts", self.custom_zero_threshold_counts.value()))
+        if self.custom_scope_x_axis_combo.currentText() == "time (ms)" and self.custom_scope_data is not None:
+            out2 = np.asarray(self.custom_scope_data.get("ch4", []), dtype=float)
+            if out2.size:
+                target_x = float(self.custom_scope_data["time_s"][int(np.argmin(np.abs(out2 - target_out2)))]) * 1000.0
+                window_counts = max(1.0, abs(float(np.nanmedian(np.diff(out2)))) * window_counts)
+        self.custom_target_marker.setValue(target_x)
+        self.custom_target_marker.setVisible(True)
+        self.custom_zero_marker.setValue(zero_x)
+        self.custom_zero_marker.setVisible(True)
+        self.custom_target_window_region.setRegion((target_x - window_counts, target_x + window_counts))
+        self.custom_target_window_region.setVisible(True)
+
     def _refresh_scope_display(self, key: str | None = None) -> None:
         if self._updating_scope_display_controls or self.custom_scope_data is None:
             return
-        t = self.custom_scope_data.get("time_s")
-        if t is None or t.size == 0:
+        x_values = self._scope_x_values()
+        if x_values.size == 0:
             return
+        self._set_scope_x_axis_label()
         keys = (key,) if key is not None else ("ch1", "ch2", "ch3", "ch4")
         for scope_key in keys:
             raw_y = self.custom_scope_data.get(scope_key)
@@ -1589,8 +1772,9 @@ class MainWindow(QMainWindow):
             )
             self.custom_scope_display_data[scope_key] = display_y
             curve = self.custom_scope_curves[scope_key]
-            curve.setData(t, display_y)
+            curve.setData(x_values, display_y)
             curve.setVisible(self.custom_scope_checks[scope_key].isChecked())
+        self._update_lock_point_markers(self.pending_lock_point or self.selected_lock_point)
         self._fit_custom_scope_ranges()
         self.custom_scope_plot.update()
 
@@ -1637,51 +1821,56 @@ class MainWindow(QMainWindow):
         view_pos = plot_item.vb.mapSceneToView(scene_pos)
         t = self.custom_scope_data.get("time_s")
         out2 = self.custom_scope_data.get("ch4")
+        ch1 = self.custom_scope_data.get("ch1")
         error = self.custom_scope_data.get("ch3")
-        if t is None or out2 is None or error is None or t.size == 0:
+        x_values = self._scope_x_values()
+        if t is None or out2 is None or ch1 is None or error is None or x_values.size == 0:
             return
-        clicked_index = int(np.clip(np.searchsorted(t, float(view_pos.x())), 0, t.size - 1))
-        self.pending_target_peak = {
-            "index": clicked_index,
-            "time_s": float(t[clicked_index]),
-            "out2_counts": int(round(float(out2[clicked_index]))),
-        }
+        clicked_index = int(np.argmin(np.abs(x_values - float(view_pos.x()))))
         try:
             config = build_basic_lock_config(
                 safe_min_v=self.basic_pzt_min_v.value(),
                 safe_max_v=self.basic_pzt_max_v.value(),
             )
-            resolved = resolve_target_transition(
+            selected = resolve_lock_point_selection(
+                ch1_counts=ch1,
                 error_counts=error,
                 out2_counts=out2,
                 clicked_index=clicked_index,
+                error_setpoint_counts=float(self.custom_last_capture_payload.get("error_setpoint_counts", 0)),
                 safe_min_counts=config.safe_min_counts,
                 safe_max_counts=config.safe_max_counts,
                 saturated=bool(self.custom_last_capture_payload.get("saturated", False)),
             )
-        except CustomFpgaBackendError as exc:
+        except (CustomFpgaBackendError, LockPointSelectionError) as exc:
             self.pending_lock_point = None
-            self.selected_lock_label.setText(f"pending target rejected: {exc}")
-            self.custom_warning_text.setPlainText(str(exc))
+            self.pending_target_peak = None
+            message = str(exc)
+            self.selected_lock_label.setText(f"pending target rejected: {message}")
+            self.custom_warning_text.setPlainText(message)
             return
+        peak_index = int(selected["selected_peak_index"])
+        zero_index = int(selected["zero_crossing_index"])
+        selected["clicked_index"] = clicked_index
+        selected["time_s"] = float(t[zero_index])
+        selected["out2_counts"] = int(selected["target_out2_counts"])
+        selected["error_counts"] = int(round(float(error[zero_index])))
         self.pending_lock_point = {
-            "clicked_index": int(resolved.clicked_index),
-            "index": int(resolved.index),
-            "time_s": float(t[resolved.index]),
-            "out2_counts": int(resolved.out2_counts),
-            "error_counts": int(resolved.error_counts),
-            "slope": float(resolved.slope),
-            "local_vpp": float(resolved.local_vpp),
+            **selected,
+            "index": zero_index,
         }
         self.custom_target_marker.setValue(float(t[clicked_index]))
-        self.custom_target_marker.setVisible(True)
-        self.custom_zero_marker.setValue(float(t[resolved.index]))
-        self.custom_zero_marker.setVisible(True)
+        self.pending_target_peak = {
+            "index": peak_index,
+            "time_s": float(t[peak_index]),
+            "out2_counts": int(round(float(out2[peak_index]))),
+        }
+        self._update_lock_point_markers(self.pending_lock_point)
         self.selected_lock_label.setText(
             "pending lock point: "
-            f"clicked index {clicked_index}, target OUT2 {int(round(float(out2[clicked_index])))} counts | "
-            f"resolved zero index {resolved.index}, OUT2 {resolved.out2_counts} counts, "
-            f"ERROR {resolved.error_counts} counts, slope {resolved.slope:.3g}. "
+            f"peak {peak_index}, zero {zero_index}, OUT2 {selected['target_out2_counts']} counts / "
+            f"{selected['target_out2_volts']:.6g} V, ERROR_SETPOINT {selected['error_setpoint_counts']} counts, "
+            f"slope {selected['slope']:.6g}, ramp {selected['ramp_direction']}. "
             "Press Confirm Lock Point before LOCK HERE."
         )
 
@@ -1690,12 +1879,16 @@ class MainWindow(QMainWindow):
             self.selected_lock_label.setText("selected lock point: no valid pending zero crossing to confirm")
             return
         self.selected_lock_point = dict(self.pending_lock_point)
+        self._update_lock_point_markers(self.selected_lock_point)
         self.selected_lock_label.setText(
             "selected lock point confirmed: "
-            f"index {int(self.selected_lock_point['index'])}, "
-            f"time {float(self.selected_lock_point['time_s']):.6g} s, "
-            f"OUT2 {int(self.selected_lock_point['out2_counts'])} counts, "
-            f"ERROR {int(self.selected_lock_point['error_counts'])} counts"
+            f"peak {int(self.selected_lock_point['selected_peak_index'])}, "
+            f"zero {int(self.selected_lock_point['zero_crossing_index'])}, "
+            f"OUT2 {int(self.selected_lock_point['target_out2_counts'])} counts / "
+            f"{float(self.selected_lock_point['target_out2_volts']):.6g} V, "
+            f"ERROR_SETPOINT {int(self.selected_lock_point['error_setpoint_counts'])}, "
+            f"slope {float(self.selected_lock_point['slope']):.6g}, "
+            f"ramp {self.selected_lock_point['ramp_direction']}"
         )
 
     def _render_custom_capture_payload(self, payload: dict[str, Any]) -> None:
@@ -1753,6 +1946,7 @@ class MainWindow(QMainWindow):
         # Hide markers on new capture
         self.custom_target_marker.setVisible(False)
         self.custom_zero_marker.setVisible(False)
+        self.custom_target_window_region.setVisible(False)
 
         # Plot display copies only; custom_scope_data remains the raw capture source.
         self._refresh_scope_display()
@@ -1819,16 +2013,16 @@ class MainWindow(QMainWindow):
     def _fit_custom_scope_ranges(self) -> None:
         if self.custom_scope_data is None:
             return
-        t = self.custom_scope_data.get("time_s")
-        if t is None or t.size == 0:
+        x_values = self._scope_x_values()
+        if x_values.size == 0:
             return
         if not self.custom_scope_auto_range_check.isChecked():
             return
         # Auto-fit X range from time array
-        finite_t = t[np.isfinite(t)]
-        if finite_t.size:
-            x_min = float(np.nanmin(finite_t))
-            x_max = float(np.nanmax(finite_t))
+        finite_x = x_values[np.isfinite(x_values)]
+        if finite_x.size:
+            x_min = float(np.nanmin(finite_x))
+            x_max = float(np.nanmax(finite_x))
             if x_max <= x_min:
                 x_max = x_min + 1e-9
             self.custom_scope_plot.setXRange(x_min, x_max, padding=0.02)
@@ -1892,17 +2086,16 @@ class MainWindow(QMainWindow):
             self.basic_candidate_label.setText(f"candidate: rejected | {exc}")
             return []
 
+        self.custom_scope_valid_for_selection = True
         candidates = find_zero_crossing_candidates(error_counts=data["ch3"], out2_counts=data["ch4"])
         if not candidates:
-            self.basic_candidate_label.setText("candidate: none | no valid non-edge zero crossing")
+            self.basic_candidate_label.setText("candidate: none | click CH1 to search the selected peak window")
             return []
-        self.custom_scope_valid_for_selection = True
-        t = data["time_s"]
         lines = []
         colors = ["#ffcc00", "#72d6ff", "#f472b6"]
         for idx, candidate in enumerate(candidates):
             marker = pg.InfiniteLine(
-                pos=float(t[candidate.index]),
+                pos=self._scope_x_value(candidate.index),
                 angle=90,
                 movable=False,
                 pen=pg.mkPen(colors[idx % len(colors)], width=1.1, style=Qt.PenStyle.DashLine),
@@ -1915,28 +2108,7 @@ class MainWindow(QMainWindow):
                 f"ERROR {candidate.error_counts} counts, slope {candidate.slope:.3g}, "
                 f"local Vpp {candidate.local_vpp:.1f}, valid yes, score {candidate.score:.1f}"
             )
-        best = candidates[0]
-        self.pending_lock_point = {
-            "clicked_index": best.index,
-            "index": best.index,
-            "time_s": float(t[best.index]),
-            "out2_counts": best.out2_counts,
-            "error_counts": best.error_counts,
-            "slope": best.slope,
-            "local_vpp": best.local_vpp,
-        }
-        self.pending_target_peak = {
-            "index": best.index,
-            "time_s": float(t[best.index]),
-            "out2_counts": best.out2_counts,
-        }
-        self.custom_zero_marker.setValue(float(t[best.index]))
-        self.custom_zero_marker.setVisible(True)
-        self.selected_lock_label.setText(
-            f"pending lock point: candidate 1, index {best.index}, OUT2 {best.out2_counts} counts, "
-            f"ERROR {best.error_counts} counts; press Confirm Lock Point before LOCK HERE"
-        )
-        self.basic_candidate_label.setText("\n".join(lines))
+        self.basic_candidate_label.setText("\n".join(lines) + "\nClick CH1/PD near the target peak to resolve a lock point.")
         return candidates
 
     def _capture_payload_hazard(self, payload: dict[str, Any]) -> str | None:
