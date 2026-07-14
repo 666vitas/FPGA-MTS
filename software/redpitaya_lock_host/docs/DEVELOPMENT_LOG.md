@@ -1,5 +1,67 @@
 # 开发日志
 
+## 2026-07-14 - v3LOCK-P0 Host Lock Point Selector 最小审查与修复
+
+- 执行 Agent：Claude Code。本轮只改上位机，不改 RTL、不运行 Vivado、不生成 bitstream、不烧录。
+- 修改文件：`main_window.py`（修复重复 setVisible）、`tests/test_custom_fpga_backend.py`（修复断言+新增 11 项测试）、`../../version/STATUS.md`、本日志。
+
+**问题背景：**
+- `resolve_lock_point_selection()` 已在 `main_window.py` 中完成实现（CH1 峰搜索 + CH3 过零解析 + CH4 ramp 方向判断），但：
+  1. 缺少直接单元测试（旧测试只覆盖 `resolve_target_transition`，不含 CH1 峰搜索和 ramp direction）
+  2. `_render_custom_capture_payload` 在新 capture 时清除 `pending_lock_point`（正确行为），但旧测试错误期望它在 render 后仍存在
+  3. 旧测试在 X 轴为 "OUT2 counts" 默认值时使用 time 坐标模拟点击，坐标转换错误
+  4. `_update_lock_point_markers` 中存在一行重复的 `setVisible(False)`
+
+**修复方式：**
+- `main_window.py` line 1719-1720：删除重复的 `custom_target_window_region.setVisible(False)`
+- 修正三处 GUI 测试的 click 坐标（改用 OUT2 counts 而非 time）
+- 添加 11 项 `resolve_lock_point_selection` 单元测试：
+  - `test_resolve_lock_point_from_ch1_peak_to_ch3_zero_crossing`：基本 CH1 峰→CH3 过零，ramp rising
+  - `test_resolve_lock_point_prefers_max_slope_zero_crossing`：多过零选 |dError/dOut2| 最大
+  - `test_resolve_lock_point_prefers_closer_when_slopes_similar`：斜率接近选离峰更近
+  - `test_resolve_lock_point_detects_ramp_rising` / `_falling`：ramp 方向检测
+  - `test_resolve_lock_point_rejects_when_ramp_direction_unavailable`：CH4 平坦拒绝
+  - `test_resolve_lock_point_rejects_no_zero_crossing`：无过零拒绝
+  - `test_resolve_lock_point_rejects_outside_pzt_safe_range`：OUT2 越界拒绝
+  - `test_resolve_lock_point_rejects_click_near_edge`：边缘点击拒绝
+  - `test_resolve_lock_point_rejects_on_saturated_flag`：saturated 拒绝
+  - `test_resolve_lock_point_result_contains_all_required_fields`：字段完整性
+- `test_pending_lock_point_cleared_on_new_capture`：验证新 capture 清除旧 pending
+- `test_lock_here_requires_confirmed_lock_point_not_pending_candidate`：修正断言顺序
+- `test_confirm_lock_point_promotes_pending_zero_crossing_only`：修正断言+字段检查
+
+**测试命令：**
+```bash
+cd E:\new\fpga_lock\v94\software\redpitaya_lock_host
+python -m pytest tests
+python -m py_compile redpitaya_lock_host\main_window.py
+python -m py_compile redpitaya_lock_host\waveform_plot.py
+python -m py_compile redpitaya_lock_host\custom_fpga_backend.py
+python -m py_compile scripts\custom_fpga_scan_control.py
+```
+
+**测试结果：** 待用户手动运行（VM workspace 不可用）
+
+**用户上板操作顺序：**
+1. 重启上位机
+2. Probe Registers -> Status -> SAFE -> SCAN
+3. Capture Waveform
+4. Lock View X axis 选择 OUT2 counts
+5. 勾选 Select Target Transition
+6. 点击 CH1 / PD 目标峰附近
+7. 检查 target marker 和 zero marker
+8. Confirm Lock Point
+9. **暂时不要急着 LOCK HERE**，先把截图和 selected lock point 参数发给 GPT 审查
+
+**安全边界：**
+- OUT2 只允许接激光器专用 PZT / Scan 输入
+- 禁止接激光器电流调制、D2-125 Servo Output、D2-125 Aux Output、任何并联输出
+- PZT safe range 在 Red Pitaya DAC ±1 V 内
+- saturation、通信失败、MAGIC/VERSION 异常、OUT2 越界、反馈方向疑似错误时必须 SAFE
+- 不允许声称已经完成锁定
+- 不允许声称已经替代 D2-125
+- 本轮未修改 RTL、未运行 Vivado、未生成 bitstream、未烧录
+
 ## 2026-07-12 - 修复 Custom FPGA Scope 曲线不显示：四通道合并为单窗口
 
 - 本次问题：新 bitstream (`VERSION=0x00030001`) 烧录后，`Capture Waveform` 返回真实 points，统计量非零（IN1/PD, IN2/REF, OUT1/laser_error, OUT2/selected_out2 的 Vpp > 0），但右侧四个独立 `ChannelPanel` plot 黑框里没有显示曲线。

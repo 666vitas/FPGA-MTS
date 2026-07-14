@@ -1717,7 +1717,6 @@ class MainWindow(QMainWindow):
             self.custom_target_marker.setVisible(False)
             self.custom_zero_marker.setVisible(False)
             self.custom_target_window_region.setVisible(False)
-            self.custom_target_window_region.setVisible(False)
             return
         target_index = int(lock_point.get("selected_peak_index", lock_point.get("clicked_index", 0)))
         zero_index = int(lock_point.get("zero_crossing_index", lock_point.get("index", target_index)))

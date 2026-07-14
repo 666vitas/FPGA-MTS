@@ -1,5 +1,48 @@
 # STATUS
 
+## 2026-07-14 v3LOCK-P0 Host Lock Point Selector 最小实现与审查
+
+- 本轮任务：v3LOCK-P0 Host Lock Point Selector，只改上位机，不改 RTL，不运行 Vivado，不生成 bitstream，不烧录。
+- 执行 Agent：Claude Code. 修改文件：`main_window.py`、`tests/test_custom_fpga_backend.py`、`version/STATUS.md`、`docs/DEVELOPMENT_LOG.md`。
+
+**审查结论：**
+- 已有功能基本完整：`resolve_lock_point_selection()`（含 CH1 峰搜索、CH3 过零、CH4 ramp 方向）、`_on_custom_scope_clicked`、`_confirm_pending_lock_point`、marker 显示、LOCK HERE 守卫、APPLY P 守卫、X 轴 OUT2 counts / time(ms) 切换。
+- 发现并修复的问题：
+  1. `_update_lock_point_markers` 中 `custom_target_window_region.setVisible(False)` 重复调用（line 1719-1720）已删除。
+  2. 测试中 `pending_lock_point` 断言与代码行为不一致：`_render_custom_capture_payload` 在新 capture 时清除 `pending_lock_point` 是正确行为（避免旧 capture 的 lock point 被新 capture 误用），但旧测试错误地期望 `pending_lock_point` 在 render 后仍存在。已修正三处测试断言并适配 OUT2 counts 坐标。
+  3. 添加 11 项 `resolve_lock_point_selection` 单元测试，覆盖：CH1 峰 -> CH3 过零、多过零斜率优先、斜率接近时距离优先、ramp rising/falling、ramp 不可用时拒绝、无过零拒绝、PZT 安全范围外拒绝、边缘拒绝、saturated 拒绝、字段完整性。
+- 当前实现功能（完整清单）：
+  - Select Target Transition 入口
+  - CH1 peak selection（局部搜索，search_radius 限制）
+  - CH3 laser_error zero crossing resolver（异号判据，优先 |dError/dOut2| 最大者）
+  - target_out2_counts / target_out2_volts / error_setpoint_counts / slope / ramp_direction
+  - target window shaded region（跟随 X 轴）
+  - marker（target peak + zero crossing）跟随 X 轴
+  - Confirm Lock Point（不写 FPGA，不写寄存器，不自动 LOCK，不自动 APPLY P）
+  - LOCK HERE 必须 Confirm 后可用
+  - APPLY P 只允许 Kp 0/4/8/16/32，不覆盖 LOCK_BIAS / ERROR_SETPOINT
+- 当前仍不是 FPGA real-time autolock，仍不是完整闭环稳频。
+- 下一阶段如果 50 Hz 下 LOCK HERE 仍不可靠，需要 FPGA Arm Lock Gate。
+
+**PASS 判据：**
+- 上位机 py_compile 通过（main_window.py, waveform_plot.py, custom_fpga_backend.py, custom_fpga_scan_control.py）
+- pytest 全部通过（含新增 11 项 resolve_lock_point_selection 测试）
+- 点击 CH1/PD 目标峰后，GUI 正确显示 pending lock point 参数
+- Confirm 后 selected_lock_point 包含所有必需字段
+- LOCK HERE 未 Confirm 时被阻止
+- APPLY P 不覆盖锁点寄存器
+
+**FAIL 判据：**
+- capture 返回数据但 GUI 不显示曲线
+- 点击后无 pending_lock_point 或无 marker
+- pending_lock_point 被新 capture 错误保留（安全风险）
+- 任何 RTL/Vivado/bitstream 被本轮修改
+
+**尚未执行（需用户手动）：**
+- 上位机 py_compile 验证
+- pytest 运行
+- 上板验证完整 Lock Point Selector 工作流
+
 ## 当前状态快照（生成于 2026-07-13）
 
 ```text

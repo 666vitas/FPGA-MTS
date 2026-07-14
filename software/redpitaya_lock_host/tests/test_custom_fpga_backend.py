@@ -17,6 +17,10 @@ from redpitaya_lock_host.custom_fpga_backend import (
     missing_magic_guidance,
     validate_basic_lock_capture,
 )
+from redpitaya_lock_host.main_window import (
+    LockPointSelectionError,
+    resolve_lock_point_selection,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -371,6 +375,238 @@ def test_pd_click_without_zero_crossing_is_rejected() -> None:
         )
 
 
+# ── resolve_lock_point_selection unit tests ──────────────────────────
+
+
+def test_resolve_lock_point_from_ch1_peak_to_ch3_zero_crossing() -> None:
+    """Click near a CH1 peak: resolver finds CH1 peak, nearby CH3 ZC, and CH4 ramp."""
+    count = 512
+    x = np.linspace(-1.0, 1.0, count)
+    # CH1: single absorption dip near index 250
+    ch1 = 80.0 * np.exp(-((x - 0.0) * 6.0) ** 2)
+    # CH3: dispersion-shaped error with zero crossing near index 255
+    error = 260.0 * x * np.exp(-(x * 3.5) ** 2)
+    # CH4: monotonically increasing ramp
+    out2 = np.linspace(6500, 7300, count)
+    result = resolve_lock_point_selection(
+        ch1_counts=ch1,
+        error_counts=error,
+        out2_counts=out2,
+        clicked_index=252,
+        error_setpoint_counts=0.0,
+        safe_min_counts=6400,
+        safe_max_counts=7400,
+    )
+    assert result["selected_peak_index"] == 256  # CH1 peak at center
+    assert abs(result["zero_crossing_index"] - 255) < 5
+    assert result["ramp_direction"] == "rising"
+    assert abs(result["slope"]) > 0.0
+    assert 6500 <= result["target_out2_counts"] <= 7300
+
+
+def test_resolve_lock_point_prefers_max_slope_zero_crossing() -> None:
+    """When multiple ZCs exist in the window, pick the one with largest |dError/dOut2|."""
+    count = 512
+    ch1 = np.ones(count, dtype=float) * 10.0
+    ch1[240:260] = 80.0  # simple peak around index 250
+    out2 = np.linspace(6500, 7300, count)
+    # Two zero crossings: one at index 200 (gentle slope), one at 250 (steep slope)
+    error = np.zeros(count, dtype=float)
+    error[195:205] = np.linspace(-5.0, 5.0, 10)   # gentle crossing at ~200
+    error[245:255] = np.linspace(-20.0, 20.0, 10)  # steep crossing at ~250
+    result = resolve_lock_point_selection(
+        ch1_counts=ch1,
+        error_counts=error,
+        out2_counts=out2,
+        clicked_index=250,
+        safe_min_counts=6400,
+        safe_max_counts=7400,
+    )
+    # Steeper ZC near 250 should be preferred over gentle one near 200
+    assert abs(result["zero_crossing_index"] - 249) < 6
+
+
+def test_resolve_lock_point_prefers_closer_when_slopes_similar() -> None:
+    """When two ZCs have similar |dError/dOut2|, prefer the one closer to CH1 peak."""
+    count = 512
+    ch1 = np.ones(count, dtype=float) * 10.0
+    ch1[248:260] = 80.0  # peak near 254
+    out2 = np.linspace(6500, 7300, count)
+    error = np.zeros(count, dtype=float)
+    # Two similar-slope ZCs: one far (220), one near (250)
+    error[215:225] = np.linspace(-10.0, 10.0, 10)   # far from peak
+    error[245:255] = np.linspace(-10.0, 10.0, 10)   # near peak
+    result = resolve_lock_point_selection(
+        ch1_counts=ch1,
+        error_counts=error,
+        out2_counts=out2,
+        clicked_index=254,
+        safe_min_counts=6400,
+        safe_max_counts=7400,
+    )
+    # Closer ZC near 249 should be preferred
+    assert abs(result["zero_crossing_index"] - 249) <= 5
+
+
+def test_resolve_lock_point_detects_ramp_rising() -> None:
+    """Monotonically increasing CH4/OUT2 -> ramp_direction='rising'."""
+    count = 256
+    ch1 = np.ones(count, dtype=float) * 40.0
+    ch1[120:140] = 90.0
+    error = np.zeros(count, dtype=float)
+    error[125:135] = np.linspace(-15.0, 15.0, 10)
+    out2 = np.linspace(6000, 8000, count)
+    result = resolve_lock_point_selection(
+        ch1_counts=ch1,
+        error_counts=error,
+        out2_counts=out2,
+        clicked_index=130,
+        safe_min_counts=5000,
+        safe_max_counts=8191,
+    )
+    assert result["ramp_direction"] == "rising"
+
+
+def test_resolve_lock_point_detects_ramp_falling() -> None:
+    """Monotonically decreasing CH4/OUT2 -> ramp_direction='falling'."""
+    count = 256
+    ch1 = np.ones(count, dtype=float) * 40.0
+    ch1[120:140] = 90.0
+    error = np.zeros(count, dtype=float)
+    error[125:135] = np.linspace(15.0, -15.0, 10)
+    out2 = np.linspace(8000, 6000, count)
+    result = resolve_lock_point_selection(
+        ch1_counts=ch1,
+        error_counts=error,
+        out2_counts=out2,
+        clicked_index=130,
+        safe_min_counts=5000,
+        safe_max_counts=8191,
+    )
+    assert result["ramp_direction"] == "falling"
+
+
+def test_resolve_lock_point_rejects_when_ramp_direction_unavailable() -> None:
+    """Flat CH4/OUT2 with no clear direction -> LockPointSelectionError."""
+    count = 256
+    ch1 = np.ones(count, dtype=float) * 40.0
+    ch1[120:140] = 90.0
+    error = np.zeros(count, dtype=float)
+    error[125:135] = np.linspace(-15.0, 15.0, 10)
+    out2 = np.ones(count, dtype=float) * 6000.0  # flat
+    with np.testing.assert_raises(LockPointSelectionError):
+        resolve_lock_point_selection(
+            ch1_counts=ch1,
+            error_counts=error,
+            out2_counts=out2,
+            clicked_index=130,
+            safe_min_counts=5000,
+            safe_max_counts=8191,
+        )
+
+
+def test_resolve_lock_point_rejects_no_zero_crossing() -> None:
+    """No CH3 sign change in window -> LockPointSelectionError."""
+    count = 256
+    ch1 = np.ones(count, dtype=float) * 40.0
+    ch1[120:140] = 90.0
+    error = np.ones(count, dtype=float) * 42.0  # no ZC
+    out2 = np.linspace(6500, 7300, count)
+    with np.testing.assert_raises(LockPointSelectionError):
+        resolve_lock_point_selection(
+            ch1_counts=ch1,
+            error_counts=error,
+            out2_counts=out2,
+            clicked_index=130,
+            safe_min_counts=6400,
+            safe_max_counts=7400,
+        )
+
+
+def test_resolve_lock_point_rejects_outside_pzt_safe_range() -> None:
+    """Zero crossing OUT2 value outside safe range -> LockPointSelectionError."""
+    count = 256
+    ch1 = np.ones(count, dtype=float) * 40.0
+    ch1[120:140] = 90.0
+    error = np.zeros(count, dtype=float)
+    error[125:135] = np.linspace(-15.0, 15.0, 10)
+    out2 = np.linspace(8000, 9000, count)  # outside safe 6400-7400
+    with np.testing.assert_raises(LockPointSelectionError):
+        resolve_lock_point_selection(
+            ch1_counts=ch1,
+            error_counts=error,
+            out2_counts=out2,
+            clicked_index=130,
+            safe_min_counts=6400,
+            safe_max_counts=7400,
+        )
+
+
+def test_resolve_lock_point_rejects_click_near_edge() -> None:
+    """Clicked index near capture edge -> LockPointSelectionError."""
+    count = 512
+    ch1 = np.ones(count, dtype=float) * 40.0
+    ch1[5:15] = 90.0
+    error = np.zeros(count, dtype=float)
+    error[8:18] = np.linspace(-15.0, 15.0, 10)
+    out2 = np.linspace(6500, 7300, count)
+    with np.testing.assert_raises(LockPointSelectionError):
+        resolve_lock_point_selection(
+            ch1_counts=ch1,
+            error_counts=error,
+            out2_counts=out2,
+            clicked_index=10,
+            safe_min_counts=6400,
+            safe_max_counts=7400,
+        )
+
+
+def test_resolve_lock_point_rejects_on_saturated_flag() -> None:
+    """saturated=True -> LockPointSelectionError immediately."""
+    count = 256
+    ch1 = np.ones(count, dtype=float) * 40.0
+    error = np.zeros(count, dtype=float)
+    error[125:135] = np.linspace(-15.0, 15.0, 10)
+    out2 = np.linspace(6500, 7300, count)
+    with np.testing.assert_raises(LockPointSelectionError):
+        resolve_lock_point_selection(
+            ch1_counts=ch1,
+            error_counts=error,
+            out2_counts=out2,
+            clicked_index=130,
+            safe_min_counts=6400,
+            safe_max_counts=7400,
+            saturated=True,
+        )
+
+
+def test_resolve_lock_point_result_contains_all_required_fields() -> None:
+    """Confirm Lock Point result has all fields needed for LOCK HERE."""
+    count = 512
+    ch1 = np.ones(count, dtype=float) * 40.0
+    ch1[120:140] = 90.0
+    error = np.zeros(count, dtype=float)
+    error[125:135] = np.linspace(-15.0, 15.0, 10)
+    out2 = np.linspace(7000, 7200, count)
+    result = resolve_lock_point_selection(
+        ch1_counts=ch1,
+        error_counts=error,
+        out2_counts=out2,
+        clicked_index=130,
+        safe_min_counts=6400,
+        safe_max_counts=7400,
+    )
+    assert isinstance(result["selected_peak_index"], int)
+    assert isinstance(result["zero_crossing_index"], int)
+    assert isinstance(result["target_out2_counts"], int)
+    assert isinstance(result["target_out2_volts"], float)
+    assert isinstance(result["error_setpoint_counts"], int)
+    assert isinstance(result["slope"], float)
+    assert result["ramp_direction"] in ("rising", "falling")
+    assert isinstance(result["target_window_counts"], int)
+    assert result["target_window_counts"] > 0
+
+
 def test_gui_text_separates_scpi_and_custom_fpga_out2_paths() -> None:
     source = (ROOT / "redpitaya_lock_host" / "main_window.py").read_text(encoding="utf-8")
 
@@ -600,19 +836,45 @@ def test_basic_lock_internal_safe_step_does_not_abort_state_machine() -> None:
 def test_lock_here_requires_confirmed_lock_point_not_pending_candidate() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
+        from PySide6.QtCore import QPointF
         from PySide6.QtWidgets import QApplication
         from redpitaya_lock_host.main_window import MainWindow
     except ImportError:
         return
 
+    class ScopeClick:
+        def __init__(self, scene_pos) -> None:
+            self._scene_pos = scene_pos
+
+        def scenePos(self):
+            return self._scene_pos
+
     app = QApplication.instance() or QApplication([])
     window = MainWindow({}, start_mock=True)
     try:
+        window.show()
         window._render_custom_capture_payload(make_capture_payload())
+        app.processEvents()
 
+        # After rendering capture, no selection has been made yet
+        assert window.pending_lock_point is None
+        assert window.selected_lock_point is None
+
+        # Simulate user clicking on a CH1 peak to create a pending lock point
+        # Use the BASIC LOCK candidates to find a good clicking position
+        assert window.basic_lock_candidates
+        clicked_index = window.basic_lock_candidates[0].index
+        plot_item = window.custom_scope_plot.getPlotItem()
+        out2_target = window.custom_scope_data["ch4"][clicked_index]
+        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(out2_target), 0.0))
+        window.custom_select_target_check.setChecked(True)
+        window._on_custom_scope_clicked(ScopeClick(scene_pos))
+
+        # Now a pending lock point exists
         assert window.pending_lock_point is not None
         assert window.selected_lock_point is None
 
+        # LOCK HERE should be blocked without confirmed lock point
         window._start_custom_fpga_operation("lock")
 
         assert "LOCK HERE requires" in window.custom_warning_text.toPlainText()
@@ -625,23 +887,57 @@ def test_lock_here_requires_confirmed_lock_point_not_pending_candidate() -> None
 def test_confirm_lock_point_promotes_pending_zero_crossing_only() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
+        from PySide6.QtCore import QPointF
         from PySide6.QtWidgets import QApplication
         from redpitaya_lock_host.main_window import MainWindow
     except ImportError:
         return
 
+    class ScopeClick:
+        def __init__(self, scene_pos) -> None:
+            self._scene_pos = scene_pos
+
+        def scenePos(self):
+            return self._scene_pos
+
     app = QApplication.instance() or QApplication([])
     window = MainWindow({}, start_mock=True)
     try:
+        window.show()
+        # Without any pending lock point, confirm should not set selected
         window._confirm_pending_lock_point()
         assert window.selected_lock_point is None
 
+        # Render capture and simulate a click to create pending
         window._render_custom_capture_payload(make_capture_payload())
+        app.processEvents()
+        assert window.pending_lock_point is None  # No pending until click
+
+        # Simulate user clicking on CH1 peak
+        assert window.basic_lock_candidates
+        clicked_index = window.basic_lock_candidates[0].index
+        plot_item = window.custom_scope_plot.getPlotItem()
+        out2_target = window.custom_scope_data["ch4"][clicked_index]
+        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(out2_target), 0.0))
+        window.custom_select_target_check.setChecked(True)
+        window._on_custom_scope_clicked(ScopeClick(scene_pos))
+
+        assert window.pending_lock_point is not None
         pending = dict(window.pending_lock_point)
+        assert window.selected_lock_point is None
+
         window._confirm_pending_lock_point()
 
         assert window.selected_lock_point == pending
         assert "confirmed" in window.selected_lock_label.text()
+        # Verify all required fields are present
+        assert "selected_peak_index" in window.selected_lock_point
+        assert "zero_crossing_index" in window.selected_lock_point
+        assert "target_out2_counts" in window.selected_lock_point
+        assert "target_out2_volts" in window.selected_lock_point
+        assert "error_setpoint_counts" in window.selected_lock_point
+        assert "ramp_direction" in window.selected_lock_point
+        assert "slope" in window.selected_lock_point
     finally:
         window.close()
         app.processEvents()
@@ -669,6 +965,26 @@ def test_basic_lock_lock_here_stops_at_p_lock_kp_zero_without_auto_gain() -> Non
         assert window.custom_kp.currentText() == "0"
         assert "P_LOCK" in window.basic_status_label.text()
         assert "Kp=0" in window.basic_status_label.text()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_pending_lock_point_cleared_on_new_capture() -> None:
+    """A new capture resets pending_lock_point so stale selections aren't reused."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+        assert window.pending_lock_point is None  # cleared on new capture
+        assert window.selected_lock_point is None
     finally:
         window.close()
         app.processEvents()
@@ -973,14 +1289,17 @@ def test_target_and_zero_markers_keep_raw_time_after_layered_display() -> None:
         clicked_index = window.basic_lock_candidates[0].index
         raw_time = window.custom_scope_data["time_s"]
         plot_item = window.custom_scope_plot.getPlotItem()
-        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(raw_time[clicked_index]), 0.0))
+        # Use OUT2 counts axis for consistent scope coordinates
+        out2_target = window.custom_scope_data["ch4"][clicked_index]
+        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(out2_target), 0.0))
         window.custom_select_target_check.setChecked(True)
 
         window._on_custom_scope_clicked(ScopeClick(scene_pos))
 
         assert window.pending_lock_point is not None
-        assert window.custom_target_marker.value() == raw_time[clicked_index]
-        assert window.custom_zero_marker.value() == raw_time[window.pending_lock_point["index"]]
+        # Markers use the current X axis (OUT2 counts by default)
+        assert window.custom_target_marker.value() == float(out2_target)
+        assert window.custom_zero_marker.value() == float(window.custom_scope_data["ch4"][window.pending_lock_point["index"]])
     finally:
         window.close()
         app.processEvents()
