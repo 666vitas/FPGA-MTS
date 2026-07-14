@@ -1,7 +1,0 @@
-interface:
-  display_name: "Red Pitaya MTS Project"
-  short_description: "Develop and validate the FPGA-MTS Red Pitaya laser-locking project"
-  default_prompt: "Use $mts-redpitaya-project to read the current mainline status, classify the task, make the smallest safe change, validate it, and produce the required project handoff."
-
-policy:
-  allow_implicit_invocation: true
