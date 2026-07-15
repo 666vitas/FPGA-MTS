@@ -1537,7 +1537,7 @@ def test_custom_scope_reset_view_restores_auto_range() -> None:
         from PySide6.QtWidgets import QApplication
         from redpitaya_lock_host.main_window import MainWindow
     except ImportError:
-         return
+        return
 
     app = QApplication.instance() or QApplication([])
     window = MainWindow({}, start_mock=True)
@@ -1601,51 +1601,9 @@ def test_default_ch2_hidden_ch1_ch3_ch4_visible() -> None:
     finally:
         window.close()
         app.processEvents()
-       return
-
-    app = QApplication.instance() or QApplication([])
-    window = MainWindow({}, start_mock=True)
-    try:
-        window._render_custom_capture_payload(make_capture_payload())
-
-        window.custom_scope_auto_range_check.setChecked(False)
-        assert not window.custom_scope_auto_range_check.isChecked()
-
-        window._reset_custom_scope_view()
-
-        assert window.custom_scope_auto_range_check.isChecked()
-    finally:
-        window.close()
-        app.processEvents()
 
 
-def test_single_plot_curves_rendered_with_data_after_capture() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    try:
-        from PySide6.QtWidgets import QApplication
-        from redpitaya_lock_host.main_window import MainWindow
-    except ImportError:
-        return
-
-    app = QApplication.instance() or QApplication([])
-    window = MainWindow({}, start_mock=True)
-    try:
-        payload = make_capture_payload(count=512)
-        window._render_custom_capture_payload(payload)
-
-        for key in ("ch1", "ch2", "ch3", "ch4"):
-            curve = window.custom_scope_curves[key]
-            xd = curve.xData
-            yd = curve.yData
-            assert xd is not None and len(xd) == 512, f"{key} xData wrong"
-            assert yd is not None and len(yd) == 512, f"{key} yData wrong"
-        assert not window.custom_scope_placeholder.isVisible()
-    finally:
-        window.close()
-        app.processEvents()
-
-
-def test_default_ch2_hidden_ch1_ch3_ch4_visible() -> None:
+def test_lock_point_target_window_uses_current_x_axis_units() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from PySide6.QtWidgets import QApplication
@@ -1657,11 +1615,37 @@ def test_default_ch2_hidden_ch1_ch3_ch4_visible() -> None:
     window = MainWindow({}, start_mock=True)
     try:
         window._render_custom_capture_payload(make_capture_payload())
+        target_index = 128
+        zero_index = 130
+        window_counts = 64.0
+        lock_point = {
+            "selected_peak_index": target_index,
+            "zero_crossing_index": zero_index,
+            "target_window_counts": window_counts,
+        }
 
-        assert window.custom_scope_checks["ch1"].isChecked()
-        assert window.custom_scope_checks["ch3"].isChecked()
-        assert window.custom_scope_checks["ch4"].isChecked()
-        assert not window.custom_scope_checks["ch2"].isChecked()
+        window._update_lock_point_markers(lock_point)
+        counts_region = window.custom_target_window_region.getRegion()
+        counts_target = float(window.custom_scope_data["ch4"][target_index])
+        assert np.isclose(window.custom_target_marker.value(), counts_target)
+        assert np.isclose((counts_region[0] + counts_region[1]) / 2.0, counts_target)
+        assert np.isclose((counts_region[1] - counts_region[0]) / 2.0, window_counts)
+
+        window.custom_scope_x_axis_combo.setCurrentText("time (ms)")
+        window._update_lock_point_markers(lock_point)
+        time_region = window.custom_target_window_region.getRegion()
+        time_target = float(window.custom_scope_data["time_s"][target_index]) * 1000.0
+        i0 = target_index - 1
+        i1 = target_index + 1
+        delta_counts = float(window.custom_scope_data["ch4"][i1] - window.custom_scope_data["ch4"][i0])
+        delta_time_ms = float(window.custom_scope_data["time_s"][i1] - window.custom_scope_data["time_s"][i0]) * 1000.0
+        expected_window_ms = abs(window_counts / (delta_counts / delta_time_ms))
+
+        assert window.custom_target_window_region.isVisible()
+        assert np.isclose(window.custom_target_marker.value(), time_target)
+        assert np.isclose((time_region[0] + time_region[1]) / 2.0, time_target)
+        assert np.isclose((time_region[1] - time_region[0]) / 2.0, expected_window_ms)
+        assert (time_region[1] - time_region[0]) < 100.0
     finally:
         window.close()
         app.processEvents()

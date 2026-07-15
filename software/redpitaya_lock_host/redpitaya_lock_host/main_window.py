@@ -1742,19 +1742,37 @@ class MainWindow(QMainWindow):
         zero_index = int(lock_point.get("zero_crossing_index", lock_point.get("index", target_index)))
         target_x = self._scope_x_value(target_index)
         zero_x = self._scope_x_value(zero_index)
-        target_out2 = float(lock_point.get("target_out2_counts", lock_point.get("out2_counts", 0)))
         window_counts = float(lock_point.get("target_window_counts", self.custom_zero_threshold_counts.value()))
+        window_half_width = abs(window_counts)
+        region_visible = True
         if self.custom_scope_x_axis_combo.currentText() == "time (ms)" and self.custom_scope_data is not None:
+            time_ms = np.asarray(self.custom_scope_data.get("time_s", []), dtype=float) * 1000.0
             out2 = np.asarray(self.custom_scope_data.get("ch4", []), dtype=float)
-            if out2.size:
-                target_x = float(self.custom_scope_data["time_s"][int(np.argmin(np.abs(out2 - target_out2)))]) * 1000.0
-                window_counts = max(1.0, abs(float(np.nanmedian(np.diff(out2)))) * window_counts)
+            sample_count = min(time_ms.size, out2.size)
+            if sample_count >= 2:
+                i0 = int(np.clip(target_index - 1, 0, sample_count - 1))
+                i1 = int(np.clip(target_index + 1, 0, sample_count - 1))
+                delta_time_ms = float(time_ms[i1] - time_ms[i0])
+                delta_counts = float(out2[i1] - out2[i0])
+                if i1 > i0 and np.isfinite(delta_time_ms) and abs(delta_time_ms) > 1e-12:
+                    local_counts_per_ms = delta_counts / delta_time_ms
+                    if np.isfinite(local_counts_per_ms) and abs(local_counts_per_ms) > 1e-12:
+                        window_half_width = abs(window_counts / local_counts_per_ms)
+                    else:
+                        region_visible = False
+                else:
+                    region_visible = False
+            else:
+                region_visible = False
         self.custom_target_marker.setValue(target_x)
         self.custom_target_marker.setVisible(True)
         self.custom_zero_marker.setValue(zero_x)
         self.custom_zero_marker.setVisible(True)
-        self.custom_target_window_region.setRegion((target_x - window_counts, target_x + window_counts))
-        self.custom_target_window_region.setVisible(True)
+        if region_visible:
+            self.custom_target_window_region.setRegion(
+                (target_x - window_half_width, target_x + window_half_width)
+            )
+        self.custom_target_window_region.setVisible(region_visible)
 
     def _update_candidate_marker_positions(self) -> None:
         for marker, candidate in zip(self.custom_candidate_markers, self.basic_lock_candidates):
@@ -3033,4 +3051,3 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Safe shutdown warning", str(exc))
         self._unregister_safe_shutdown()
         event.accept()
-

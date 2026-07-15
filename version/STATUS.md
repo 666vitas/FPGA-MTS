@@ -1,5 +1,15 @@
 # STATUS
 
+## 2026-07-15 上位机测试尾部污染与 time(ms) target window 修复
+
+- 初始状态：`HEAD=b061a3b22f8fd1888c6a8456dfbd5fd7b497ee7a`，工作区处于既有的 `main` interactive rebase 编辑状态，开始修改前工作区无未提交改动；本轮未继续、终止或改写 rebase。
+- 测试文件根因：`tests/test_custom_fpga_backend.py` 尾部存在错误缩进的 `return`、残留的旧函数体，以及 `test_single_plot_curves_rendered_with_data_after_capture` 和 `test_default_ch2_hidden_ch1_ch3_ch4_visible` 的重复顶层定义。已只重建受污染尾部，最终共 64 个测试函数，AST 检查 `duplicates: []`。
+- GUI 修复：`_update_lock_point_markers()` 在 OUT2 counts 轴继续使用 `target_window_counts`；在 time(ms) 轴使用目标索引附近的 `delta_counts / delta_time_ms` 换算窗口半宽。局部扫描速度无效或数据不足时隐藏 region，避免除零和数量级错误。target/zero marker 继续使用 `_scope_x_value(index)`。
+- 保留行为：BASIC LOCK capture 找到候选后停止在 `CANDIDATE_FOUND`，清空队列并等待用户点击 CH1 与 Confirm；不自动 Confirm，不自动执行 `LOCK HERE`。候选 marker 继续跟随当前 X 轴。
+- 验证：`tabnanny` 通过；指定文件 `py_compile` 通过；`pytest --collect-only -q tests/test_custom_fpga_backend.py` 收集 64 项；targeted pytest 为 `7 passed, 57 deselected`；该测试文件为 `64 passed`；完整上位机 tests 为 `70 passed, 4 subtests passed`；`git diff --check` 无输出。
+- 验证边界：本轮只完成上位机软件自动化验证。未运行真实 GUI 操作和上板实验；未修改 RTL、Vivado 工程、寄存器地址/语义、MAGIC、VERSION 或 bitstream；未运行 Vivado、未生成 bitstream、未烧录。结论止于等待用户 GUI / 上板验证。
+- 下一步唯一任务：用户启动上位机，在安全接线下检查 OUT2 counts 与 time(ms) 切换时 target marker、zero marker 和 target window 的中心及宽度是否正确。
+
 ## 2026-07-14 Claude Code Takeover — v3LOCK-P0 Codex 修复接管与完成
 
 - 本轮任务：接管 Codex 未完成的 v3LOCK-P0 Host Lock Point Selector 修复，只改上位机，不改 RTL/Vivado/bitstream/寄存器。

@@ -673,3 +673,22 @@ Confirmed project boundary:
 - PASS：CH1/CH3 不再被 OUT2 压缩，显示控制不改 raw capture/stats/marker，`Scope Default` 正常。FAIL：显示控件影响原始数据或 FPGA 参数、marker 偏移、图空白或 OUT2 异常。
 - 必须 SAFE：OUT2 越界/接近 limit、saturation、通信或 MAGIC/VERSION 异常、异常跳变、反馈方向疑似错误或准备连接禁止端口/并联输出时。
 - 下一步唯一任务：用户上板验证 Custom FPGA Scope 分层显示与人工选点 marker 映射。
+
+## 2026-07-15 上位机测试尾部污染与 time(ms) target window 修复
+
+- 初始 Git 状态：`HEAD=b061a3b22f8fd1888c6a8456dfbd5fd7b497ee7a`；工作区处于既有的 `main` interactive rebase 编辑状态，开始修改前无未提交改动。本轮未执行 `rebase --continue`、`rebase --abort`、commit 或 push。
+- 缩进错误根因：`tests/test_custom_fpga_backend.py` 尾部错误合并后留下 5 空格缩进的 `return`、`finally` 后非法缩进的 `return`、一段脱离函数头的旧 `test_custom_scope_reset_view_restores_auto_range` 函数体，以及两个重复测试定义。
+- 删除的重复定义：第二份 `test_single_plot_curves_rendered_with_data_after_capture`；第二份 `test_default_ch2_hidden_ch1_ch3_ch4_visible`。三个目标测试各保留一份完整定义。
+- `main_window.py` 修复：OUT2 counts 轴下 region 半宽保持为 `target_window_counts`；time(ms) 轴下根据目标索引相邻样本计算局部 `counts/ms`，再换算 `window_ms = abs(target_window_counts / local_counts_per_ms)`。局部速度无效或样本不足时隐藏 region，marker 仍由 `_scope_x_value(index)` 定位。
+- 新增最小测试：同时检查默认 OUT2 counts 轴和 time(ms) 轴的 region 单位、region 中心与 target marker 一致，以及时间轴宽度不会出现数量级膨胀。
+- AST 重复检查：`test functions: 64`，`duplicates: []`。
+- `python -m tabnanny tests/test_custom_fpga_backend.py`：通过，无输出。
+- `python -m py_compile tests/test_custom_fpga_backend.py redpitaya_lock_host/main_window.py`：通过。
+- `python -m pytest --collect-only -q tests/test_custom_fpga_backend.py`：通过，`64 tests collected`。
+- targeted pytest：`7 passed, 57 deselected`。
+- `python -m pytest -q tests/test_custom_fpga_backend.py`：`64 passed`。
+- `python -m pytest -q tests`：`70 passed, 4 subtests passed`。
+- 附件指定的完整 `py_compile` 文件集合：通过；`git diff --check`：无输出。
+- 本轮只完成上位机软件验证；真实 GUI 和上板实验尚未执行，等待验证。未修改 RTL、Vivado、寄存器或 bitstream，未运行 Vivado，未生成 bitstream，未烧录。
+- 用户验证：启动上位机后执行安全的 capture 显示检查，在 OUT2 counts 与 time(ms) 间切换，确认 target/zero marker 不偏移，target window 中心与 target marker 一致，时间轴窗口宽度合理。
+- PASS：两种 X 轴下 marker/region 正确且 BASIC LOCK capture 后仍停在 `CANDIDATE_FOUND` 等待人工点击和 Confirm。FAIL：region 数量级异常、marker 偏移、自动 Confirm/LOCK HERE，或任何 OUT2 越界、saturation、通信/MAGIC/VERSION 异常。必须 SAFE：出现上述硬件异常、异常跳变、反馈方向疑似错误，或准备连接禁止端口/并联输出时，立即停止并执行 SAFE。
