@@ -1,5 +1,101 @@
 # STATUS
 
+## 2026-07-15 专用示波器界面与人工锁点
+
+### Git 基线
+
+- branch：detached HEAD（当前提交与 GitHub `main` 一致）。
+- HEAD：`d63a2b7610865d1ee8274e640ec485211a891a74`。
+- origin/main：`d63a2b7610865d1ee8274e640ec485211a891a74`；首次 `git fetch origin` 遇到 TLS EOF，随后 `git ls-remote origin refs/heads/main` 实时确认同一提交。
+- 初始工作区：clean，无未提交修改，无 rebase/merge 状态。
+- 修改后工作区：`AGENTS.md`、`AI_REVIEW_README.md`、`software/redpitaya_lock_host/redpitaya_lock_host/main_window.py`、`software/redpitaya_lock_host/tests/test_custom_fpga_backend.py`、本状态和上位机开发日志有未提交修改；未 staged、未 commit、未 push。
+
+### 当前项目阶段
+
+- 版本：v3LOCK-P0。
+- 当前子阶段：专用数字示波器界面、Direct ERROR Zero Crossing 人工锁点和最小 P-only 锁定准备。
+- 当前阶段目标：真实 capture 可读显示，人工选择并 Confirm 锁点，保留 `LOCK HERE -> Kp=0 -> APPLY P` 安全路径。
+- 明确不进入：PI_LOCK、自动 polarity、自动增加 Kp、自动重锁、AI 自动识峰/参数优化、长期稳频结论。
+
+### 用户已验证
+
+- [USER GUI VERIFIED] 旧界面已连接真实 Red Pitaya `custom_debug_capture`，time(ms) 模式可显示真实波形且不再空图。
+- [USER GUI VERIFIED] CH4 可见重复三角扫描，CH3 有非零 `laser_error` 波形，CH1 有非零 PD/IN1 波形，约 100 ms 窗口可观察多个扫描周期。
+- [NOT VERIFIED] 本轮重新设计的通道卡、volts/div、AUTO SET、ground marker 和 Direct ERROR 点击尚未由用户在真实 Windows GUI 验证。
+
+### 代码已实现
+
+- [AUTOMATED VERIFIED] 主界面改为顶部四通道状态卡、中间默认 time(ms) Time Scope、底部 RUN/STOP/SINGLE/AUTO SET 与 SCAN/选点/锁定操作栏。
+- [AUTOMATED VERIFIED] 通道卡以 `counts / COUNTS_PER_VOLT` 显示 Vpp/min/max/mean/DC offset 和 mV/div 或 V/div；tooltip 明确为 ideal conversion，未声称硬件校准。
+- [AUTOMATED VERIFIED] CH4 黄色、CH3 蓝色、CH1 绿色、CH2 橙色；CH4/CH3/CH1 默认显示，CH2 默认隐藏；每通道独立 volts/div、position、Channel Auto 和 ground line。
+- [AUTOMATED VERIFIED] `AUTO SET` 只修改显示副本，按当前 Vpp 选择 1/2/5 volts/div，不修改 raw capture、FPGA、扫描或锁定参数。
+- [AUTOMATED VERIFIED] counts、寄存器回读、原始 display gain、连接参数和完整诊断信息只位于默认折叠的 `Advanced / Engineer Details`。
+- [AUTOMATED VERIFIED] 默认 `Direct ERROR Zero Crossing` 在点击附近寻找最近有效 CH3 过零，检查边缘、斜率、CH4 ramp direction、PZT safe range 和 saturation，只生成 `pending_lock_point`；`CH1 Peak Assisted` 保留在 Engineer Details。
+- [AUTOMATED VERIFIED] Confirm 后才生成 `selected_lock_point`；未 Confirm 阻止 `LOCK HERE`；首次 `LOCK HERE` 强制 Kp=0；非零已应用 Kp 时阻止直接切换 polarity；不自动 Confirm、LOCK HERE、APPLY P、加 Kp、改 polarity 或重锁。
+- [AUTOMATED VERIFIED] `AGENTS.md` 与 `AI_REVIEW_README.md` 已固化统一读取、Git、安全、证据等级、分层验证、状态记录和标准交接流程；项目继续不使用自定义 skill。
+
+### 当前上位机完整能力
+
+- 连接：[IMPLEMENTED] SSH/网络 Probe、状态输出和通信错误记录。
+- 身份检查：[AUTOMATED VERIFIED] `MAGIC`/`VERSION` 校验失败时阻止危险操作并给出简明主界面告警。
+- SAFE / SCAN：[AUTOMATED VERIFIED] SAFE 始终显示；SCAN 参数仍由既有 backend 和安全范围约束。
+- capture：[AUTOMATED VERIFIED] Capture Waveform、SINGLE、四通道 raw capture、time/index 保留、CSV/PNG 导出保留。
+- live：[AUTOMATED VERIFIED] RUN/STOP、`capture_in_flight` 防重入、失败停止 Live。
+- project oscilloscope UI：[AUTOMATED VERIFIED] 四通道卡、默认 Time Scope、time/div/window/sample rate/scan period/cycles、独立 volts/div/position/ground marker、AUTO SET。
+- voltage measurement：[AUTOMATED VERIFIED] ideal counts-to-voltage 显示；[NOT VERIFIED] 与 Keysight 或硬件精密校准的一致性。
+- manual lock point：[AUTOMATED VERIFIED] Direct ERROR 默认选点和 Advanced CH1 assisted 均只创建 pending。
+- Confirm / LOCK HERE / APPLY P：[AUTOMATED VERIFIED] Confirm 语义、Kp=0 首次守卫、Kp `0/4/8/16/32`、polarity 回零守卫和不覆盖锁点语义。
+- safety：[AUTOMATED VERIFIED] saturation、OUT2 safe range、身份/通信失败、新 capture 清除 pending/selected、窗口关闭 SAFE 等旧安全测试继续通过。
+
+### 当前整个项目进度
+
+- 数字 mixer：[USER GUI VERIFIED] 当前真实 capture 中 CH3 有非零 error 波形；本轮未重新审查 RTL。
+- 数字 LPF：[USER GUI VERIFIED] 当前真实 capture 中 CH3 有非零 `laser_error` 波形；精密频响未在本轮验证。
+- OUT1 error：[USER GUI VERIFIED] GUI 已显示真实非零 CH3；绝对电压校准 [NOT VERIFIED]。
+- OUT2 scan：[USER GUI VERIFIED] GUI 已显示 CH4 重复三角扫描；本轮新界面尚待复验。
+- 四通道 capture：[USER GUI VERIFIED] 真实数据已显示；自动化回归亦通过。
+- 上位机示波器：[AUTOMATED VERIFIED] 本轮专用界面代码与测试通过；新界面 [NOT VERIFIED] 用户 GUI。
+- Direct ERROR Zero Crossing / Confirm / LOCK HERE / Kp=0：[AUTOMATED VERIFIED]；真实点击、切换时机和无跳变 [NOT VERIFIED]。
+- P-only：[IMPLEMENTED] 最小手动路径存在；非零 Kp 闭环效果、方向和激光锁定 [NOT VERIFIED]。
+- PI：[NOT VERIFIED] 当前不启用。
+- 自动重锁：[NOT VERIFIED] 未实现。
+- AI 优化：[NOT VERIFIED] 未实现。
+
+### 自动化验证
+
+- `python -m tabnanny redpitaya_lock_host/main_window.py tests/test_custom_fpga_backend.py`：通过，无输出。
+- `python -m py_compile redpitaya_lock_host/main_window.py tests/test_custom_fpga_backend.py`：通过。
+- collected：`pytest --collect-only -q tests/test_custom_fpga_backend.py`，`72 tests collected`。
+- targeted：`pytest -q tests/test_custom_fpga_backend.py -k "scope or voltage or channel or lock_point or confirm or lock_here or safety"`，最终 `39 passed, 33 deselected`。
+- current file：`pytest -q tests/test_custom_fpga_backend.py`，`72 passed`。
+- full tests：`pytest -q tests`，`78 passed, 4 subtests passed`。
+- 完整 `py_compile`：`main_window.py`、`waveform_plot.py`、`custom_fpga_backend.py`、`connection_workers.py`、`custom_fpga_scan_control.py` 全部通过。
+- `git diff --check`：无输出。
+- 离屏布局检查：1600x950 截图中三段式布局无明显重叠；离屏字体缺失导致文字方框，不属于真实 Windows GUI 验证。
+
+### 尚未验证
+
+- 本轮新 GUI 在真实 Windows 字体、DPI 和真实 Red Pitaya capture 下的视觉与交互。
+- counts 到真实电压的精密校准、GUI mV/V 与 Keysight 绝对一致性。
+- Direct ERROR 真实点击、pending marker、Confirm 后 selected 参数。
+- `LOCK HERE` 真实时机、Kp=0 OUT2 无跳变、polarity、Kp=4/8/16/32、P-only 真实闭环和长期稳频。
+
+### 未修改边界
+
+- RTL：未修改、未读取实现细节。
+- Vivado：未运行 synthesis / implementation / Generate Bitstream。
+- 寄存器：未修改地址或语义。
+- MAGIC / VERSION：未修改。
+- bitstream：未生成、未烧录。
+
+### 当前阶段结论
+
+`CODE PASS / WAITING GUI`
+
+### 下一步唯一动作
+
+用户在真实 Windows GUI 和当前 Red Pitaya capture 下使用默认 `Direct ERROR Zero Crossing` 选择一个 CH3 过零点并点击 `CONFIRM`，只检查 marker、候选电压和 selected 参数，不执行 `LOCK HERE`。
+
 ## 2026-07-15 上位机测试尾部污染与 time(ms) target window 修复
 
 - 初始状态：`HEAD=b061a3b22f8fd1888c6a8456dfbd5fd7b497ee7a`，工作区处于既有的 `main` interactive rebase 编辑状态，开始修改前工作区无未提交改动；本轮未继续、终止或改写 rebase。

@@ -93,6 +93,51 @@ DECIMATIONS = [
     65536,
 ]
 
+SCOPE_VOLTS_PER_DIV = (
+    0.001,
+    0.002,
+    0.005,
+    0.010,
+    0.020,
+    0.050,
+    0.100,
+    0.200,
+    0.500,
+    1.000,
+)
+
+SCOPE_CHANNELS = {
+    "ch4": ("CH4 SCAN / OUT2", "#f2c94c", 3.0),
+    "ch3": ("CH3 ERROR / OUT1", "#56b4e9", 0.0),
+    "ch1": ("CH1 PD / IN1", "#59c36a", -3.0),
+    "ch2": ("CH2 REF / IN2", "#f2994a", -6.0),
+}
+
+
+def format_scope_voltage(value: float, *, signed: bool = False) -> str:
+    """Format an ideal FPGA-count voltage for the operator-facing scope UI."""
+    numeric = float(value)
+    prefix = "+" if signed and numeric >= 0.0 else ""
+    if abs(numeric) < 1.0:
+        return f"{prefix}{numeric * 1000.0:.1f} mV"
+    return f"{prefix}{numeric:.3f} V"
+
+
+def format_volts_per_div(value: float) -> str:
+    numeric = float(value)
+    if numeric < 1.0:
+        return f"{numeric * 1000.0:g} mV/div"
+    return f"{numeric:g} V/div"
+
+
+def choose_scope_volts_per_div(vpp_volts: float) -> float:
+    """Choose the smallest 1-2-5 step that fits Vpp into about four divisions."""
+    required = max(0.0, float(vpp_volts)) / 4.0
+    for value in SCOPE_VOLTS_PER_DIV:
+        if value >= required:
+            return value
+    return SCOPE_VOLTS_PER_DIV[-1]
+
 
 def scope_display_transform(
     raw_y: np.ndarray,
@@ -122,6 +167,87 @@ def scope_auto_display_parameters(raw_y: np.ndarray) -> tuple[float, float]:
 
 class LockPointSelectionError(ValueError):
     """Raised when the current capture cannot yield a safe lock point."""
+
+
+def resolve_direct_error_zero_crossing(
+    *,
+    error_counts: np.ndarray | list[float],
+    out2_counts: np.ndarray | list[float],
+    clicked_index: int,
+    safe_min_counts: int = -8191,
+    safe_max_counts: int = 8191,
+    search_radius: int = 32,
+    target_window_counts: int = 64,
+    saturated: bool = False,
+) -> dict[str, int | float | str]:
+    """Resolve an operator click to the nearest safe CH3 zero crossing."""
+    error = np.asarray(error_counts, dtype=float)
+    out2 = np.asarray(out2_counts, dtype=float)
+    count = min(error.size, out2.size)
+    if saturated or count < 16:
+        raise LockPointSelectionError("No valid ERROR zero crossing in the selected region")
+    error = error[:count]
+    out2 = out2[:count]
+    click = int(np.clip(clicked_index, 0, count - 1))
+    edge = max(4, int(round(count * 0.03)))
+    if click < edge or click >= count - edge:
+        raise LockPointSelectionError("Selected ERROR point is too close to the capture edge")
+
+    left = max(edge, click - max(4, int(search_radius)))
+    right = min(count - edge - 1, click + max(4, int(search_radius)))
+    candidates: list[tuple[int, float, int, float, str]] = []
+    for index in range(left, right + 1):
+        next_index = min(index + 1, count - 1)
+        e0 = float(error[index])
+        e1 = float(error[next_index])
+        if not np.isfinite(e0) or not np.isfinite(e1):
+            continue
+        if e0 != 0.0 and e1 != 0.0 and e0 * e1 > 0.0:
+            continue
+
+        zero_index = index if abs(e0) <= abs(e1) else next_index
+        local_left = max(edge, index - 8)
+        local_right = min(count - edge - 1, index + 8)
+        ramp_diffs = np.diff(out2[local_left:local_right + 1])
+        ramp_diffs = ramp_diffs[np.isfinite(ramp_diffs)]
+        if ramp_diffs.size < 4:
+            continue
+        median_ramp = float(np.nanmedian(ramp_diffs))
+        if abs(median_ramp) < 0.5:
+            continue
+        if float(np.mean(np.sign(ramp_diffs) == np.sign(median_ramp))) < 0.8:
+            continue
+
+        slope_left = max(edge, zero_index - 1)
+        slope_right = min(count - edge - 1, zero_index + 1)
+        delta_out2 = float(out2[slope_right] - out2[slope_left])
+        delta_error = float(error[slope_right] - error[slope_left])
+        if slope_right <= slope_left or abs(delta_out2) < 0.5:
+            continue
+        slope = delta_error / delta_out2
+        if not np.isfinite(slope) or abs(slope) < 1e-9:
+            continue
+        target_out2 = float(out2[zero_index])
+        if target_out2 < int(safe_min_counts) or target_out2 > int(safe_max_counts):
+            continue
+        direction = "rising" if median_ramp > 0.0 else "falling"
+        candidates.append((abs(zero_index - click), -abs(slope), zero_index, slope, direction))
+
+    if not candidates:
+        raise LockPointSelectionError("No valid ERROR zero crossing in the selected region")
+
+    _, _, zero_index, slope, direction = min(candidates)
+    target_out2_counts = int(round(float(out2[zero_index])))
+    return {
+        "selected_peak_index": int(zero_index),
+        "zero_crossing_index": int(zero_index),
+        "target_out2_counts": target_out2_counts,
+        "target_out2_volts": target_out2_counts / COUNTS_PER_VOLT,
+        "error_setpoint_counts": int(round(float(error[zero_index]))),
+        "slope": float(slope),
+        "ramp_direction": direction,
+        "target_window_counts": int(max(1, target_window_counts)),
+    }
 
 
 def _nearest_ch1_peak(ch1: np.ndarray, clicked_index: int, search_radius: int) -> int:
@@ -389,6 +515,9 @@ class MainWindow(QMainWindow):
         self.live_capture_active = False
         self.capture_in_flight = False
         self.lock_error_over_threshold_count = 0
+        self.p_lock_ready = False
+        self.applied_kp = 0
+        self.applied_polarity_index = 0
         self.basic_lock_active = False
         self.basic_lock_queue: list[str] = []
         self.basic_lock_config: BasicLockConfig | None = None
@@ -407,7 +536,7 @@ class MainWindow(QMainWindow):
         self._last_frame_time: float | None = None
         self._safe_shutdown_registered = False
 
-        self.setWindowTitle("Red Pitaya Laser Lock Host V2")
+        self.setWindowTitle("FPGA-MTS Laser Lock Scope")
         self._apply_app_font()
         self._build_ui()
         self._load_defaults()
@@ -454,19 +583,135 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         root = QWidget(self)
         main_layout = QVBoxLayout(root)
-        body = QSplitter()
+        main_layout.setContentsMargins(10, 10, 10, 8)
+        main_layout.setSpacing(8)
         controls = self._build_controls()
         plots = self._build_plots()
-        body.addWidget(controls)
-        body.addWidget(plots)
-        body.setChildrenCollapsible(False)
-        body.setSizes([460, 1140])
-        body.setStretchFactor(0, 0)
-        body.setStretchFactor(1, 1)
-        main_layout.addWidget(body, stretch=1)
+        main_layout.addWidget(self._build_channel_status_bar())
+        main_layout.addWidget(plots, stretch=1)
+        main_layout.addWidget(self._build_experiment_toolbar())
+
+        self.engineer_details_group = QGroupBox("Advanced / Engineer Details")
+        self.engineer_details_group.setCheckable(True)
+        self.engineer_details_group.setChecked(False)
+        engineer_layout = QVBoxLayout(self.engineer_details_group)
+        engineer_layout.setContentsMargins(8, 16, 8, 8)
+        self.engineer_details_body = QWidget()
+        engineer_body_layout = QVBoxLayout(self.engineer_details_body)
+        engineer_body_layout.setContentsMargins(0, 0, 0, 0)
+        controls.setMinimumWidth(0)
+        controls.setMaximumWidth(16_777_215)
+        engineer_body_layout.addWidget(controls)
+        engineer_body_layout.addWidget(self.custom_scope_raw_controls)
+        engineer_body_layout.addWidget(self.custom_scope_stats)
+        self.engineer_details_body.setVisible(False)
+        self.engineer_details_group.toggled.connect(self.engineer_details_body.setVisible)
+        engineer_layout.addWidget(self.engineer_details_body)
+        main_layout.addWidget(self.engineer_details_group)
+
         self.setCentralWidget(root)
         self.setStatusBar(QStatusBar(self))
         self._connect_signals()
+
+    def _build_channel_status_bar(self) -> QWidget:
+        bar = QWidget()
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        self.channel_card_groups: dict[str, QGroupBox] = {}
+        self.channel_card_labels: dict[str, QLabel] = {}
+        calibration_tip = (
+            "Ideal voltage conversion from FPGA counts; hardware calibration not yet verified"
+        )
+        for key in ("ch4", "ch3", "ch1", "ch2"):
+            title, color, _position = SCOPE_CHANNELS[key]
+            card = QGroupBox(title)
+            card.setStyleSheet(
+                f"QGroupBox {{ border: 1px solid {color}; padding-top: 8px; font-weight: 600; }}"
+                f"QGroupBox::title {{ color: {color}; }}"
+            )
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(8, 12, 8, 6)
+            summary = QLabel("Hidden" if key == "ch2" else "Waiting for capture")
+            summary.setWordWrap(True)
+            summary.setToolTip(calibration_tip)
+            card_layout.addWidget(summary)
+            layout.addWidget(card, stretch=1)
+            self.channel_card_groups[key] = card
+            self.channel_card_labels[key] = summary
+        return bar
+
+    def _build_experiment_toolbar(self) -> QWidget:
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        capture_row = QHBoxLayout()
+        self.custom_start_live_button.setText("RUN")
+        self.custom_stop_live_button.setText("STOP")
+        self.custom_capture_once_button.setText("SINGLE")
+        self.custom_scope_default_button.setText("AUTO SET")
+        for button in (
+            self.custom_start_live_button,
+            self.custom_stop_live_button,
+            self.custom_capture_once_button,
+            self.custom_scope_default_button,
+        ):
+            capture_row.addWidget(button)
+        capture_row.addStretch(1)
+        self.custom_scope_timebase_label = QLabel("Time -- ms/div | Window -- ms | Sample rate -- | Scan period -- | Cycles --")
+        capture_row.addWidget(self.custom_scope_timebase_label)
+        layout.addLayout(capture_row)
+
+        lock_row = QHBoxLayout()
+        self.custom_pick_lock_button = QPushButton("PICK LOCK POINT")
+        self.custom_pick_lock_button.setCheckable(True)
+        self._style_button(self.custom_pick_lock_button)
+        self.custom_confirm_lock_point_button.setText("CONFIRM")
+        self.custom_lock_button.setText("LOCK HERE")
+        self.custom_safe_button.setText("SAFE")
+        self.custom_safe_button.setStyleSheet("font-weight: 700; color: #ffffff; background: #a32020;")
+        for button in (
+            self.custom_scan_button,
+            self.custom_pick_lock_button,
+            self.custom_confirm_lock_point_button,
+            self.custom_lock_button,
+            self.custom_safe_button,
+        ):
+            lock_row.addWidget(button)
+        lock_row.addWidget(QLabel("Kp"))
+        lock_row.addWidget(self.custom_kp)
+        lock_row.addWidget(QLabel("Polarity"))
+        self.custom_polarity.clear()
+        self.custom_polarity.addItem("Normal", "normal")
+        self.custom_polarity.addItem("Invert", "invert")
+        lock_row.addWidget(self.custom_polarity)
+        lock_row.addWidget(self.custom_apply_p_button)
+        layout.addLayout(lock_row)
+
+        status_row = QHBoxLayout()
+        self.operator_state_label = QLabel("SAFE")
+        self.operator_state_label.setStyleSheet("font-weight: 700; color: #72d6ff;")
+        self.operator_candidate_label = QLabel("No lock point selected")
+        self.operator_candidate_label.setWordWrap(True)
+        self.operator_alert_label = QLabel("")
+        self.operator_alert_label.setStyleSheet("color: #ff8a80; font-weight: 600;")
+        status_row.addWidget(self.operator_state_label)
+        status_row.addWidget(self.operator_candidate_label, stretch=1)
+        status_row.addWidget(self.operator_alert_label)
+        layout.addLayout(status_row)
+
+        self.lock_point_selection_mode = QComboBox()
+        self.lock_point_selection_mode.addItems(
+            ["Direct ERROR Zero Crossing", "CH1 Peak Assisted"]
+        )
+        self.lock_point_selection_mode.setToolTip(
+            "Direct ERROR Zero Crossing is the operator workflow; CH1 Peak Assisted is an engineering option."
+        )
+        self.custom_advanced_body.layout().addWidget(QLabel("Lock Point Selection Mode"))
+        self.custom_advanced_body.layout().addWidget(self.lock_point_selection_mode)
+        return panel
 
     def _build_controls(self) -> QWidget:
         content = QWidget()
@@ -1100,13 +1345,12 @@ class MainWindow(QMainWindow):
         # Stats summary at top (compact)
         self.custom_scope_stats = QLabel("custom_debug_capture not available")
         self.custom_scope_stats.setWordWrap(True)
-        scope_layout.addWidget(self.custom_scope_stats)
 
         # Single pyqtgraph PlotWidget — 4 curves overlaid
         scope_axis_row = QHBoxLayout()
-        scope_axis_row.addWidget(QLabel("Lock View X axis"))
+        scope_axis_row.addWidget(QLabel("Scope axis"))
         self.custom_scope_x_axis_combo = QComboBox()
-        self.custom_scope_x_axis_combo.addItems(["OUT2 counts", "time (ms)"])
+        self.custom_scope_x_axis_combo.addItems(["time (ms)", "OUT2 counts"])
         self.custom_scope_x_axis_combo.setToolTip("Display-only Lock View axis; raw capture indices and values remain unchanged.")
         self.custom_scope_x_axis_combo.currentTextChanged.connect(lambda _text: self._refresh_scope_display())
         scope_axis_row.addWidget(self.custom_scope_x_axis_combo)
@@ -1116,8 +1360,8 @@ class MainWindow(QMainWindow):
         self.custom_scope_plot = pg.PlotWidget()
         self.custom_scope_plot.setBackground("#05070a")
         self.custom_scope_plot.showGrid(x=True, y=True, alpha=0.25)
-        self.custom_scope_plot.setLabel("bottom", "OUT2", units="counts")
-        self.custom_scope_plot.setLabel("left", "Display units")
+        self.custom_scope_plot.setLabel("bottom", "time", units="ms")
+        self.custom_scope_plot.setLabel("left", "Channel position", units="div")
         self.custom_scope_plot.setMinimumHeight(300)
         self.custom_scope_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.custom_scope_plot.setMenuEnabled(False)
@@ -1133,10 +1377,10 @@ class MainWindow(QMainWindow):
 
         # 4 overlaid curves
         curve_colors = {
-            "ch1": "#1f77b4",
-            "ch2": "#ff7f0e",
-            "ch3": "#2ca02c",
-            "ch4": "#d62728",
+            "ch1": "#59c36a",
+            "ch2": "#f2994a",
+            "ch3": "#56b4e9",
+            "ch4": "#f2c94c",
         }
         curve_labels = {
             "ch1": "CH1 IN1 / PD",
@@ -1185,16 +1429,33 @@ class MainWindow(QMainWindow):
         self.custom_target_window_region.setZValue(-10)
         self.custom_scope_plot.addItem(self.custom_target_window_region)
         self.custom_candidate_markers: list[pg.InfiniteLine] = []
+        self.custom_ground_markers: dict[str, pg.InfiniteLine] = {}
+        for key in ("ch4", "ch3", "ch1", "ch2"):
+            _title, color, position = SCOPE_CHANNELS[key]
+            marker = pg.InfiniteLine(
+                pos=position,
+                angle=0,
+                movable=False,
+                pen=pg.mkPen(color, width=0.8, style=Qt.PenStyle.DotLine),
+            )
+            marker.setVisible(key != "ch2")
+            self.custom_scope_plot.addItem(marker)
+            self.custom_ground_markers[key] = marker
 
         # Click handler for target selection (CH1/PD only)
         self.custom_scope_plot.scene().sigMouseClicked.connect(self._on_custom_scope_clicked)
 
         scope_layout.addWidget(self.custom_scope_plot, stretch=1)
 
-        # Display controls operate only on plot copies, never captured counts.
+        # Operator display controls use physical volts/div and channel positions.
         self.custom_scope_curve_labels = curve_labels
-        self.custom_scope_vertical_defaults = {"ch4": 3.0, "ch3": 0.0, "ch1": -3.0, "ch2": -6.0}
+        self.custom_scope_vertical_defaults = {
+            key: metadata[2] for key, metadata in SCOPE_CHANNELS.items()
+        }
         self.custom_scope_checks = {}
+        self.custom_scope_volts_div_combos = {}
+        self.custom_scope_position_spins = {}
+        self.custom_scope_channel_auto_buttons = {}
         self.custom_scope_auto_scale_checks = {}
         self.custom_scope_scale_spins = {}
         self.custom_scope_vertical_spins = {}
@@ -1202,15 +1463,64 @@ class MainWindow(QMainWindow):
         controls_grid = QGridLayout()
         controls_grid.setHorizontalSpacing(8)
         controls_grid.setVerticalSpacing(3)
-        for column, label in enumerate(("Channel", "Visible", "Auto scale", "Scale", "Vertical position", "")):
+        for column, label in enumerate(("Channel", "Visible", "Volts/Div", "Position", "")):
             controls_grid.addWidget(QLabel(label), 0, column)
 
         default_visible = {"ch1", "ch3", "ch4"}
+        default_vdiv = {"ch4": 0.100, "ch3": 0.020, "ch1": 0.050, "ch2": 0.500}
         for row, key in enumerate(("ch4", "ch3", "ch1", "ch2"), start=1):
-            controls_grid.addWidget(QLabel(curve_labels[key]), row, 0)
+            title, color, default_position = SCOPE_CHANNELS[key]
+            channel_label = QLabel(title)
+            channel_label.setStyleSheet(f"color: {color}; font-weight: 600;")
+            controls_grid.addWidget(channel_label, row, 0)
             visible = QCheckBox()
             visible.setChecked(key in default_visible)
             visible.setToolTip("Display only: does not change captured data or FPGA state.")
+            volts_div = QComboBox()
+            for value in SCOPE_VOLTS_PER_DIV:
+                volts_div.addItem(format_volts_per_div(value), value)
+            volts_div.setCurrentIndex(SCOPE_VOLTS_PER_DIV.index(default_vdiv[key]))
+            volts_div.setToolTip("Display-only volts per division; FPGA counts and parameters are unchanged.")
+            position = QDoubleSpinBox()
+            position.setRange(-8.0, 8.0)
+            position.setDecimals(1)
+            position.setSingleStep(0.5)
+            position.setSuffix(" div")
+            position.setValue(default_position)
+            position.setToolTip("Display-only ground position for this channel.")
+            channel_auto = QPushButton("Channel Auto")
+            channel_auto.setToolTip("Choose volts/div from this channel's current Vpp only.")
+            self._style_button(channel_auto)
+
+            controls_grid.addWidget(visible, row, 1)
+            controls_grid.addWidget(volts_div, row, 2)
+            controls_grid.addWidget(position, row, 3)
+            controls_grid.addWidget(channel_auto, row, 4)
+            self.custom_scope_checks[key] = visible
+            self.custom_scope_volts_div_combos[key] = volts_div
+            self.custom_scope_position_spins[key] = position
+            self.custom_scope_channel_auto_buttons[key] = channel_auto
+
+            visible.toggled.connect(self._update_custom_scope_visibility)
+            volts_div.currentIndexChanged.connect(
+                lambda _index, scope_key=key: self._on_scope_volts_div_changed(scope_key)
+            )
+            position.valueChanged.connect(
+                lambda _value, scope_key=key: self._on_scope_position_changed(scope_key)
+            )
+            channel_auto.clicked.connect(
+                lambda _checked=False, scope_key=key: self._auto_set_scope_channel(scope_key)
+            )
+
+        scope_layout.addLayout(controls_grid)
+
+        # Raw display gain controls remain available only in Engineer Details.
+        self.custom_scope_raw_controls = QGroupBox("Raw Display Diagnostics")
+        raw_grid = QGridLayout(self.custom_scope_raw_controls)
+        for column, label in enumerate(("Channel", "Auto raw gain", "Raw gain", "Raw position", "")):
+            raw_grid.addWidget(QLabel(label), 0, column)
+        for row, key in enumerate(("ch4", "ch3", "ch1", "ch2"), start=1):
+            raw_grid.addWidget(QLabel(curve_labels[key]), row, 0)
             auto_scale = QCheckBox()
             auto_scale.setChecked(True)
             auto_scale.setToolTip("Recalculate display center and gain from the current capture only.")
@@ -1228,22 +1538,18 @@ class MainWindow(QMainWindow):
             reset = QPushButton("Reset display")
             reset.setToolTip("Restore this channel's automatic display center, gain, and default vertical position.")
             self._style_button(reset)
-            controls_grid.addWidget(visible, row, 1)
-            controls_grid.addWidget(auto_scale, row, 2)
-            controls_grid.addWidget(scale, row, 3)
-            controls_grid.addWidget(vertical, row, 4)
-            controls_grid.addWidget(reset, row, 5)
-            self.custom_scope_checks[key] = visible
+            raw_grid.addWidget(auto_scale, row, 1)
+            raw_grid.addWidget(scale, row, 2)
+            raw_grid.addWidget(vertical, row, 3)
+            raw_grid.addWidget(reset, row, 4)
             self.custom_scope_auto_scale_checks[key] = auto_scale
             self.custom_scope_scale_spins[key] = scale
             self.custom_scope_vertical_spins[key] = vertical
             self.custom_scope_channel_reset_buttons[key] = reset
-            visible.toggled.connect(self._update_custom_scope_visibility)
             auto_scale.toggled.connect(lambda _checked, scope_key=key: self._refresh_scope_display(scope_key))
             scale.valueChanged.connect(lambda _value, scope_key=key: self._refresh_scope_display(scope_key))
-            vertical.valueChanged.connect(lambda _value, scope_key=key: self._refresh_scope_display(scope_key))
+            vertical.valueChanged.connect(lambda _value, scope_key=key: self._on_raw_scope_position_changed(scope_key))
             reset.clicked.connect(lambda _checked=False, scope_key=key: self._reset_scope_channel_display(scope_key))
-        scope_layout.addLayout(controls_grid)
 
         controls_row = QHBoxLayout()
         controls_row.setSpacing(10)
@@ -1261,7 +1567,7 @@ class MainWindow(QMainWindow):
         self._style_button(self.custom_scope_reset_button)
         controls_row.addWidget(self.custom_scope_reset_button)
         controls_row.addStretch()
-        scope_layout.addLayout(controls_row)
+        raw_grid.addLayout(controls_row, 5, 0, 1, 5)
         layout.addWidget(self.custom_scope_group, stretch=1)
         return panel
 
@@ -1289,6 +1595,9 @@ class MainWindow(QMainWindow):
         self.custom_start_live_button.clicked.connect(self._start_live_capture)
         self.custom_stop_live_button.clicked.connect(self._stop_live_capture)
         self.custom_confirm_lock_point_button.clicked.connect(self._confirm_pending_lock_point)
+        self.custom_pick_lock_button.toggled.connect(self._set_lock_point_selection_active)
+        self.custom_select_target_check.toggled.connect(self._sync_legacy_lock_point_selector)
+        self.custom_polarity.currentIndexChanged.connect(self._on_polarity_selection_changed)
         self.custom_capture_view_mode.currentTextChanged.connect(self._apply_capture_view_mode)
         self.custom_ref_debug_decimation.currentTextChanged.connect(self._apply_capture_view_mode)
         self.basic_lock_button.clicked.connect(self._start_basic_lock)
@@ -1316,6 +1625,40 @@ class MainWindow(QMainWindow):
             self.save_csv_button.clicked.connect(self.save_csv)
             self.save_png_button.clicked.connect(self.save_png)
         self._update_lock_step_detail()
+
+    def _set_lock_point_selection_active(self, active: bool) -> None:
+        if self.custom_select_target_check.isChecked() != bool(active):
+            self.custom_select_target_check.setChecked(bool(active))
+        if active:
+            if self.lock_point_selection_mode.currentText() == "Direct ERROR Zero Crossing":
+                self.operator_state_label.setText("CHOOSE ERROR ZERO")
+                self.operator_candidate_label.setText("Click the desired CH3 / ERROR zero crossing")
+            else:
+                self.operator_state_label.setText("CHOOSE CH1 PEAK")
+                self.operator_candidate_label.setText("Click the desired CH1 / PD peak")
+        elif self.selected_lock_point is None and self.pending_lock_point is None:
+            self.operator_state_label.setText("CAPTURE READY" if self.custom_scope_data is not None else "SAFE")
+
+    def _sync_legacy_lock_point_selector(self, active: bool) -> None:
+        if self.custom_pick_lock_button.isChecked() != bool(active):
+            self.custom_pick_lock_button.setChecked(bool(active))
+
+    def _polarity_inverted(self) -> bool:
+        value = self.custom_polarity.currentData()
+        if value is None:
+            value = self.custom_polarity.currentText().lower()
+        return str(value).lower() == "invert"
+
+    def _on_polarity_selection_changed(self, index: int) -> None:
+        if self.applied_kp != 0:
+            self.custom_polarity.blockSignals(True)
+            self.custom_polarity.setCurrentIndex(self.applied_polarity_index)
+            self.custom_polarity.blockSignals(False)
+            message = "Return APPLY P to Kp=0 before changing polarity"
+            self.operator_alert_label.setText(message)
+            self.custom_warning_text.setPlainText(message)
+            return
+        self.applied_polarity_index = int(index)
 
     def _load_defaults(self) -> None:
         rp = self.config.get("red_pitaya", {})
@@ -1502,6 +1845,12 @@ class MainWindow(QMainWindow):
         if operation == "safe" and not preserve_basic:
             self.basic_lock_active = False
             self.basic_lock_queue = []
+            self.p_lock_ready = False
+            self.applied_kp = 0
+            self.operator_state_label.setText("SAFE")
+            self.operator_alert_label.setText("")
+        if operation == "scan":
+            self.operator_state_label.setText("SCANNING")
         if self._official_mode():
             self.mode_combo.setCurrentText("Custom FPGA Mode")
         try:
@@ -1526,15 +1875,21 @@ class MainWindow(QMainWindow):
             params = {
                 "kp": int(self.custom_kp.currentText()),
                 "ki": self.custom_ki.value(),
-                "polarity": 1 if self.custom_polarity.currentText() == "invert" else 0,
+                "polarity": 1 if self._polarity_inverted() else 0,
                 "lock_bias_v": self.custom_lock_bias_v.value(),
                 "lock_limit_counts": self.custom_lock_limit_counts.value(),
                 "correction_limit_counts": self.custom_correction_limit_counts.value(),
             }
         elif operation == "update-p-lock":
+            if int(self.custom_kp.currentText()) != 0 and not self.p_lock_ready:
+                message = "APPLY P requires a successful LOCK HERE at Kp=0"
+                self.operator_alert_label.setText(message)
+                self.custom_warning_text.setPlainText(message)
+                self.statusBar().showMessage(message)
+                return
             params = {
                 "kp": int(self.custom_kp.currentText()),
-                "polarity": 1 if self.custom_polarity.currentText() == "invert" else 0,
+                "polarity": 1 if self._polarity_inverted() else 0,
             }
         elif operation == "lock":
             if self.selected_lock_point is None:
@@ -1542,10 +1897,17 @@ class MainWindow(QMainWindow):
                     "LOCK HERE requires a target selected from the current scan waveform. "
                     "Run SCAN, Capture Waveform, click the desired zero point, then press LOCK HERE."
                 )
+                self.operator_alert_label.setText("Lock point not confirmed")
                 self.statusBar().showMessage("LOCK HERE blocked: no waveform point selected")
                 return
+            if int(self.custom_kp.currentText()) != 0:
+                message = "LOCK HERE requires Kp=0"
+                self.operator_alert_label.setText(message)
+                self.custom_warning_text.setPlainText(message)
+                self.statusBar().showMessage(message)
+                return
             params = {
-                "polarity": 1 if self.custom_polarity.currentText() == "invert" else 0,
+                "polarity": 1 if self._polarity_inverted() else 0,
                 "lock_limit_counts": self.custom_lock_limit_counts.value(),
                 "correction_limit_counts": self.custom_correction_limit_counts.value(),
                 "settle_s": 0.5,
@@ -1781,6 +2143,129 @@ class MainWindow(QMainWindow):
             except (RuntimeError, ValueError):
                 pass
 
+    def _scope_volts_per_div(self, key: str) -> float:
+        combo = self.custom_scope_volts_div_combos[key]
+        value = combo.currentData()
+        return float(value if value is not None else 0.1)
+
+    def _on_scope_volts_div_changed(self, key: str) -> None:
+        if self._updating_scope_display_controls:
+            return
+        gain = 1.0 / (COUNTS_PER_VOLT * self._scope_volts_per_div(key))
+        self._updating_scope_display_controls = True
+        try:
+            self.custom_scope_auto_scale_checks[key].setChecked(True)
+            self.custom_scope_scale_spins[key].setValue(gain)
+        finally:
+            self._updating_scope_display_controls = False
+        self._refresh_scope_display(key)
+
+    def _on_scope_position_changed(self, key: str) -> None:
+        if self._updating_scope_display_controls:
+            return
+        self._updating_scope_display_controls = True
+        try:
+            self.custom_scope_vertical_spins[key].setValue(
+                self.custom_scope_position_spins[key].value()
+            )
+        finally:
+            self._updating_scope_display_controls = False
+        self.custom_ground_markers[key].setValue(
+            self.custom_scope_position_spins[key].value()
+        )
+        self._refresh_scope_display(key)
+
+    def _on_raw_scope_position_changed(self, key: str) -> None:
+        if self._updating_scope_display_controls:
+            return
+        self._updating_scope_display_controls = True
+        try:
+            self.custom_scope_position_spins[key].setValue(
+                self.custom_scope_vertical_spins[key].value()
+            )
+        finally:
+            self._updating_scope_display_controls = False
+        self._refresh_scope_display(key)
+
+    def _auto_set_scope_channel(self, key: str) -> None:
+        if self.custom_scope_data is None:
+            return
+        values = np.asarray(self.custom_scope_data.get(key, []), dtype=float)
+        finite = values[np.isfinite(values)]
+        if finite.size == 0:
+            return
+        vpp_volts = float(np.nanmax(finite) - np.nanmin(finite)) / COUNTS_PER_VOLT
+        chosen = choose_scope_volts_per_div(vpp_volts)
+        combo = self.custom_scope_volts_div_combos[key]
+        index = combo.findData(chosen)
+        if index >= 0:
+            combo.setCurrentIndex(index)
+        self.custom_scope_display_state.pop(key, None)
+        self._refresh_scope_display(key)
+
+    def _update_scope_ground_markers(self) -> None:
+        for key, marker in self.custom_ground_markers.items():
+            marker.setValue(self.custom_scope_position_spins[key].value())
+            marker.setVisible(self.custom_scope_checks[key].isChecked())
+
+    def _update_channel_cards(self) -> None:
+        if not hasattr(self, "channel_card_labels"):
+            return
+        calibration_tip = (
+            "Ideal voltage conversion from FPGA counts; hardware calibration not yet verified"
+        )
+        for key, label in self.channel_card_labels.items():
+            visible = self.custom_scope_checks[key].isChecked()
+            if self.custom_scope_data is None or key not in self.custom_scope_data:
+                label.setText("Hidden" if not visible else "Waiting for capture")
+                continue
+            values = np.asarray(self.custom_scope_data[key], dtype=float)
+            finite = values[np.isfinite(values)]
+            if not visible:
+                label.setText("Hidden")
+                continue
+            if finite.size == 0:
+                label.setText("No finite samples")
+                continue
+            volts = finite / COUNTS_PER_VOLT
+            vpp = float(np.nanmax(volts) - np.nanmin(volts))
+            minimum = float(np.nanmin(volts))
+            maximum = float(np.nanmax(volts))
+            mean = float(np.nanmean(volts))
+            offset = float(np.nanmedian(volts))
+            label.setText(
+                f"Visible | {format_volts_per_div(self._scope_volts_per_div(key))} | "
+                f"Vpp {format_scope_voltage(vpp)} | Min {format_scope_voltage(minimum, signed=True)} | "
+                f"Max {format_scope_voltage(maximum, signed=True)} | Mean {format_scope_voltage(mean, signed=True)} | "
+                f"DC offset {format_scope_voltage(offset, signed=True)}"
+            )
+            label.setToolTip(calibration_tip)
+
+    def _update_scope_timebase_summary(self) -> None:
+        if not hasattr(self, "custom_scope_timebase_label"):
+            return
+        if self.custom_scope_data is None:
+            self.custom_scope_timebase_label.setText(
+                "Time -- ms/div | Window -- ms | Sample rate -- | Scan period -- | Cycles --"
+            )
+            return
+        time_s = np.asarray(self.custom_scope_data.get("time_s", []), dtype=float)
+        finite = time_s[np.isfinite(time_s)]
+        if finite.size < 2:
+            return
+        window_ms = float(np.nanmax(finite) - np.nanmin(finite)) * 1000.0
+        time_per_div = window_ms / 10.0
+        decimation = max(1, int(self.custom_last_capture_payload.get("capture_decimation", 1)))
+        sample_rate = 125_000_000.0 / decimation
+        scan_frequency = max(1e-12, float(self.custom_freq_hz.value()))
+        scan_period_ms = 1000.0 / scan_frequency
+        cycles = window_ms / scan_period_ms
+        self.custom_scope_timebase_label.setText(
+            f"Time {time_per_div:.3g} ms/div | Window {window_ms:.3g} ms | "
+            f"Sample rate {sample_rate / 1000.0:.3g} kS/s | "
+            f"Scan period {scan_period_ms:.3g} ms | Cycles {cycles:.2f}"
+        )
+
     def _refresh_scope_display(self, key: str | None = None) -> None:
         if self._updating_scope_display_controls or self.custom_scope_data is None:
             return
@@ -1796,7 +2281,10 @@ class MainWindow(QMainWindow):
             state = self.custom_scope_display_state.setdefault(scope_key, {})
             auto_scale = self.custom_scope_auto_scale_checks[scope_key].isChecked()
             if auto_scale or "center" not in state:
-                center, gain = scope_auto_display_parameters(raw_y)
+                center = float(np.nanmedian(np.asarray(raw_y, dtype=float)))
+                gain = 1.0 / (
+                    COUNTS_PER_VOLT * self._scope_volts_per_div(scope_key)
+                )
                 state["center"] = center
                 state["gain"] = gain
                 self._updating_scope_display_controls = True
@@ -1820,6 +2308,9 @@ class MainWindow(QMainWindow):
             curve.setVisible(self.custom_scope_checks[scope_key].isChecked())
         self._update_lock_point_markers(self.pending_lock_point or self.selected_lock_point)
         self._update_candidate_marker_positions()
+        self._update_scope_ground_markers()
+        self._update_channel_cards()
+        self._update_scope_timebase_summary()
         self._fit_custom_scope_ranges()
         self.custom_scope_plot.update()
 
@@ -1827,6 +2318,8 @@ class MainWindow(QMainWindow):
         for key, curve in self.custom_scope_curves.items():
             checkbox = self.custom_scope_checks.get(key)
             curve.setVisible(bool(checkbox is None or checkbox.isChecked()))
+        self._update_scope_ground_markers()
+        self._update_channel_cards()
         self._fit_custom_scope_ranges()
         self.custom_scope_plot.update()
 
@@ -1835,6 +2328,7 @@ class MainWindow(QMainWindow):
         try:
             self.custom_scope_auto_scale_checks[key].setChecked(True)
             self.custom_scope_vertical_spins[key].setValue(self.custom_scope_vertical_defaults[key])
+            self.custom_scope_position_spins[key].setValue(self.custom_scope_vertical_defaults[key])
         finally:
             self._updating_scope_display_controls = False
         self.custom_scope_display_state.pop(key, None)
@@ -1847,10 +2341,13 @@ class MainWindow(QMainWindow):
                 self.custom_scope_checks[key].setChecked(key != "ch2")
                 self.custom_scope_auto_scale_checks[key].setChecked(True)
                 self.custom_scope_vertical_spins[key].setValue(self.custom_scope_vertical_defaults[key])
+                self.custom_scope_position_spins[key].setValue(self.custom_scope_vertical_defaults[key])
             self.custom_scope_auto_range_check.setChecked(True)
         finally:
             self._updating_scope_display_controls = False
         self.custom_scope_display_state.clear()
+        for key in ("ch4", "ch3", "ch1", "ch2"):
+            self._auto_set_scope_channel(key)
         self._refresh_scope_display()
 
     def _on_custom_scope_clicked(self, event: object) -> None:
@@ -1877,22 +2374,34 @@ class MainWindow(QMainWindow):
                 safe_min_v=self.basic_pzt_min_v.value(),
                 safe_max_v=self.basic_pzt_max_v.value(),
             )
-            selected = resolve_lock_point_selection(
-                ch1_counts=ch1,
-                error_counts=error,
-                out2_counts=out2,
-                clicked_index=clicked_index,
-                error_setpoint_counts=float(self.custom_last_capture_payload.get("error_setpoint_counts", 0)),
-                safe_min_counts=config.safe_min_counts,
-                safe_max_counts=config.safe_max_counts,
-                saturated=bool(self.custom_last_capture_payload.get("saturated", False)),
-            )
+            if self.lock_point_selection_mode.currentText() == "Direct ERROR Zero Crossing":
+                selected = resolve_direct_error_zero_crossing(
+                    error_counts=error,
+                    out2_counts=out2,
+                    clicked_index=clicked_index,
+                    safe_min_counts=config.safe_min_counts,
+                    safe_max_counts=config.safe_max_counts,
+                    target_window_counts=self.custom_zero_threshold_counts.value(),
+                    saturated=bool(self.custom_last_capture_payload.get("saturated", False)),
+                )
+            else:
+                selected = resolve_lock_point_selection(
+                    ch1_counts=ch1,
+                    error_counts=error,
+                    out2_counts=out2,
+                    clicked_index=clicked_index,
+                    error_setpoint_counts=float(self.custom_last_capture_payload.get("error_setpoint_counts", 0)),
+                    safe_min_counts=config.safe_min_counts,
+                    safe_max_counts=config.safe_max_counts,
+                    saturated=bool(self.custom_last_capture_payload.get("saturated", False)),
+                )
         except (CustomFpgaBackendError, LockPointSelectionError) as exc:
             self.pending_lock_point = None
             self.pending_target_peak = None
             message = str(exc)
             self.selected_lock_label.setText(f"pending target rejected: {message}")
             self.custom_warning_text.setPlainText(message)
+            self.operator_alert_label.setText(message)
             return
         peak_index = int(selected["selected_peak_index"])
         zero_index = int(selected["zero_crossing_index"])
@@ -1909,7 +2418,14 @@ class MainWindow(QMainWindow):
             "time_s": float(t[peak_index]),
             "out2_counts": int(round(float(out2[peak_index]))),
         }
+        self.custom_confirm_lock_point_button.setEnabled(True)
         self._update_lock_point_markers(self.pending_lock_point)
+        self.operator_state_label.setText("CANDIDATE SELECTED")
+        self.operator_alert_label.setText("")
+        self.operator_candidate_label.setText(
+            f"Candidate: {format_scope_voltage(float(selected['target_out2_volts']))} | "
+            f"{selected['ramp_direction']} | valid"
+        )
         self.selected_lock_label.setText(
             "pending lock point: "
             f"peak {peak_index}, zero {zero_index}, OUT2 {selected['target_out2_counts']} counts / "
@@ -1921,9 +2437,18 @@ class MainWindow(QMainWindow):
     def _confirm_pending_lock_point(self) -> None:
         if self.pending_lock_point is None:
             self.selected_lock_label.setText("selected lock point: no valid pending zero crossing to confirm")
+            self.operator_alert_label.setText("Lock point not confirmed")
             return
         self.selected_lock_point = dict(self.pending_lock_point)
+        self.custom_lock_button.setEnabled(True)
         self._update_lock_point_markers(self.selected_lock_point)
+        self.custom_pick_lock_button.setChecked(False)
+        self.operator_state_label.setText("LOCK POINT CONFIRMED")
+        self.operator_alert_label.setText("")
+        self.operator_candidate_label.setText(
+            f"Confirmed: {format_scope_voltage(float(self.selected_lock_point['target_out2_volts']))} | "
+            f"{self.selected_lock_point['ramp_direction']}"
+        )
         self.selected_lock_label.setText(
             "selected lock point confirmed: "
             f"peak {int(self.selected_lock_point['selected_peak_index'])}, "
@@ -1951,12 +2476,21 @@ class MainWindow(QMainWindow):
             self.selected_lock_point = None
             self.pending_lock_point = None
             self.pending_target_peak = None
+            self.p_lock_ready = False
             self.custom_scope_valid_for_selection = False
+            self.custom_confirm_lock_point_button.setEnabled(False)
+            self.custom_lock_button.setEnabled(False)
+            self.custom_apply_p_button.setEnabled(False)
             self.custom_target_marker.setVisible(False)
             self.custom_zero_marker.setVisible(False)
             self.selected_lock_label.setText("selected lock point: capture current scan waveform first")
             self.basic_candidate_label.setText("candidate: unavailable | custom_debug_capture returned no points")
             self.custom_scope_stats.setText(reason)
+            self.operator_state_label.setText("SAFE")
+            self.operator_candidate_label.setText("Capture unavailable")
+            self.operator_alert_label.setText("Communication lost")
+            self._update_channel_cards()
+            self._update_scope_timebase_summary()
             self.custom_scope_placeholder.setVisible(True)
             for curve in self.custom_scope_curves.values():
                 curve.setData([], [])
@@ -1984,6 +2518,14 @@ class MainWindow(QMainWindow):
         self.selected_lock_point = None
         self.pending_lock_point = None
         self.pending_target_peak = None
+        self.p_lock_ready = False
+        self.custom_confirm_lock_point_button.setEnabled(False)
+        self.custom_lock_button.setEnabled(False)
+        self.custom_apply_p_button.setEnabled(False)
+        self.operator_state_label.setText("CAPTURE READY")
+        self.operator_candidate_label.setText("No lock point selected")
+        self.operator_alert_label.setText("")
+        self.custom_pick_lock_button.setChecked(False)
 
         self.custom_scope_placeholder.setVisible(False)
 
@@ -2203,6 +2745,9 @@ class MainWindow(QMainWindow):
         payload = data.get("payload", {})
         if not isinstance(payload, dict):
             payload = {}
+        operation_verified = status_payload_has_expected_magic(payload) and not bool(
+            payload.get("saturated", False)
+        )
         self._render_custom_fpga_payload(operation, payload, str(data.get("stderr", "")))
         message = f"Custom FPGA {operation} complete"
         self.statusBar().showMessage(message)
@@ -2213,6 +2758,25 @@ class MainWindow(QMainWindow):
             if hazard:
                 self._stop_live_capture(hazard)
                 self.custom_warning_text.setPlainText(f"{hazard}\nPress SAFE if output behavior is unexpected.")
+                if "saturation" in hazard.lower():
+                    self.operator_alert_label.setText("Saturation detected")
+                elif "MAGIC" in hazard or "VERSION" in hazard:
+                    self.operator_alert_label.setText("FPGA identity mismatch")
+                elif "OUT2" in hazard:
+                    self.operator_alert_label.setText("OUT2 outside safe PZT range")
+        if operation == "lock" and operation_verified:
+            self.p_lock_ready = True
+            self.applied_kp = 0
+            self.applied_polarity_index = self.custom_polarity.currentIndex()
+            self.custom_apply_p_button.setEnabled(True)
+            self.operator_state_label.setText("P_LOCK Kp=0")
+            self.operator_alert_label.setText("")
+        elif operation == "update-p-lock" and operation_verified:
+            kp = int(self.custom_kp.currentText())
+            self.applied_kp = kp
+            self.applied_polarity_index = self.custom_polarity.currentIndex()
+            self.operator_state_label.setText("P_LOCK Kp=0" if kp == 0 else "P_LOCK ACTIVE")
+            self.operator_alert_label.setText("")
         self._restore_after_custom_fpga_operation()
         self._continue_basic_lock_after_success(operation, payload)
         if operation == "capture" and self.live_capture_active:
@@ -2250,6 +2814,7 @@ class MainWindow(QMainWindow):
             "MODE read failed | ENABLE read failed | STATUS read failed | OUT2 read failed"
         )
         self.custom_warning_text.setPlainText(guidance)
+        self.operator_alert_label.setText("Communication lost")
         self.statusBar().showMessage(f"Custom FPGA error: {text.splitlines()[0] if text else 'unknown'}")
         self._append_connection_log(f"Custom FPGA error: {text}")
         if self.basic_lock_active:
@@ -2304,6 +2869,7 @@ class MainWindow(QMainWindow):
                 lines.append("")
                 lines.append(stderr.strip())
             self.custom_warning_text.setPlainText("\n".join(lines))
+            self.operator_alert_label.setText("FPGA identity mismatch")
             return
 
         version = str(payload.get("version", "--"))
@@ -2847,6 +3413,14 @@ class MainWindow(QMainWindow):
             self.basic_safe_button,
         ):
             button.setEnabled(custom_enabled)
+        self.custom_safe_button.setEnabled(True)
+        self.custom_confirm_lock_point_button.setEnabled(
+            custom_enabled and self.pending_lock_point is not None
+        )
+        self.custom_lock_button.setEnabled(
+            custom_enabled and self.selected_lock_point is not None
+        )
+        self.custom_apply_p_button.setEnabled(custom_enabled and self.p_lock_ready)
         self.custom_stop_live_button.setEnabled(self.live_capture_active or custom_busy)
         for widget in (
             self.basic_pzt_min_v,

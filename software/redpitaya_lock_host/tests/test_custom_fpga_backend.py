@@ -19,6 +19,9 @@ from redpitaya_lock_host.custom_fpga_backend import (
 )
 from redpitaya_lock_host.main_window import (
     LockPointSelectionError,
+    choose_scope_volts_per_div,
+    format_scope_voltage,
+    resolve_direct_error_zero_crossing,
     resolve_lock_point_selection,
 )
 
@@ -664,9 +667,9 @@ def test_main_window_constructs_without_legacy_scpi_output_controls() -> None:
         assert [window.custom_kp.itemText(index) for index in range(window.custom_kp.count())] == ["0", "4", "8", "16", "32"]
         assert window.custom_correction_limit_counts.value() == 128
         assert window.custom_lock_limit_counts.value() == 8191
-        assert window.custom_capture_once_button.text() == "Capture Once"
-        assert window.custom_start_live_button.text() == "Start Live"
-        assert window.custom_stop_live_button.text() == "Stop Live"
+        assert window.custom_capture_once_button.text() == "SINGLE"
+        assert window.custom_start_live_button.text() == "RUN"
+        assert window.custom_stop_live_button.text() == "STOP"
         assert window.custom_live_interval_ms.currentText() == "1000"
         assert set(window.custom_scope_curves) == {"ch1", "ch2", "ch3", "ch4"}
     finally:
@@ -865,8 +868,8 @@ def test_lock_here_requires_confirmed_lock_point_not_pending_candidate() -> None
         assert window.basic_lock_candidates
         clicked_index = window.basic_lock_candidates[0].index
         plot_item = window.custom_scope_plot.getPlotItem()
-        out2_target = window.custom_scope_data["ch4"][clicked_index]
-        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(out2_target), 0.0))
+        time_target = window.custom_scope_data["time_s"][clicked_index] * 1000.0
+        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(time_target), 0.0))
         window.custom_select_target_check.setChecked(True)
         window._on_custom_scope_clicked(ScopeClick(scene_pos))
 
@@ -917,8 +920,8 @@ def test_confirm_lock_point_promotes_pending_zero_crossing_only() -> None:
         assert window.basic_lock_candidates
         clicked_index = window.basic_lock_candidates[0].index
         plot_item = window.custom_scope_plot.getPlotItem()
-        out2_target = window.custom_scope_data["ch4"][clicked_index]
-        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(out2_target), 0.0))
+        time_target = window.custom_scope_data["time_s"][clicked_index] * 1000.0
+        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(time_target), 0.0))
         window.custom_select_target_check.setChecked(True)
         window._on_custom_scope_clicked(ScopeClick(scene_pos))
 
@@ -1208,8 +1211,11 @@ def test_scope_default_layers_display_copies_but_keeps_raw_capture_stats() -> No
         assert not np.array_equal(window.custom_scope_curves["ch4"].yData, raw_ch4)
         assert np.median(window.custom_scope_curves["ch4"].yData) > np.median(window.custom_scope_curves["ch3"].yData)
         assert np.median(window.custom_scope_curves["ch3"].yData) > np.median(window.custom_scope_curves["ch1"].yData)
-        assert np.ptp(window.custom_scope_curves["ch1"].yData) > 1.0
-        assert np.ptp(window.custom_scope_curves["ch3"].yData) > 1.0
+        expected_ch1_span = np.ptp(raw_ch1) * window.custom_scope_scale_spins["ch1"].value()
+        raw_ch3 = window.custom_scope_data["ch3"]
+        expected_ch3_span = np.ptp(raw_ch3) * window.custom_scope_scale_spins["ch3"].value()
+        assert np.isclose(np.ptp(window.custom_scope_curves["ch1"].yData), expected_ch1_span)
+        assert np.isclose(np.ptp(window.custom_scope_curves["ch3"].yData), expected_ch3_span)
         assert f"mean {np.nanmean(raw_ch4):.1f}" in window.custom_scope_stats.toolTip()
     finally:
         window.close()
@@ -1272,7 +1278,7 @@ def test_scope_manual_scale_and_vertical_position_only_change_display_copy() -> 
         app.processEvents()
 
 
-def test_candidate_markers_follow_default_out2_axis_after_display_transform() -> None:
+def test_candidate_markers_follow_default_time_axis_after_display_transform() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from PySide6.QtWidgets import QApplication
@@ -1288,13 +1294,13 @@ def test_candidate_markers_follow_default_out2_axis_after_display_transform() ->
         assert window.basic_lock_candidates
         assert len(window.custom_candidate_markers) == len(window.basic_lock_candidates)
         for marker, candidate in zip(window.custom_candidate_markers, window.basic_lock_candidates):
-            assert marker.value() == float(window.custom_scope_data["ch4"][candidate.index])
+            assert marker.value() == float(window.custom_scope_data["time_s"][candidate.index]) * 1000.0
     finally:
         window.close()
         app.processEvents()
 
 
-def test_candidate_markers_follow_time_axis_after_switch_from_default() -> None:
+def test_candidate_markers_follow_out2_axis_after_switch_from_default() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from PySide6.QtWidgets import QApplication
@@ -1308,12 +1314,11 @@ def test_candidate_markers_follow_time_axis_after_switch_from_default() -> None:
         window._render_custom_capture_payload(make_capture_payload())
 
         assert window.basic_lock_candidates
-        # Switch X axis to time (ms)
-        window.custom_scope_x_axis_combo.setCurrentText("time (ms)")
+        window.custom_scope_x_axis_combo.setCurrentText("OUT2 counts")
         window._refresh_scope_display()
 
         for marker, candidate in zip(window.custom_candidate_markers, window.basic_lock_candidates):
-            assert marker.value() == float(window.custom_scope_data["time_s"][candidate.index]) * 1000.0
+            assert marker.value() == float(window.custom_scope_data["ch4"][candidate.index])
     finally:
         window.close()
         app.processEvents()
@@ -1343,8 +1348,8 @@ def test_target_and_zero_markers_keep_raw_time_after_layered_display() -> None:
         app.processEvents()
         clicked_index = window.basic_lock_candidates[0].index
         plot_item = window.custom_scope_plot.getPlotItem()
-        out2_target = window.custom_scope_data["ch4"][clicked_index]
-        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(out2_target), 0.0))
+        time_target = window.custom_scope_data["time_s"][clicked_index] * 1000.0
+        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(time_target), 0.0))
         window.custom_select_target_check.setChecked(True)
 
         window._on_custom_scope_clicked(ScopeClick(scene_pos))
@@ -1353,11 +1358,11 @@ def test_target_and_zero_markers_keep_raw_time_after_layered_display() -> None:
         peak_index = int(window.pending_lock_point["selected_peak_index"])
         zero_index = int(window.pending_lock_point["zero_crossing_index"])
         assert window.custom_target_marker.value() == float(
-            window.custom_scope_data["ch4"][peak_index]
-        )
+            window.custom_scope_data["time_s"][peak_index]
+        ) * 1000.0
         assert window.custom_zero_marker.value() == float(
-            window.custom_scope_data["ch4"][zero_index]
-        )
+            window.custom_scope_data["time_s"][zero_index]
+        ) * 1000.0
     finally:
         window.close()
         app.processEvents()
@@ -1624,6 +1629,7 @@ def test_lock_point_target_window_uses_current_x_axis_units() -> None:
             "target_window_counts": window_counts,
         }
 
+        window.custom_scope_x_axis_combo.setCurrentText("OUT2 counts")
         window._update_lock_point_markers(lock_point)
         counts_region = window.custom_target_window_region.getRegion()
         counts_target = float(window.custom_scope_data["ch4"][target_index])
@@ -1646,6 +1652,230 @@ def test_lock_point_target_window_uses_current_x_axis_units() -> None:
         assert np.isclose((time_region[0] + time_region[1]) / 2.0, time_target)
         assert np.isclose((time_region[1] - time_region[0]) / 2.0, expected_window_ms)
         assert (time_region[1] - time_region[0]) < 100.0
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_scope_voltage_format_and_volts_per_div_steps() -> None:
+    assert format_scope_voltage(0.1995) == "199.5 mV"
+    assert format_scope_voltage(-0.0124, signed=True) == "-12.4 mV"
+    assert format_scope_voltage(1.25) == "1.250 V"
+    assert choose_scope_volts_per_div(0.1995) == 0.050
+    assert choose_scope_volts_per_div(0.053) == 0.020
+
+
+def test_project_scope_defaults_hide_counts_and_engineer_details() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+
+        assert window.custom_scope_x_axis_combo.currentText() == "time (ms)"
+        assert not window.engineer_details_group.isChecked()
+        assert not window.engineer_details_body.isVisible()
+        assert window.engineer_details_body.isAncestorOf(window.custom_scope_stats)
+        assert "counts" in window.custom_scope_stats.text()
+        for key in ("ch4", "ch3", "ch1"):
+            text = window.channel_card_labels[key].text()
+            assert "Vpp" in text
+            assert "mV" in text or " V" in text
+            assert "counts" not in text
+        assert window.channel_card_labels["ch2"].text() == "Hidden"
+        main_text = " ".join(
+            label.text() for label in window.channel_card_labels.values()
+        )
+        assert "counts" not in main_text
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_scope_channel_cards_convert_vpp_min_max_mean_to_voltage() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+        values = window.custom_scope_data["ch4"] / 8191.0
+        text = window.channel_card_labels["ch4"].text()
+
+        assert f"Vpp {format_scope_voltage(float(np.ptp(values)))}" in text
+        assert f"Min {format_scope_voltage(float(np.min(values)), signed=True)}" in text
+        assert f"Max {format_scope_voltage(float(np.max(values)), signed=True)}" in text
+        assert f"Mean {format_scope_voltage(float(np.mean(values)), signed=True)}" in text
+        assert "hardware calibration not yet verified" in window.channel_card_labels["ch4"].toolTip()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_each_channel_has_independent_volts_div_and_ground_position() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        ch3_before = window.custom_scope_volts_div_combos["ch3"].currentData()
+        ch4_combo = window.custom_scope_volts_div_combos["ch4"]
+        ch4_combo.setCurrentIndex(ch4_combo.findData(0.200))
+        window.custom_scope_position_spins["ch4"].setValue(4.5)
+
+        assert window.custom_scope_volts_div_combos["ch4"].currentData() == 0.200
+        assert window.custom_scope_volts_div_combos["ch3"].currentData() == ch3_before
+        assert np.isclose(window.custom_ground_markers["ch4"].value(), 4.5)
+        assert np.isclose(window.custom_scope_vertical_spins["ch4"].value(), 4.5)
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_auto_set_changes_display_only() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+        raw_before = {
+            key: values.copy() for key, values in window.custom_scope_data.items()
+        }
+        fpga_before = (
+            window.custom_offset_v.value(),
+            window.custom_amp_v.value(),
+            window.custom_freq_hz.value(),
+            window.custom_step_counts.value(),
+            window.custom_zero_threshold_counts.value(),
+        )
+        window.custom_scope_position_spins["ch4"].setValue(-2.0)
+
+        window.custom_scope_default_button.click()
+
+        for key, values in raw_before.items():
+            np.testing.assert_array_equal(window.custom_scope_data[key], values)
+        assert fpga_before == (
+            window.custom_offset_v.value(),
+            window.custom_amp_v.value(),
+            window.custom_freq_hz.value(),
+            window.custom_step_counts.value(),
+            window.custom_zero_threshold_counts.value(),
+        )
+        assert window.custom_scope_position_spins["ch4"].value() == 3.0
+        assert window.custom_scope_checks["ch4"].isChecked()
+        assert window.custom_scope_checks["ch3"].isChecked()
+        assert window.custom_scope_checks["ch1"].isChecked()
+        assert not window.custom_scope_checks["ch2"].isChecked()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_direct_error_zero_crossing_is_default_and_only_creates_pending() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtCore import QPointF
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    class ScopeClick:
+        def __init__(self, scene_pos) -> None:
+            self._scene_pos = scene_pos
+
+        def scenePos(self):
+            return self._scene_pos
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window.show()
+        window._render_custom_capture_payload(make_capture_payload())
+        app.processEvents()
+        candidate_index = window.basic_lock_candidates[0].index
+        x_value = float(window.custom_scope_data["time_s"][candidate_index]) * 1000.0
+        scene_pos = window.custom_scope_plot.getPlotItem().vb.mapViewToScene(QPointF(x_value, 0.0))
+
+        assert window.lock_point_selection_mode.currentText() == "Direct ERROR Zero Crossing"
+        window.custom_pick_lock_button.setChecked(True)
+        window._on_custom_scope_clicked(ScopeClick(scene_pos))
+
+        assert window.pending_lock_point is not None
+        assert window.selected_lock_point is None
+        assert window.operator_state_label.text() == "CANDIDATE SELECTED"
+        assert "valid" in window.operator_candidate_label.text()
+        assert "counts" not in window.operator_candidate_label.text()
+
+        pending = dict(window.pending_lock_point)
+        window._confirm_pending_lock_point()
+        assert window.selected_lock_point == pending
+        assert window.operator_state_label.text() == "LOCK POINT CONFIRMED"
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_direct_error_zero_crossing_resolver_uses_nearest_valid_crossing() -> None:
+    count = 256
+    out2 = np.linspace(6500.0, 7300.0, count)
+    error = np.arange(count, dtype=float) - 130.0
+
+    result = resolve_direct_error_zero_crossing(
+        error_counts=error,
+        out2_counts=out2,
+        clicked_index=128,
+        safe_min_counts=6400,
+        safe_max_counts=7400,
+    )
+
+    assert result["zero_crossing_index"] == 130
+    assert result["selected_peak_index"] == 130
+    assert result["ramp_direction"] == "rising"
+    assert abs(float(result["slope"])) > 0.0
+
+
+def test_lock_here_requires_confirmed_point_and_kp_zero() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window.selected_lock_point = {"out2_counts": 7000}
+        window.custom_kp.setCurrentText("4")
+
+        window._start_custom_fpga_operation("lock")
+
+        assert window.current_custom_operation is None
+        assert "requires Kp=0" in window.custom_warning_text.toPlainText()
+        assert not window.p_lock_ready
     finally:
         window.close()
         app.processEvents()

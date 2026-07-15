@@ -11,10 +11,24 @@
 
 ## 每次开始前
 
-1. 读取 `AI_REVIEW_README.md`、`version/AI_STRICT_REVIEW_ENTRY.md`、`version/CURRENT_REVIEW_MANIFEST.md`、`version/STATUS.md`、`version/rules/00_DOCUMENT_LANGUAGE_AND_STYLE_RULES.md`。
-2. 读取当前 `git branch --show-current`、`git rev-parse HEAD`、`git status --short --branch`，并读取任务关联文件和现有 `DEVELOPMENT_LOG.md`。
-3. `version/STATUS.md` 是当前状态快照；已有 `DEVELOPMENT_LOG.md` 是按时间追加的历史记录。历史日志不能覆盖当前状态快照。
-4. 发现冲突、合并标记、旧结论或未经证实的说法时，先在本轮允许修改的状态/记录文档中隔离并说明；未经用户授权不得顺手改动范围外文件。
+1. 依次读取 `AI_REVIEW_README.md`、`version/CURRENT_REVIEW_MANIFEST.md`、`version/STATUS.md` 顶部、`AGENTS.md`、`version/AI_STRICT_REVIEW_ENTRY.md` 和相关 `DEVELOPMENT_LOG.md` 末尾，再读取任务关联代码与测试。
+2. 执行并记录 `git branch --show-current`、`git rev-parse HEAD`、`git fetch origin`、`git rev-parse origin/main`、`git status --short --branch`、`git diff --name-only`、`git diff --cached --name-only` 和 `git log -3 --oneline`。
+3. `version/STATUS.md` 是当前状态唯一权威快照；`DEVELOPMENT_LOG.md` 是只追加的历史记录。历史日志和严格审查模板不能覆盖当前代码事实与 STATUS 顶部。
+4. 开始修改前明确当前阶段、已有功能、缺失项、允许/禁止文件、完成标准和本轮不进入的下一阶段。
+5. 发现未提交修改、rebase/merge、冲突标记、旧结论或未经证实的说法时，先保护并报告；未经用户授权不得改变或清理这些状态。
+
+## 证据等级
+
+项目状态只使用以下等级：
+
+- `[IMPLEMENTED]`：代码存在，尚未完成自动化验证。
+- `[AUTOMATED VERIFIED]`：本轮实际执行 `pytest`、`py_compile`、`tabnanny` 等并通过。
+- `[USER GUI VERIFIED]`：用户已在真实 Windows GUI 或真实 Red Pitaya 数据中操作并提供明确结果。
+- `[BOARD EXPERIMENT VERIFIED]`：用户已完成真实接线与对应物理实验。
+- `[CLOSED-LOOP VERIFIED]`：用户已确认非零 Kp、正确反馈方向、OUT2 不越界、无 saturation、误差被抑制且激光保持目标锁点。
+- `[NOT VERIFIED]`：尚未执行或证据不足。
+
+禁止把代码存在写成测试通过，把 mock/自动化测试写成真实 GUI 或板卡验证，把波形显示或 Kp=0 切换写成闭环锁定成功，把短时现象写成长时间稳频成功。
 
 ## 修改与记录
 
@@ -23,6 +37,15 @@
 3. 每次修改完成后，向当前版本已有的 `DEVELOPMENT_LOG.md` 文件末尾追加历史记录；涉及上位机时，也向已有 `software/redpitaya_lock_host/docs/DEVELOPMENT_LOG.md` 文件末尾追加。
 4. 未得到用户实验反馈时，只能写“代码完成但等待验证”或“等待验证”，不得写成硬件、锁定或长期稳定性已经通过。
 5. 纯 GUI/上位机修改与 FPGA RTL、Vivado、bitstream、烧录是不同验证层级。没有改动 RTL、Vivado 工程、寄存器语义或 bitstream 时，不得要求或声称需要重新 Vivado、生成 bitstream 或烧录。
+6. `AGENTS.md` 只记录长期稳定规则；`AI_REVIEW_README.md` 只作为项目入口；`CURRENT_REVIEW_MANIFEST.md` 只记录当前权威审查范围；动态状态只写 `STATUS.md` 顶部；具体过程只追加到 `DEVELOPMENT_LOG.md`。
+7. `version/AI_STRICT_REVIEW_ENTRY.md` 只作为严格审查模板，其中的旧文字或冲突不得覆盖 STATUS 顶部与当前代码事实。
+
+## 最小开发与分层验证
+
+1. 只修改本轮目标所需文件；禁止顺便重构、全文件格式化、测试数据特判、删除/skip/xfail 安全测试或降低安全检查。
+2. 验证必须依次执行：`tabnanny`、`py_compile`、`pytest --collect-only`、targeted pytest、当前测试文件、完整 software tests、`git diff --check`。
+3. 任一级失败时停止扩大范围，只修复该级真实错误；只有全部实际验证完成后才能把准确命令和结果写入 STATUS 与日志。
+4. 未经用户授权不运行 Vivado、不生成或烧录 bitstream、不修改 RTL、寄存器地址/语义、`MAGIC` 或 `VERSION`。
 
 ## 工具与实验边界
 
@@ -45,7 +68,9 @@ git diff --cached --name-only
 
 ## 完成交接
 
-完成时说明：实际修改文件、验证结果与未运行项、用户下一步实验操作、PASS/FAIL 判据、必须 SAFE 条件，以及下一步唯一任务。没有用户实验反馈时，结论必须止于“等待验证”。
+完成时输出标准交接包：任务名称；仓库/branch/initial HEAD/final HEAD/origin/main/工作区；实际读取文件；任务边界；修改文件及关键变化；根因；当前上位机能力；整个项目进度；证据等级表；完整测试命令与真实结果；用户已验证与未验证内容；未修改边界；阶段结论；下一步唯一动作；新窗口启动说明。没有用户实验反馈时，结论必须止于“等待验证”。
+
+新窗口启动说明统一为：读取 `AI_REVIEW_README.md`、`version/CURRENT_REVIEW_MANIFEST.md`、`version/STATUS.md` 顶部、`AGENTS.md` 和相关 `DEVELOPMENT_LOG.md` 末尾，然后根据上一交接包继续当前唯一动作。
 
 ## Project Skill（已移除）
 

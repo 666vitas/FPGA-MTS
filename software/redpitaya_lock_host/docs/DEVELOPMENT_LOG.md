@@ -692,3 +692,100 @@ Confirmed project boundary:
 - 本轮只完成上位机软件验证；真实 GUI 和上板实验尚未执行，等待验证。未修改 RTL、Vivado、寄存器或 bitstream，未运行 Vivado，未生成 bitstream，未烧录。
 - 用户验证：启动上位机后执行安全的 capture 显示检查，在 OUT2 counts 与 time(ms) 间切换，确认 target/zero marker 不偏移，target window 中心与 target marker 一致，时间轴窗口宽度合理。
 - PASS：两种 X 轴下 marker/region 正确且 BASIC LOCK capture 后仍停在 `CANDIDATE_FOUND` 等待人工点击和 Confirm。FAIL：region 数量级异常、marker 偏移、自动 Confirm/LOCK HERE，或任何 OUT2 越界、saturation、通信/MAGIC/VERSION 异常。必须 SAFE：出现上述硬件异常、异常跳变、反馈方向疑似错误，或准备连接禁止端口/并联输出时，立即停止并执行 SAFE。
+
+## 2026-07-15 - 专用数字示波器与 Direct ERROR 人工锁点
+
+### 执行信息
+
+- Agent：Codex。
+- branch：detached HEAD；当前提交与 GitHub `main` 一致。
+- initial HEAD：`d63a2b7610865d1ee8274e640ec485211a891a74`。
+- origin/main：`d63a2b7610865d1ee8274e640ec485211a891a74`；首次 fetch TLS EOF，随后 `git ls-remote` 实时确认。
+- initial working tree：clean，无 rebase/merge；未自动 commit 或 push。
+
+### 本轮目标
+
+统一 Codex / Claude Code 的长期开发、验证、状态记录和交接流程；将上位机主实验界面收敛为 FPGA-MTS 专用数字示波器，同时保留并强化人工选点、Confirm 和最小 P-only 安全路径。
+
+### 修改前问题
+
+主界面仍是左侧多页开发调试面板加右侧 plot；正常实验视图显示 raw counts、原始浮点 gain 和无量纲 position；默认 X 轴为 OUT2 counts；人工选点仅有 CH1 assisted 入口，操作按钮分散在 Advanced 中；长期流程文件未完整固化证据等级、分层验证和标准交接格式。
+
+### 根本原因
+
+现有 UI 是多轮 bring-up 功能逐步叠加形成，工程参数、寄存器诊断和实验操作没有明确分层；显示副本已有基础，但缺少物理 volts/div 模型和主界面电压摘要；选点 resolver 只有“CH1 peak -> nearby CH3 zero”路径，缺少实验用户直接点击 CH3 过零的入口。
+
+### 修改文件
+
+- `AGENTS.md`
+- `AI_REVIEW_README.md`
+- `software/redpitaya_lock_host/redpitaya_lock_host/main_window.py`
+- `software/redpitaya_lock_host/tests/test_custom_fpga_backend.py`
+- `version/STATUS.md`
+- `software/redpitaya_lock_host/docs/DEVELOPMENT_LOG.md`
+
+### 关键实现
+
+- `AGENTS.md`：固化读取顺序、Git 安全、证据等级、最小开发、七层验证、文档职责和标准交接；继续明确不使用自定义 skill。
+- `AI_REVIEW_README.md`：收敛为新 Agent 简明入口；动态状态只指向 STATUS 顶部，历史只指向开发日志，严格模板不覆盖当前代码事实。
+- `format_scope_voltage()` / `format_volts_per_div()` / `choose_scope_volts_per_div()`：提供 ideal counts-to-voltage 显示和 1/2/5 volts/div 档位。
+- `_build_ui()`：主界面改为顶部四通道卡、中间 Time Scope、底部 capture/scan/lock 操作栏；原连接、寄存器、counts 和诊断面板整体移入默认折叠的 `Advanced / Engineer Details`。
+- `_build_plots()`：默认 `time (ms)`，CH4 黄色、CH3 蓝色、CH1 绿色、CH2 橙色；每通道独立 Visible、Volts/Div、Position、Channel Auto 和 ground line；raw gain 控件只留在 Engineer Details。
+- `_update_channel_cards()` / `_update_scope_timebase_summary()`：主界面只显示 Vpp/min/max/mean/DC offset、mV/div/V/div、time/div、window、sample rate、scan period 和 cycles；硬件校准限制写入 tooltip。
+- `_auto_set_scope_channel()` / `_apply_scope_default_layout()`：按当前 Vpp 选 volts/div 并恢复 CH4/CH3/CH1 分层，保持 CH2 隐藏；不改 raw capture、FPGA、scan 或 lock 参数。
+- `resolve_direct_error_zero_crossing()`：在点击附近选择最近有效 CH3 过零，检查 capture edge、局部 slope、CH4 ramp direction、PZT safe range 和 saturation，只返回 pending 所需字段。
+- `_on_custom_scope_clicked()`：默认 Direct ERROR；Advanced 可切换 CH1 Peak Assisted。点击只创建 pending，Confirm 才创建 selected。
+- `_start_custom_fpga_operation()` / `_on_polarity_selection_changed()`：首次 `LOCK HERE` 强制 Kp=0；非零已应用 Kp 时阻止直接改变 polarity；非零 APPLY P 需已有成功 Kp=0 LOCK HERE。
+
+### 保留行为
+
+保留 raw capture、CSV/PNG、time/index、MAGIC/VERSION、saturation、OUT2 safe range、pending/selected、Confirm、LOCK HERE 守卫、Kp 0/4/8/16/32、BASIC LOCK `CANDIDATE_FOUND` 停点、新 capture 清除选择、Capture Once、Live 防重入、失败停 Live 和窗口关闭 SAFE。未增加自动 Confirm、自动 LOCK HERE、自动 APPLY P、自动 Kp/polarity 或自动重锁。
+
+### 安全边界
+
+未修改 RTL、Vivado 工程、寄存器地址/语义、`MAGIC`、`VERSION` 或 bitstream；未运行 Vivado、未生成或烧录 bitstream。OUT2 只允许连接激光器专用 PZT / Scan 输入；禁止电流调制、D2-125 Servo/Aux Output 和任何输出端并联。通信、身份、saturation、OUT2 越界、异常跳变或方向疑似错误时立即 SAFE。
+
+### 测试命令
+
+```powershell
+.\.venv\Scripts\python.exe -m tabnanny redpitaya_lock_host\main_window.py tests\test_custom_fpga_backend.py
+.\.venv\Scripts\python.exe -m py_compile redpitaya_lock_host\main_window.py tests\test_custom_fpga_backend.py
+.\.venv\Scripts\python.exe -m pytest --collect-only -q tests/test_custom_fpga_backend.py
+.\.venv\Scripts\python.exe -m pytest -q tests/test_custom_fpga_backend.py -k "scope or voltage or channel or lock_point or confirm or lock_here or safety"
+.\.venv\Scripts\python.exe -m pytest -q tests/test_custom_fpga_backend.py
+.\.venv\Scripts\python.exe -m pytest -q tests
+.\.venv\Scripts\python.exe -m py_compile redpitaya_lock_host\main_window.py redpitaya_lock_host\waveform_plot.py redpitaya_lock_host\custom_fpga_backend.py redpitaya_lock_host\connection_workers.py scripts\custom_fpga_scan_control.py
+git diff --check
+```
+
+### 测试结果
+
+- tabnanny：通过，无输出。
+- target py_compile：通过。
+- collect：`72 tests collected`。
+- targeted：最终 `39 passed, 33 deselected`。
+- current file：`72 passed`。
+- full tests：`78 passed, 4 subtests passed`。
+- full py_compile：通过。
+- `git diff --check`：无输出。
+- 1600x950 离屏布局截图：三段式布局无明显重叠；离屏字体缺失显示方框，不作为真实 Windows GUI 验证。
+
+### 用户已验证
+
+[USER GUI VERIFIED] 既有真实 GUI 已显示 Red Pitaya time(ms) capture、CH4 重复三角扫描、CH3 非零 laser_error、CH1 非零 PD/IN1，并可在约 100 ms 内观察多个周期。本轮新布局尚未由用户验证。
+
+### 尚未验证
+
+新 GUI 的真实 Windows 字体/DPI/交互、ideal 电压与 Keysight 一致性、Direct ERROR 真实点击、pending/Confirm、LOCK HERE、Kp=0 无跳变、polarity、非零 Kp P-only、真实激光闭环和长期稳频均未验证。
+
+### 当前证据等级
+
+工作流、专用示波器代码、Direct ERROR、Confirm/Kp/polarity 守卫为 `[AUTOMATED VERIFIED]`；既有真实 capture 显示为 `[USER GUI VERIFIED]`；真实锁点与闭环为 `[NOT VERIFIED]`。
+
+### 当前阶段结论
+
+`CODE PASS / WAITING GUI`
+
+### 下一步唯一动作
+
+用户在真实 Windows GUI 和当前 Red Pitaya capture 下使用默认 `Direct ERROR Zero Crossing` 选择一个 CH3 过零点并点击 `CONFIRM`，只检查 marker、候选电压和 selected 参数，不执行 `LOCK HERE`。
