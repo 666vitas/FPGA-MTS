@@ -2016,9 +2016,6 @@ class MainWindow(QMainWindow):
         self._append_connection_log(message)
         self.custom_warning_text.setPlainText(message)
         self._set_connection_state(CUSTOM_FPGA_BUSY)
-        if self.start_mock:
-            self._restore_after_custom_fpga_operation()
-            return
         worker = CustomFpgaRegisterWorker(
             operation,
             target,
@@ -2097,12 +2094,6 @@ class MainWindow(QMainWindow):
     def _confirm_basic_lock_candidate(self) -> None:
         if self.pending_lock_point is None:
             self._basic_lock_fail("BASIC LOCK found no valid zero-crossing candidate")
-            return
-        if self.start_mock:
-            self._confirm_pending_lock_point()
-            self.custom_kp.setCurrentText("0")
-            self.basic_lock_queue = ["lock"]
-            self._continue_basic_lock()
             return
         reply = QMessageBox.question(
             self,
