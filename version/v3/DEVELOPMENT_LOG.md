@@ -101,3 +101,21 @@
 - PASS：CH1/CH3 不再被 OUT2 压缩，原始 stats/保存/选点不变，`Scope Default` 正常。FAIL：显示控件改写原始数据或参数、marker 偏移、capture 返回数据但图空白，或 OUT2 异常。
 - 必须 SAFE：OUT2 越界或接近 limit、saturation、通信失败、MAGIC/VERSION 异常、异常跳变、反馈方向疑似错误或准备连接禁止端口/并联输出时。
 - 下一步唯一任务：用户上板验证 Custom FPGA Scope 分层显示与人工选点 marker 映射。
+
+## 2026-07-15 v3LOCK-P0 RTL/上位机电压映射只读审查与硬件校准方案
+
+- 本轮目标：不开发新锁定功能，只审查 ADC -> mixer -> LPF -> `laser_error` -> OUT1、`selected_out2` -> OUT2，以及 FPGA register -> backend -> GUI -> physical voltage 的完整数据链；为第一次 P-only 前的硬件校准建立最小 SOP。
+- Git 基线：detached HEAD；`HEAD=origin/main=9417832e147f4d87b142ba608c192a77f304a554`。初始工作区已有用户未跟踪 `.claude/`，已保留且未纳入任务。
+- RTL 结论：ADC 从 `adc_dat_i[15:2]` 取得 14 bit 并转换为 signed；mixer 为 `14x14 -> 28 bit -> >>>13 -> signed14`；LPF 为 32-bit accumulator、12 个 fractional-count bits、DC 增益约 1；`laser_error` 为 signed14 internal counts；OUT1 直接取 `laser_error`，OUT2 直接取 `selected_out2`，`laser_control` 不进入当前 OUT2。
+- 理论式：`laser_error_count ~= LPF(pd_count * ref_count / 8192)`；同频正弦的 DC 还包含 `cos(phi)/2`。REF 幅值/相位、LPF 频响、截断和饱和都会改变幅值，不能把 `laser_error` 当作 IN1 电压原样换算。
+- 映射结论：CH1/2/3/4 capture 都是 14-bit pre-analog counts；寄存器 sign-extend 到 32 bit，remote helper 用 `to_signed14()` 恢复，backend 不缩放，GUI 原始数组仍是 counts。plot Y 轴为 display-only `div`；CSV 保留 raw counts 和 nominal `time_s`。
+- 电压风险：active backend/helper 统一使用 `COUNTS_PER_VOLT=8191.0`；Red Pitaya 官方 14-bit LV raw ADC 理想 divisor 为 8192。更关键的是当前 custom ADC/DAC 路径没有 per-channel gain/offset/LV-HV/load 校准；50 ohm 与 Hi-Z/PZT 负载可能产生显著不同的物理电压。GUI 电压只能视为 ideal estimate，不能视为真实电压。
+- 时间风险：`time_s=index*decimation/125e6` 是 nominal relative time；RTL 的 ramp position update 在 divider tick 后还有 `update_pending` 周期，实际 step interval 约为 `(update_div+1)/clk`。真实 scan period 必须由 capture/scope 测量。
+- 硬件校准设计：复用现有 `MODE=2 HOLD`，不新增 mode。只接 OUT2 到 scope，记录 50 ohm/Hi-Z、探头和线缆；对 `0, +/-1024, +/-2048, +/-4096 counts` 逐点执行 `SAFE -> exact HOLD -> readback/CH4/scope -> SAFE`，再覆盖计划 scan min/center/max。拟合 `V=a*C+b`，得到 `DAC_count_per_volt_OUT2=1/a` 与 `zero_offset_OUT2=b`。
+- PASS：readback 与命令 count 一致、正确极性/单调、无 saturation/削顶、重复性满足 scope 规格、`R^2>=0.999`、最大残差不超过实测 span 1%、计划区间保留 PZT 安全余量。任何通信/身份异常、越界、跳变、readback 不符或未解释的负载倍数差都 FAIL 并立即 SAFE。
+- 第一次 P-only 前仍必须取得三项板上数据：OUT2 `count/V + zero offset + load`；CH3 counts 对 scope OUT1 的 gain/offset/极性；实际 PZT 节点 scan 的 `Vmin/Vmax/Vpp/period/polarity` 与 CH4 counts 对应关系。三项当前均为 `[NOT VERIFIED]`。
+- 自动化：`tabnanny`、`py_compile` 通过；收集 `75 tests`；targeted `31 passed, 44 deselected`；当前文件 `75 passed`；完整 software tests `81 passed, 4 subtests passed`。pytest 仅有 sandbox 无权创建 `.pytest_cache` 的 warning，不影响测试结果。
+- `git diff --check` 通过；`version/AI_STRICT_REVIEW_ENTRY.md` 的既有 merge conflict markers/旧状态仅作为已知文档污染报告，本轮未修改且未用于覆盖当前 RTL/STATUS。
+- 未修改 RTL、Vivado 工程、寄存器地址/语义、`MAGIC`、`VERSION`、bitstream 或 Python；未运行 Vivado、未生成/烧录 bitstream、未连接板卡、未执行 LOCK HERE/P-only。
+- 阶段结论：`CODE/TRACE PASS / PHYSICAL VOLTAGE NOT CALIBRATED / WAITING BOARD EXPERIMENT`。
+- 下一步唯一动作：只接 OUT2 到示波器，用 MODE=2 HOLD 完成 exact-count 多点测量，先得到 `DAC_count_per_volt_OUT2` 和 `zero_offset_OUT2`。

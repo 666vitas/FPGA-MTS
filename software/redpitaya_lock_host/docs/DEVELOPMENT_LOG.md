@@ -789,3 +789,18 @@ git diff --check
 ### 下一步唯一动作
 
 用户在真实 Windows GUI 和当前 Red Pitaya capture 下使用默认 `Direct ERROR Zero Crossing` 选择一个 CH3 过零点并点击 `CONFIRM`，只检查 marker、候选电压和 selected 参数，不执行 `LOCK HERE`。
+
+## 2026-07-15 v3LOCK-P0 上位机 count/电压映射审查与校准前置
+
+- 本轮只读追踪 `custom_debug_capture -> CAPTURE_DATA_CH1..CH4 -> /dev/mem -> to_signed14 -> backend payload -> main_window`。14-bit signed counts 经 FPGA sign-extend 读回，helper 恢复 signed14，backend 不改变 capture 数值，GUI `custom_scope_data` 保留 raw counts；CSV 保存 nominal `time_s` 和四路 counts。
+- `COUNTS_PER_VOLT` 在 active backend 与 helper 中均为 `8191.0`；状态 JSON、channel card、volts/div 和锁点 PZT 值都由 `count/8191` 产生。Red Pitaya 官方对 STEMlab 125-14 LV raw ADC 的理想 divisor 为 8192；当前 8191 是 host 安全限幅约定，不是板卡实测校准。
+- GUI 波形 Y 轴是 `Channel position (div)`；每通道执行 display-only center/gain/position，不修改 raw count。主界面默认隐藏 counts，只显示 nominal mV/V；tooltip 虽注明 hardware calibration not verified，但部分状态/锁点文本直接写 `V`，仍有被误读为真实电压的风险。
+- 当前 custom ADC/DAC 路径没有 per-channel gain、offset、LV/HV jumper、frequency equalization 或 load correction。CH1/CH2 是 raw ADC counts；CH3/CH4 是 pre-DAC internal counts。真实 OUT1/OUT2 电压必须由 scope 在当前负载下实测；50 ohm 与 Hi-Z/PZT 结果不可混用。
+- `time_s=index*decimation/125e6` 的秒/ms/sample-index 换算一致，但属于 125 MHz nominal relative time；GUI scan label 是命令值，不替代 scope period。
+- 当前可信边界：raw counts、通道身份、寄存器/JSON/GUI 数值传递和相对波形形状可作为代码链证据；GUI 绝对 mV/V、ADC 输入物理 V、OUT1/OUT2 物理 V 均为 `[NOT VERIFIED]`。
+- 最小硬件校准不新增功能：复用 `MODE=2 HOLD`，只接 OUT2 到 scope，对 `0, +/-1024, +/-2048, +/-4096 counts` 和计划 scan min/center/max 做 exact-count/readback/scope 多点测量，拟合 `V=a*C+b`，得到 `DAC_count_per_volt_OUT2=1/a` 与 `zero_offset_OUT2=b`。
+- 必须记录 scope 50 ohm/Hi-Z、探头、线缆、每点 `HOLD_VALUE`、`OUT2_MONITOR`、CH4 count、scope mean V、重复性、saturation。异常、越界、身份/通信失败、随机跳变或 readback 不符立即 SAFE。
+- 软件回归：`tabnanny`、`py_compile` 通过；`75 tests collected`；targeted `31 passed, 44 deselected`；当前文件 `75 passed`；完整 `81 passed, 4 subtests passed`。pytest 仅有无法创建 `.pytest_cache` 的 sandbox warning。
+- `git diff --check` 通过，无输出。
+- 未修改 Python、RTL、Vivado、寄存器或 bitstream；未运行 Vivado；未进行新的 GUI/板卡/闭环实验。
+- 下一步唯一动作：完成 OUT2 MODE=2 HOLD 的 scope exact-count 校准；在 count/V 和 zero offset 得到前，不执行 LOCK HERE 或非零 Kp。

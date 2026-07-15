@@ -1,5 +1,179 @@
 # STATUS
 
+## 2026-07-15 v3LOCK-P0 RTL/电压映射只读审查与硬件校准方案
+
+### Git 基线与任务边界
+
+- 仓库：`666vitas/FPGA-MTS`；branch：detached HEAD。
+- initial/final HEAD：`9417832e147f4d87b142ba608c192a77f304a554`；本轮 `git fetch origin` 后 `origin/main` 为同一提交。
+- 初始工作区已有用户未跟踪目录 `.claude/`；本轮保留、不读取为当前证据、不修改、不清理、不纳入任务。
+- 当前阶段：v3LOCK-P0 数据链验证；不开发新锁定功能，不进入 PI、AI、自动 polarity、自动加 Kp、自动重锁或长期稳频。
+- 本轮只读审查当前 RTL、寄存器、backend、GUI 和测试；只更新本 STATUS 与两份现有 `DEVELOPMENT_LOG.md`。未修改 RTL、Vivado 工程、寄存器地址/语义、`MAGIC`、`VERSION`、bitstream 或 Python。
+- `version/AI_STRICT_REVIEW_ENTRY.md` 仍含既有 merge conflict markers 和过期 v3LOCK-P0 文字；本轮按 Manifest 只读取其规则，不修复、不用其旧状态覆盖当前 RTL/STATUS。
+- 未运行 Vivado、未生成/烧录 bitstream、未连接板卡、未执行新的物理实验。
+
+### 任务 A：当前 RTL 数据流
+
+```text
+physical IN1 / IN2
+  -> adc_dat_i[15:2]                         14-bit ADC raw, low 2 padding bits discarded
+  -> keep raw sign bit, invert lower 13 bits 14-bit signed adc_dat[0/1]
+  -> mixer_core: pd * ref                    14 x 14 -> 28-bit signed product
+  -> arithmetic >>> 13 + saturation          14-bit signed mixer_signal
+  -> lpf_core: first-order IIR                32-bit accumulator, 12 fractional-count bits
+  -> arithmetic >>> 12 + saturation          14-bit signed lpf_signal
+  -> OUTPUT_MODE=3 + output_protect           14-bit signed laser_error
+       |-> custom_debug_capture CH3
+       |-> ERROR_MONITOR / ERROR_SETPOINT path
+       `-> DAC A / OUT1 pre-DAC code
+
+scan_offset/amp/step/limit -> ramp_generator 15-bit internal arithmetic -> 14-bit scan_out2
+lock_error(14) * Kp(14) -> 29-bit product -> >>> 8 -> 32-bit correction + 14-bit bias
+SAFE / SCAN / HOLD / P_LOCK selector -> 14-bit signed selected_out2
+       |-> OUT2_MONITOR / custom_debug_capture CH4
+       `-> DAC B / OUT2 pre-DAC code
+
+laser_error / selected_out2
+  -> sign-extend 14 -> 15 -> existing saturation -> 14-bit signed DAC code
+  -> negative-slope signed/DAC pin encoding -> ODDR -> physical OUT1 / OUT2
+```
+
+- `USE_LASER_LOCK_CORE=1`、`LASER_LOCK_OUTPUT_MODE=3`、`LASER_LOCK_CONTROL_PATH_MODE=1`；`laser_control` 仍被编译，但不进入当前 OUT2。当前 OUT2 唯一最终源是 `selected_out2`。
+- `custom_debug_capture`：CH1=`adc_dat[0]`、CH2=`adc_dat[1]`、CH3=`laser_error`、CH4=`selected_out2`；四路都是 DAC/ADC 内部的 14-bit signed pre-analog counts，不是物理端口电压测量。
+- `redpitaya.xpr` 的活动 top 是 `v0.94/rtl/red_pitaya_top.sv`；工程 imports 中的旧 `red_pitaya_top.sv` 条目为 `UserDisabled=1`。
+
+### 位宽、固定点与理论缩放
+
+| 节点 | 位宽 | 代码语义 | 归一化/Q 解释 |
+|---|---:|---|---|
+| `adc_dat_i` | 16 | ADC 引脚数据，最低 2 bit 为 padding | 取 `[15:2]` 后进入 14-bit 域 |
+| `adc_dat`, `pd_i`, `ref_i` | signed 14 | 原始 ADC counts，范围可达 `-8192..8191` | 代码本身是 S14.0 counts；按理想满量程归一化可视为 signed Q1.13，即 `real_FS=count/8192` |
+| `product_w` | signed 28 | `pd_count * ref_count`，单位 count² | 归一化解释为 Q2.26 |
+| `scaled_w` / `mix_o` | 28 / signed 14 | `product >>> 13` 后饱和回 counts | `mix_count=floor_arith(pd*ref/8192)`；回到 Q1.13/count 域，无四舍五入 |
+| LPF `acc_q` | signed 32 | `x<<12` 后的一阶 IIR 状态 | `acc_real_count=acc_q/4096`，即 12 个 fractional-count bits；`alpha=1/4096` |
+| `lpf_signal` / `laser_error` | signed 14 | LPF 输出、OUT1/CH3 内部 code | S14.0 counts / 归一化 Q1.13；不是 ADC 输入电压，也不是已校准 OUT1 电压 |
+| `error_setpoint` / `lock_error` | signed 14 | 同一 error count 域；减法先扩为 15 bit 再饱和 | S14.0 counts |
+| `kp_i` | signed 14 | P-only 增益字 | 因 `>>>8`，实际比例为 `Kp/256`，可视为 signed Q6.8；当前 `Ki` 不参与输出 |
+| P product / correction / bias sum | 29 / 32 / 32 | P product、限幅 correction、`LOCK_BIAS+correction` | 最后饱和/截取回 14-bit selected_out2 counts |
+| `scan_out2` / `selected_out2` | signed 14 | OUT2 pre-DAC counts | S14.0 counts / nominal Q1.13 |
+| 寄存器 readback | 32 | 14-bit 值在 FPGA 内 sign-extend；host 再以 low 14 bit 解 signed | 数值应与内部 count 一致，不增加精度 |
+
+理论关系：
+
+```text
+laser_error_count ~= LPF( pd_count * ref_count / 8192 )
+```
+
+若 IN1/IN2 都是同频正弦、峰值分别为 `A_pd` / `A_ref` counts、相位差为 `phi`，理想 LPF 后 DC 约为：
+
+```text
+laser_error_DC_count ~= A_pd * A_ref * cos(phi) / (2 * 8192)
+```
+
+因此 `laser_error` 幅值同时依赖 IN1 幅值、REF 幅值、相位和 LPF 频响；它不是“IN1 电压原样换算”。
+
+### 可能导致幅值/时间偏差的位置
+
+1. **ADC 原始路径无通道校准**：自定义 core 直接使用 `adc_dat`，当前路径中没有 EEPROM/API 的 ADC gain、offset、LV/HV 或频率均衡参数。IN1/IN2 jumper 若为 HV，统一按 +/-1 V 显示会产生量级错误。
+2. **mixer 固定缩放和相位**：`>>>13` 保持归一化 count 尺度，但乘法输出随 REF 实际幅值线性变化；正弦同频乘法天然有 `1/2` 和 `cos(phi)`；算术右移不四舍五入，负数存在最多约 1 count 的取整偏差。
+3. **LPF 频响**：DC 增益约 1，但 `LPF_SHIFT=12` 对应 `alpha=1/4096`，按 125 MHz 名义时钟的一阶近似截止频率约 4.86 kHz；非 DC error 分量会衰减/移相。输出再次按 count 截断。
+4. **GUI divisor 不等于官方理想 ADC divisor**：active backend 和 helper 都定义 `COUNTS_PER_VOLT=8191.0`；Red Pitaya 官方对 STEMlab 125-14 LV raw ADC 的理想公式是 `V=RAW/8192`。当前 8191 约定与 host 的 `+/-8191` 安全限幅内部自洽，但对 ADC 是 1-count endpoint convention，不是硬件校准。
+5. **DAC 原始路径无通道校准**：`laser_error`/`selected_out2` 直接进入 DAC 编码，当前 custom path 没有 OUT1/OUT2 per-channel gain/offset 系数。物理输出还受板卡个体误差、温漂、线缆、scope 精度和负载影响。
+6. **50 ohm / Hi-Z 负载**：STEMlab 125-14 原代 DAC 输出阻抗/标称负载为 50 ohm；同一 count 在 scope 50 ohm 与 1 Mohm/PZT 高阻负载下可能得到显著不同电压。校准结果必须连同负载方式记录，不能跨负载直接复用。
+7. **scan 周期是名义值**：GUI `time_s=index*decimation/125e6`，单位换算本身一致，但它假定 ADC 时钟恰为 125 MHz。另由 RTL 周期检查，`ramp_generator` 的一次 position update 经过 divider tick 后还有一个 `update_pending` 周期，实际 step interval 约为 `(update_div+1)/clk`；当前 host 频率公式按 `update_div/clk` 计算。低速扫描误差很小，但真实 period 必须由 capture/scope 测量，不能只信 GUI command label。
+
+### 任务 B：raw count -> register -> backend -> GUI -> physical voltage
+
+```text
+FPGA internal signed14 sample/count
+  -> custom_debug_capture BRAM signed14
+  -> CAPTURE_DATA_CH1..CH4: sign-extended 32-bit register read
+  -> /dev/mem reads uint32
+  -> helper to_signed14(): mask 0x3FFF and two's-complement decode
+  -> JSON ch1_counts..ch4_counts (Python int)
+  -> backend payload unchanged
+  -> GUI custom_scope_data (float array, numeric value still raw count)
+  -> display copy: (raw-center)/(8191*V_per_div)+position
+  -> channel cards/stats: raw/8191 -> mV or V marked partly as ideal
+  -> physical ADC/DAC voltage: NOT measured; requires per-channel offset/gain/load calibration
+```
+
+- [IMPLEMENTED] register/backend/GUI 的 count 数值链没有额外缩放；CSV 保存 `time_s` 与四路原始 counts。
+- [IMPLEMENTED] 波形 plot 的 Y 轴是 `Channel position (div)`，不是物理 V；曲线使用居中后的 display copy，原始 counts 保留用于 stats/选点/CSV。
+- [IMPLEMENTED] `mV` 仅由 nominal V 乘 1000；未发现把 mV 再当 V 的重复换算。
+- [IMPLEMENTED] `time(ms)` 来自 `sample_index * decimation / 125e6 * 1000`；sample index、seconds、milliseconds 在当前 capture render 中未混用。
+- [RISK] 主界面通道卡默认隐藏 counts，只显示按 8191 换算的 Vpp；tooltip 才说明 `hardware calibration not yet verified`。部分状态/锁点文本直接显示 `V` 而不是 `V ideal`。因此 operator-facing 数字很容易被误读为真实电压。
+- [NOT VERIFIED] CH1/CH2 的 `count -> physical input V`、CH3/OUT1 和 CH4/OUT2 的 `count -> physical output V` 均没有当前板卡、当前 jumper、当前负载下的实测系数。
+
+### 任务 C：最小“硬件校准模式”测试方案（仅设计，不实现）
+
+复用现有 `MODE=2 HOLD`，不新增 RTL mode、不改寄存器、不改 GUI、不重新 Vivado。校准对象先限定为 OUT2 DAC；PZT 暂不连接。
+
+#### 接线与前置条件
+
+1. 只连接 `OUT2 -> oscilloscope`；禁止连接激光器电流调制、D2-125 Servo Output、D2-125 Aux Output，禁止任何输出端并联。
+2. 明确记录 scope 输入为 `50 ohm` 或 `1 Mohm/Hi-Z`、探头倍率、带宽限制和 DC coupling；此负载信息是校准结果的一部分。
+3. 先读回 `MAGIC=0x4D545330`、`VERSION=0x00030001`，执行 SAFE，并确认 scope 上 OUT2 接近 0 V、无随机跳变。
+
+#### exact-count HOLD 序列
+
+每个点都执行 `SAFE -> 写 HOLD_VALUE=C -> MODE=2 -> ENABLE=1 -> readback -> scope 测量 -> SAFE`；必须同时记录 `HOLD_VALUE`、`OUT2_MONITOR`、CH4 count 和 scope DC mean。
+
+```text
+第一组：C = 0, +1024, -1024, +2048, -2048, +4096, -4096 counts
+第二组（第一组 PASS 后、仍只接 scope）：覆盖计划扫描区间的 min / center / max counts
+每点重复 3 次；任何一次 saturation、越界、异常跳变或 readback != C，立即 SAFE 并停止。
+```
+
+拟合：
+
+```text
+V_meas = a_out2 * C + b_out2
+DAC_count_per_volt_OUT2 = 1 / a_out2
+zero_offset_OUT2 = b_out2
+
+对称点快速检查：
+DAC_count_per_volt_OUT2(C) = 2*C / (V(+C) - V(-C))
+zero_offset_OUT2(C) = (V(+C) + V(-C)) / 2
+```
+
+PASS：readback/CH4 与命令 count 一致；极性正确且单调；无 saturation/削顶；重复值在 scope 规格允许的不确定度内；线性拟合 `R^2 >= 0.999` 且最大残差不超过实测 span 的 1%；计划扫描区间在 PZT 安全电压内保留明确余量。FAIL：出现约 2 倍负载差而未解释、非单调、明显零偏漂移、readback 不一致、残差超限、输出越界/跳变或任何通信/身份异常。
+
+### 第一次真实 P-only 实验前必须确认的 3 个数据
+
+1. **OUT2 count 对应真实电压**：[NOT VERIFIED] 记录 `DAC_count_per_volt_OUT2`、`zero_offset_OUT2`、scope 负载/探头/线缆，以及计划 scan min/center/max 的真实 V。
+2. **OUT1 error 对应真实误差信号**：[NOT VERIFIED] 同步记录 CH3 `laser_error` counts 与 scope OUT1 的 mean/Vpp/极性，拟合 `V_OUT1=a_out1*CH3_count+b_out1`；若要与输入物理电压理论值比较，还必须先确认 IN1/IN2 LV/HV 和 ADC gain/offset。
+3. **scan waveform 对应 PZT 输入变化**：[NOT VERIFIED] OUT2 scope-only 校准 PASS 后，才把 OUT2 单独接激光器专用 PZT/Scan 输入，并用 Hi-Z 测量实际 PZT 节点的 `Vmin/Vmax/Vpp/period/polarity`，同时保存 CH4 counts；禁止连接电流调制端或任何输出端并联。
+
+### 当前能否相信 GUI 显示电压
+
+结论：**不能把当前 GUI 的 mV/V 当作真实物理电压；只能相信其为基于 raw count 的 nominal/ideal estimate。**
+
+- 可相信到代码层：通道身份、raw signed counts、寄存器回读、backend 解码、GUI 原始数组和相对波形形状。
+- 暂不可相信：绝对 ADC 输入电压、绝对 OUT1/OUT2 电压、跨 50 ohm/Hi-Z 负载复用的电压、GUI 标称 scan frequency 等同于实测 period。
+- 软件测试通过只证明换算逻辑按 `8191.0` 一致执行，不证明 Keysight/scope/Red Pitaya/PZT 上的物理电压正确。
+
+### 自动化验证与证据等级
+
+- `python -m tabnanny ...`：通过，无输出。
+- `python -m py_compile ...`：通过。
+- `pytest --collect-only -q tests/test_custom_fpga_backend.py`：`75 tests collected`。
+- targeted pytest：`31 passed, 44 deselected`。
+- current file：`75 passed`。
+- full software tests：`81 passed, 4 subtests passed`。
+- pytest 均有 1 条非功能 warning：sandbox 无权创建 `.pytest_cache`；测试本身通过，未产生项目改动。
+- `git diff --check`：通过，无输出。
+- [AUTOMATED VERIFIED] Python count 解码、nominal 8191 换算、GUI display-copy/time-axis 行为按当前代码通过。
+- [USER GUI VERIFIED] 继承既有证据：真实四通道非零 capture 和 GUI 波形可见。
+- [BOARD EXPERIMENT VERIFIED] count/V、OUT1 物理 error、PZT 节点 scan：均未验证。
+- [CLOSED-LOOP VERIFIED] 未验证；本轮不执行 LOCK HERE 或非零 Kp。
+
+### 当前阶段结论与下一步唯一动作
+
+`CODE/TRACE PASS / PHYSICAL VOLTAGE NOT CALIBRATED / WAITING BOARD EXPERIMENT`
+
+下一步唯一动作：**只接 OUT2 到示波器，使用现有 MODE=2 HOLD 完成 exact-count 多点测量，产出当前负载下的 `DAC_count_per_volt_OUT2` 与 `zero_offset_OUT2`；未得到这两个数据前不进入 LOCK HERE/P-only。**
+
 ## 2026-07-15 专用示波器界面与人工锁点
 
 ### Git 基线
