@@ -1673,8 +1673,11 @@ class MainWindow(QMainWindow):
             return
         if operation == "capture":
             if self.basic_lock_candidates:
-                self.basic_status_label.setText("state: CANDIDATE_FOUND | waiting for confirmation")
-                QTimer.singleShot(0, self._confirm_basic_lock_candidate)
+                self.basic_lock_active = False
+                self.basic_lock_queue = []
+                self.basic_status_label.setText(
+                    "state: CANDIDATE_FOUND | click CH1 and Confirm Lock Point"
+                )
             else:
                 self._basic_lock_fail("BASIC LOCK failed: no valid zero-crossing candidate in current capture")
             return
@@ -1753,6 +1756,13 @@ class MainWindow(QMainWindow):
         self.custom_target_window_region.setRegion((target_x - window_counts, target_x + window_counts))
         self.custom_target_window_region.setVisible(True)
 
+    def _update_candidate_marker_positions(self) -> None:
+        for marker, candidate in zip(self.custom_candidate_markers, self.basic_lock_candidates):
+            try:
+                marker.setValue(self._scope_x_value(candidate.index))
+            except (RuntimeError, ValueError):
+                pass
+
     def _refresh_scope_display(self, key: str | None = None) -> None:
         if self._updating_scope_display_controls or self.custom_scope_data is None:
             return
@@ -1791,6 +1801,7 @@ class MainWindow(QMainWindow):
             curve.setData(x_values, display_y)
             curve.setVisible(self.custom_scope_checks[scope_key].isChecked())
         self._update_lock_point_markers(self.pending_lock_point or self.selected_lock_point)
+        self._update_candidate_marker_positions()
         self._fit_custom_scope_ranges()
         self.custom_scope_plot.update()
 
@@ -1875,7 +1886,6 @@ class MainWindow(QMainWindow):
             **selected,
             "index": zero_index,
         }
-        self.custom_target_marker.setValue(float(t[clicked_index]))
         self.pending_target_peak = {
             "index": peak_index,
             "time_s": float(t[peak_index]),
@@ -3023,3 +3033,4 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Safe shutdown warning", str(exc))
         self._unregister_safe_shutdown()
         event.accept()
+

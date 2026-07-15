@@ -587,7 +587,7 @@ def test_resolve_lock_point_result_contains_all_required_fields() -> None:
     ch1[120:140] = 90.0
     error = np.zeros(count, dtype=float)
     error[125:135] = np.linspace(-15.0, 15.0, 10)
-    out2 = np.linspace(7000, 7200, count)
+    out2 = np.linspace(6500, 7300, count)
     result = resolve_lock_point_selection(
         ch1_counts=ch1,
         error_counts=error,
@@ -970,6 +970,37 @@ def test_basic_lock_lock_here_stops_at_p_lock_kp_zero_without_auto_gain() -> Non
         app.processEvents()
 
 
+def test_basic_lock_capture_after_new_semantics_stops_queue_without_auto_confirm() -> None:
+    """After capture finds candidates, the state machine stops and waits for user click/Confirm."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+        assert window.basic_lock_candidates
+        assert window.pending_lock_point is None
+
+        window.basic_lock_active = True
+        window.basic_lock_queue = ["capture"]
+        window._continue_basic_lock_after_success("capture", {})
+
+        assert not window.basic_lock_active
+        assert window.basic_lock_queue == []
+        assert window.pending_lock_point is None
+        assert "CANDIDATE_FOUND" in window.basic_status_label.text()
+        assert "click CH1 and Confirm Lock Point" in window.basic_status_label.text()
+        assert "SAFE_FAIL" not in window.basic_status_label.text()
+    finally:
+        window.close()
+        app.processEvents()
+
+
 def test_pending_lock_point_cleared_on_new_capture() -> None:
     """A new capture resets pending_lock_point so stale selections aren't reused."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -1241,7 +1272,7 @@ def test_scope_manual_scale_and_vertical_position_only_change_display_copy() -> 
         app.processEvents()
 
 
-def test_scope_markers_keep_raw_capture_time_after_display_transform() -> None:
+def test_candidate_markers_follow_default_out2_axis_after_display_transform() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from PySide6.QtWidgets import QApplication
@@ -1257,7 +1288,32 @@ def test_scope_markers_keep_raw_capture_time_after_display_transform() -> None:
         assert window.basic_lock_candidates
         assert len(window.custom_candidate_markers) == len(window.basic_lock_candidates)
         for marker, candidate in zip(window.custom_candidate_markers, window.basic_lock_candidates):
-            assert marker.value() == window.custom_scope_data["time_s"][candidate.index]
+            assert marker.value() == float(window.custom_scope_data["ch4"][candidate.index])
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_candidate_markers_follow_time_axis_after_switch_from_default() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+
+        assert window.basic_lock_candidates
+        # Switch X axis to time (ms)
+        window.custom_scope_x_axis_combo.setCurrentText("time (ms)")
+        window._refresh_scope_display()
+
+        for marker, candidate in zip(window.custom_candidate_markers, window.basic_lock_candidates):
+            assert marker.value() == float(window.custom_scope_data["time_s"][candidate.index]) * 1000.0
     finally:
         window.close()
         app.processEvents()
@@ -1286,9 +1342,7 @@ def test_target_and_zero_markers_keep_raw_time_after_layered_display() -> None:
         window._render_custom_capture_payload(make_capture_payload())
         app.processEvents()
         clicked_index = window.basic_lock_candidates[0].index
-        raw_time = window.custom_scope_data["time_s"]
         plot_item = window.custom_scope_plot.getPlotItem()
-        # Use OUT2 counts axis for consistent scope coordinates
         out2_target = window.custom_scope_data["ch4"][clicked_index]
         scene_pos = plot_item.vb.mapViewToScene(QPointF(float(out2_target), 0.0))
         window.custom_select_target_check.setChecked(True)
@@ -1296,9 +1350,14 @@ def test_target_and_zero_markers_keep_raw_time_after_layered_display() -> None:
         window._on_custom_scope_clicked(ScopeClick(scene_pos))
 
         assert window.pending_lock_point is not None
-        # Markers use the current X axis (OUT2 counts by default)
-        assert window.custom_target_marker.value() == float(out2_target)
-        assert window.custom_zero_marker.value() == float(window.custom_scope_data["ch4"][window.pending_lock_point["index"]])
+        peak_index = int(window.pending_lock_point["selected_peak_index"])
+        zero_index = int(window.pending_lock_point["zero_crossing_index"])
+        assert window.custom_target_marker.value() == float(
+            window.custom_scope_data["ch4"][peak_index]
+        )
+        assert window.custom_zero_marker.value() == float(
+            window.custom_scope_data["ch4"][zero_index]
+        )
     finally:
         window.close()
         app.processEvents()
@@ -1478,7 +1537,71 @@ def test_custom_scope_reset_view_restores_auto_range() -> None:
         from PySide6.QtWidgets import QApplication
         from redpitaya_lock_host.main_window import MainWindow
     except ImportError:
+         return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+
+        window.custom_scope_auto_range_check.setChecked(False)
+        assert not window.custom_scope_auto_range_check.isChecked()
+
+        window._reset_custom_scope_view()
+
+        assert window.custom_scope_auto_range_check.isChecked()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_single_plot_curves_rendered_with_data_after_capture() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
         return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        payload = make_capture_payload(count=512)
+        window._render_custom_capture_payload(payload)
+
+        for key in ("ch1", "ch2", "ch3", "ch4"):
+            curve = window.custom_scope_curves[key]
+            xd = curve.xData
+            yd = curve.yData
+            assert xd is not None and len(xd) == 512, f"{key} xData wrong"
+            assert yd is not None and len(yd) == 512, f"{key} yData wrong"
+        assert not window.custom_scope_placeholder.isVisible()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_default_ch2_hidden_ch1_ch3_ch4_visible() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._render_custom_capture_payload(make_capture_payload())
+
+        assert window.custom_scope_checks["ch1"].isChecked()
+        assert window.custom_scope_checks["ch3"].isChecked()
+        assert window.custom_scope_checks["ch4"].isChecked()
+        assert not window.custom_scope_checks["ch2"].isChecked()
+    finally:
+        window.close()
+        app.processEvents()
+       return
 
     app = QApplication.instance() or QApplication([])
     window = MainWindow({}, start_mock=True)
