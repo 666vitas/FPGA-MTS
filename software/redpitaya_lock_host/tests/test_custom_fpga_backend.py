@@ -701,6 +701,30 @@ def test_live_capture_does_not_reenter_while_capture_in_flight() -> None:
         app.processEvents()
 
 
+def test_single_stops_run_and_requests_exactly_one_capture() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    calls = []
+    try:
+        window.live_capture_active = True
+        window._start_custom_fpga_operation = lambda operation, preserve_basic=False: calls.append(operation)
+
+        window._capture_once()
+
+        assert calls == ["capture"]
+        assert not window.live_capture_active
+    finally:
+        window.close()
+        app.processEvents()
+
+
 def test_live_capture_schedules_next_only_after_capture_finished() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
@@ -863,13 +887,12 @@ def test_lock_here_requires_confirmed_lock_point_not_pending_candidate() -> None
         assert window.pending_lock_point is None
         assert window.selected_lock_point is None
 
-        # Simulate user clicking on a CH1 peak to create a pending lock point
-        # Use the BASIC LOCK candidates to find a good clicking position
-        assert window.basic_lock_candidates
-        clicked_index = window.basic_lock_candidates[0].index
+        # Click the ERROR trace near a valid transition to create only a pending point.
+        clicked_index = len(window.custom_scope_data["ch3"]) // 2
         plot_item = window.custom_scope_plot.getPlotItem()
         time_target = window.custom_scope_data["time_s"][clicked_index] * 1000.0
-        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(time_target), 0.0))
+        error_y = float(window.custom_scope_display_data["ch3"][clicked_index])
+        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(time_target), error_y))
         window.custom_select_target_check.setChecked(True)
         window._on_custom_scope_clicked(ScopeClick(scene_pos))
 
@@ -916,12 +939,12 @@ def test_confirm_lock_point_promotes_pending_zero_crossing_only() -> None:
         app.processEvents()
         assert window.pending_lock_point is None  # No pending until click
 
-        # Simulate user clicking on CH1 peak
-        assert window.basic_lock_candidates
-        clicked_index = window.basic_lock_candidates[0].index
+        # Simulate user clicking directly on the ERROR trace.
+        clicked_index = len(window.custom_scope_data["ch3"]) // 2
         plot_item = window.custom_scope_plot.getPlotItem()
         time_target = window.custom_scope_data["time_s"][clicked_index] * 1000.0
-        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(time_target), 0.0))
+        error_y = float(window.custom_scope_display_data["ch3"][clicked_index])
+        scene_pos = plot_item.vb.mapViewToScene(QPointF(float(time_target), error_y))
         window.custom_select_target_check.setChecked(True)
         window._on_custom_scope_clicked(ScopeClick(scene_pos))
 
@@ -985,11 +1008,11 @@ def test_basic_lock_capture_after_new_semantics_stops_queue_without_auto_confirm
     app = QApplication.instance() or QApplication([])
     window = MainWindow({}, start_mock=True)
     try:
+        window.basic_lock_active = True
         window._render_custom_capture_payload(make_capture_payload())
         assert window.basic_lock_candidates
         assert window.pending_lock_point is None
 
-        window.basic_lock_active = True
         window.basic_lock_queue = ["capture"]
         window._continue_basic_lock_after_success("capture", {})
 
@@ -1167,8 +1190,9 @@ def test_custom_scope_render_payload_shows_curves_range_and_candidate() -> None:
         assert y_range[0] <= display_min
         assert y_range[1] >= display_max
         assert not np.array_equal(window.custom_scope_curves["ch4"].yData, ch4)
-        # BASIC LOCK candidates found
-        assert window.basic_lock_candidates
+        # Normal capture does not run or display automatic candidate search.
+        assert window.basic_lock_candidates == []
+        assert window.custom_candidate_markers == []
         assert window.selected_lock_point is None
         assert window.pending_lock_point is None  # auto-detection no longer writes pending
         # Stats show non-zero Vpp
@@ -1278,7 +1302,7 @@ def test_scope_manual_scale_and_vertical_position_only_change_display_copy() -> 
         app.processEvents()
 
 
-def test_candidate_markers_follow_default_time_axis_after_display_transform() -> None:
+def test_normal_capture_does_not_render_automatic_candidate_markers() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from PySide6.QtWidgets import QApplication
@@ -1291,16 +1315,15 @@ def test_candidate_markers_follow_default_time_axis_after_display_transform() ->
     try:
         window._render_custom_capture_payload(make_capture_payload())
 
-        assert window.basic_lock_candidates
-        assert len(window.custom_candidate_markers) == len(window.basic_lock_candidates)
-        for marker, candidate in zip(window.custom_candidate_markers, window.basic_lock_candidates):
-            assert marker.value() == float(window.custom_scope_data["time_s"][candidate.index]) * 1000.0
+        assert window.basic_lock_candidates == []
+        assert window.custom_candidate_markers == []
+        assert window.custom_scope_valid_for_selection
     finally:
         window.close()
         app.processEvents()
 
 
-def test_candidate_markers_follow_out2_axis_after_switch_from_default() -> None:
+def test_candidate_markers_remain_on_fixed_time_axis() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from PySide6.QtWidgets import QApplication
@@ -1311,14 +1334,16 @@ def test_candidate_markers_follow_out2_axis_after_switch_from_default() -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow({}, start_mock=True)
     try:
+        window.basic_lock_active = True
         window._render_custom_capture_payload(make_capture_payload())
 
         assert window.basic_lock_candidates
         window.custom_scope_x_axis_combo.setCurrentText("OUT2 counts")
         window._refresh_scope_display()
 
+        assert window.custom_scope_x_axis_combo.currentText() == "time (ms)"
         for marker, candidate in zip(window.custom_candidate_markers, window.basic_lock_candidates):
-            assert marker.value() == float(window.custom_scope_data["ch4"][candidate.index])
+            assert marker.value() == float(window.custom_scope_data["time_s"][candidate.index]) * 1000.0
     finally:
         window.close()
         app.processEvents()
@@ -1346,7 +1371,7 @@ def test_target_and_zero_markers_keep_raw_time_after_layered_display() -> None:
         window.show()
         window._render_custom_capture_payload(make_capture_payload())
         app.processEvents()
-        clicked_index = window.basic_lock_candidates[0].index
+        clicked_index = len(window.custom_scope_data["ch3"]) // 2
         plot_item = window.custom_scope_plot.getPlotItem()
         time_target = window.custom_scope_data["time_s"][clicked_index] * 1000.0
         scene_pos = plot_item.vb.mapViewToScene(QPointF(float(time_target), 0.0))
@@ -1629,15 +1654,8 @@ def test_lock_point_target_window_uses_current_x_axis_units() -> None:
             "target_window_counts": window_counts,
         }
 
-        window.custom_scope_x_axis_combo.setCurrentText("OUT2 counts")
-        window._update_lock_point_markers(lock_point)
-        counts_region = window.custom_target_window_region.getRegion()
-        counts_target = float(window.custom_scope_data["ch4"][target_index])
-        assert np.isclose(window.custom_target_marker.value(), counts_target)
-        assert np.isclose((counts_region[0] + counts_region[1]) / 2.0, counts_target)
-        assert np.isclose((counts_region[1] - counts_region[0]) / 2.0, window_counts)
-
-        window.custom_scope_x_axis_combo.setCurrentText("time (ms)")
+        assert window.custom_scope_x_axis_combo.count() == 1
+        assert window.custom_scope_x_axis_combo.currentText() == "time (ms)"
         window._update_lock_point_markers(lock_point)
         time_region = window.custom_target_window_region.getRegion()
         time_target = float(window.custom_scope_data["time_s"][target_index]) * 1000.0
@@ -1668,7 +1686,7 @@ def test_scope_voltage_format_and_volts_per_div_steps() -> None:
 def test_project_scope_defaults_hide_counts_and_engineer_details() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
-        from PySide6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication, QGroupBox, QLabel, QPushButton
         from redpitaya_lock_host.main_window import MainWindow
     except ImportError:
         return
@@ -1676,29 +1694,52 @@ def test_project_scope_defaults_hide_counts_and_engineer_details() -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow({}, start_mock=True)
     try:
+        window.show()
         window._render_custom_capture_payload(make_capture_payload())
+        app.processEvents()
 
         assert window.custom_scope_x_axis_combo.currentText() == "time (ms)"
-        assert not window.engineer_details_group.isChecked()
-        assert not window.engineer_details_body.isVisible()
-        assert window.engineer_details_body.isAncestorOf(window.custom_scope_stats)
+        assert window.custom_scope_x_axis_combo.count() == 1
+        assert not window.hidden_engineering_controls.isVisible()
+        assert not window.custom_scope_raw_controls.isVisible()
+        assert not window.custom_scope_stats.isVisible()
         assert "counts" in window.custom_scope_stats.text()
+
+        visible_groups = {
+            group.title()
+            for group in window.centralWidget().findChildren(QGroupBox)
+            if group.isVisible()
+        }
+        assert visible_groups == {
+            "Device Connection",
+            "PZT Scan",
+            "Three-Channel Waveform",
+            "Manual Lock Point and P Lock",
+        }
+
         for key in ("ch4", "ch3", "ch1"):
             text = window.channel_card_labels[key].text()
             assert "Vpp" in text
             assert "mV" in text or " V" in text
             assert "counts" not in text
-        assert window.channel_card_labels["ch2"].text() == "Hidden"
+        assert set(window.channel_card_labels) == {"ch4", "ch3", "ch1"}
+        assert not window.custom_scope_curves["ch2"].isVisible()
+        assert window.custom_scope_default_button.text() == "AUTO DISPLAY"
+
         main_text = " ".join(
-            label.text() for label in window.channel_card_labels.values()
+            [label.text() for label in window.centralWidget().findChildren(QLabel) if label.isVisible()]
+            + [button.text() for button in window.centralWidget().findChildren(QPushButton) if button.isVisible()]
         )
-        assert "counts" not in main_text
+        assert "counts" not in main_text.lower()
+        assert "Advanced / Engineer Details" not in main_text
+        assert "BASIC LOCK" not in main_text
+        assert "CH1 Peak Assisted" not in main_text
     finally:
         window.close()
         app.processEvents()
 
 
-def test_scope_channel_cards_convert_vpp_min_max_mean_to_voltage() -> None:
+def test_scope_channel_cards_show_only_vpp_in_voltage() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from PySide6.QtWidgets import QApplication
@@ -1714,9 +1755,11 @@ def test_scope_channel_cards_convert_vpp_min_max_mean_to_voltage() -> None:
         text = window.channel_card_labels["ch4"].text()
 
         assert f"Vpp {format_scope_voltage(float(np.ptp(values)))}" in text
-        assert f"Min {format_scope_voltage(float(np.min(values)), signed=True)}" in text
-        assert f"Max {format_scope_voltage(float(np.max(values)), signed=True)}" in text
-        assert f"Mean {format_scope_voltage(float(np.mean(values)), signed=True)}" in text
+        assert text.startswith("CH4 SCAN | Vpp ")
+        assert "Min" not in text
+        assert "Max" not in text
+        assert "Mean" not in text
+        assert "counts" not in text
         assert "hardware calibration not yet verified" in window.channel_card_labels["ch4"].toolTip()
     finally:
         window.close()
@@ -1815,24 +1858,38 @@ def test_direct_error_zero_crossing_is_default_and_only_creates_pending() -> Non
         window.show()
         window._render_custom_capture_payload(make_capture_payload())
         app.processEvents()
-        candidate_index = window.basic_lock_candidates[0].index
+        candidate_index = len(window.custom_scope_data["ch3"]) // 2
         x_value = float(window.custom_scope_data["time_s"][candidate_index]) * 1000.0
-        scene_pos = window.custom_scope_plot.getPlotItem().vb.mapViewToScene(QPointF(x_value, 0.0))
+        plot_item = window.custom_scope_plot.getPlotItem()
+        scan_y = float(window.custom_scope_display_data["ch4"][candidate_index])
+        error_y = float(window.custom_scope_display_data["ch3"][candidate_index])
+        scan_scene_pos = plot_item.vb.mapViewToScene(QPointF(x_value, scan_y))
+        error_scene_pos = plot_item.vb.mapViewToScene(QPointF(x_value, error_y))
 
         assert window.lock_point_selection_mode.currentText() == "Direct ERROR Zero Crossing"
+        assert window.lock_point_selection_mode.count() == 1
         window.custom_pick_lock_button.setChecked(True)
-        window._on_custom_scope_clicked(ScopeClick(scene_pos))
+        window._on_custom_scope_clicked(ScopeClick(scan_scene_pos))
+
+        assert window.pending_lock_point is None
+        assert "CH3 ERROR" in window.operator_alert_label.text()
+
+        window._on_custom_scope_clicked(ScopeClick(error_scene_pos))
 
         assert window.pending_lock_point is not None
         assert window.selected_lock_point is None
-        assert window.operator_state_label.text() == "CANDIDATE SELECTED"
-        assert "valid" in window.operator_candidate_label.text()
+        assert window.operator_state_label.text() == "WAITING FOR CONFIRMATION"
+        assert "Status: Waiting for confirmation" in window.operator_candidate_label.text()
         assert "counts" not in window.operator_candidate_label.text()
+        assert window.custom_confirm_lock_point_button.isEnabled()
+        assert not window.custom_apply_p_button.isEnabled()
 
         pending = dict(window.pending_lock_point)
         window._confirm_pending_lock_point()
         assert window.selected_lock_point == pending
         assert window.operator_state_label.text() == "LOCK POINT CONFIRMED"
+        assert "Status: Confirmed" in window.operator_candidate_label.text()
+        assert window.custom_lock_button.isEnabled()
     finally:
         window.close()
         app.processEvents()
@@ -1876,6 +1933,64 @@ def test_lock_here_requires_confirmed_point_and_kp_zero() -> None:
         assert window.current_custom_operation is None
         assert "requires Kp=0" in window.custom_warning_text.toPlainText()
         assert not window.p_lock_ready
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_apply_p_polarity_and_safe_button_guards() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._apply_button_state("CUSTOM_FPGA_BUSY")
+        assert window.custom_safe_button.isEnabled()
+        assert window.scan_stop_safe_button.isEnabled()
+
+        window._apply_button_state("DISCONNECTED")
+        window.custom_kp.setCurrentText("4")
+        assert not window.custom_apply_p_button.isEnabled()
+        window._start_custom_fpga_operation("update-p-lock")
+        assert window.current_custom_operation is None
+        assert "successful LOCK HERE at Kp=0" in window.operator_alert_label.text()
+
+        window.custom_polarity.setCurrentIndex(0)
+        window.applied_polarity_index = 0
+        window.applied_kp = 4
+        window.custom_polarity.setCurrentIndex(1)
+        assert window.custom_polarity.currentIndex() == 0
+        assert "Kp=0" in window.operator_alert_label.text()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_scan_range_is_blocked_outside_visible_pzt_safe_limits() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        assert np.isclose(window.custom_offset_v.value(), 0.85)
+        assert np.isclose(window.custom_amp_v.value(), 0.05)
+        window.custom_amp_v.setValue(0.10)
+
+        window._start_custom_fpga_operation("scan")
+
+        assert window.current_custom_operation is None
+        assert window.operator_scan_state_label.text() == "SAFE"
+        assert "outside PZT safe range" in window.operator_alert_label.text()
     finally:
         window.close()
         app.processEvents()
