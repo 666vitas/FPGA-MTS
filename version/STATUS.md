@@ -1,5 +1,47 @@
 # STATUS
 
+## 2026-07-16 v3LOCK-P0 MTS zero crossing 插值与人工锁点校准
+
+### 本地基线与范围
+
+- 只使用本地工程；branch `main`，initial HEAD `e24ea88c962c26e3391dcd857ead59416935280a`，开始时 working tree clean。本轮未执行 `git fetch`、`git pull`、`git reset` 或 `git rebase`。
+- 只修改上位机锁点解析、人工 `LOCK_BIAS` 微调、聚焦测试和状态/开发记录；未修改 FPGA RTL、Vivado、寄存器地址/语义、FPGA 接口、PID/P-only 控制逻辑或 bitstream。
+
+### Current Stage / Gate
+
+```text
+Current Stage: v3LOCK-P0 / Stage 3 Hardware Verification
+Current Gate: interpolated lock point -> Kp=0 LOCK HERE hardware verification
+```
+
+### 问题与根因
+
+- [USER GUI VERIFIED] 用户在真实 CH3 MTS error 放大观察中确认原 candidate 不位于真实 `error=0`。
+- 原解析器检测到相邻样点符号变化后，将候选压缩为整数 index，并从“绝对值较小”的单个 CH3 样点及同 index CH4 读取 `ERROR_SETPOINT` 和 PZT；因此 candidate、marker 和 PZT bias 都可能偏离真实过零位置。
+
+### 软件实现
+
+- [AUTOMATED VERIFIED] 对相邻样点执行 `fraction = -error_i / (error_(i+1) - error_i)`、`zero_index = i + fraction`；CH3 residual、CH4/PZT 和 nominal time 使用同一 fraction 线性插值。
+- [AUTOMATED VERIFIED] 点击 CH1 或 CH3 只定义目标附近搜索窗口。候选必须满足持续正负异号、局部 Vpp/noise 门限、CH4 单调扫描和 PZT safe range；多个候选按最大 `|dError/dPZT|` 选择，距离只用于同斜率候选的次级排序。
+- [AUTOMATED VERIFIED] Candidate 显示浮点 Index、Time、Error residual、Slope 和 PZT；marker 使用浮点 index 对时间轴插值，不再回退到最近整数样点。
+- [AUTOMATED VERIFIED] 新增 `Lock Point Calibration` 的 `-5/-1/+1/+5 mV`；按钮只更新待确认或已确认的 host-side `LOCK_BIAS` 目标，保持 `ERROR_SETPOINT` 为插值过零值，不启动 worker、不进入反馈，并继续受 PZT safe range 限制。
+- Confirm 保存用于下一次 `LOCK HERE` 的 host-side `LOCK_BIAS`、`ERROR_SETPOINT` 和插值诊断信息；既有 FPGA 语义不变：`LOCK HERE` 等待 OUT2 到达确认目标后，由 `CAPTURE_LOCK_POINT` 同时锁存实时 `OUT2_MONITOR` 与 `ERROR_MONITOR`。
+
+### 自动化验证
+
+- `python -m tabnanny redpitaya_lock_host tests`：通过。
+- `python -m py_compile redpitaya_lock_host\custom_fpga_backend.py redpitaya_lock_host\main_window.py`：通过。
+- targeted zero crossing / confirm / calibration：`24 passed, 68 deselected`。
+- `python -m pytest --collect-only -q tests`：`98 tests collected`。
+- `python -m pytest -q tests`：`98 passed`。
+- `git diff --check`：通过。
+
+### 当前状态与下一步唯一动作
+
+- [AUTOMATED VERIFIED] 人工锁点校准功能软件实现完成。
+- [NOT VERIFIED] 真实 MTS capture 上的插值 candidate、微调后的 PZT bias、Kp=0 `LOCK HERE` 无跳变和后续非零 Kp P-only 尚未验证。
+- 下一步唯一动作：在 PZT safe min/max 已确认且 `Kp=0` 条件下执行一次 `SCAN -> Capture Waveform -> 点击目标区域 -> 检查 candidate -> 可选微调 -> CONFIRM -> LOCK HERE`；只验证 LOCK_BIAS/ERROR_SETPOINT readback 与 CH4 无异常跳变，随后立即 SAFE。该 Gate PASS 后才进入小步非零 Kp P-only。
+
 ## 2026-07-16 FPGA-MTS AI Workflow 模式分离
 
 ### 本轮范围

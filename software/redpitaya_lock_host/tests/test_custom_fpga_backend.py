@@ -17,6 +17,7 @@ from redpitaya_lock_host.custom_fpga_backend import (
     build_update_p_lock_config,
     build_lock_config_from_counts,
     find_zero_crossing_candidates,
+    interpolate_zero_crossing,
     resolve_target_transition,
     status_payload_has_expected_magic,
     missing_magic_guidance,
@@ -460,6 +461,21 @@ def test_basic_lock_zero_crossing_finder_detects_dispersion_candidate() -> None:
     assert 6500 <= candidates[0].out2_counts <= 7300
 
 
+def test_zero_crossing_interpolation_returns_float_index_residual_and_pzt() -> None:
+    crossing = interpolate_zero_crossing(
+        error_counts=[-10.0, -5.0, 5.0, 10.0],
+        out2_counts=[100.0, 200.0, 400.0, 500.0],
+        left_index=1,
+    )
+
+    assert crossing.index == 1.5
+    assert isinstance(crossing.index, float)
+    assert abs(crossing.error_residual_counts) < 1e-12
+    assert crossing.error_counts == 0.0
+    assert crossing.out2_counts == 300.0
+    assert crossing.slope == 0.05
+
+
 def test_pd_click_resolves_nearby_ch3_error_zero_crossing() -> None:
     count = 512
     x = np.linspace(-1.0, 1.0, count)
@@ -715,7 +731,7 @@ def test_resolve_lock_point_result_contains_all_required_fields() -> None:
         safe_max_counts=7400,
     )
     assert isinstance(result["selected_peak_index"], int)
-    assert isinstance(result["zero_crossing_index"], int)
+    assert isinstance(result["zero_crossing_index"], float)
     assert isinstance(result["target_out2_counts"], int)
     assert isinstance(result["target_out2_volts"], float)
     assert isinstance(result["error_setpoint_counts"], int)
@@ -1314,6 +1330,69 @@ def test_confirm_lock_point_promotes_pending_zero_crossing_only() -> None:
         app.processEvents()
 
 
+def test_lock_point_calibration_adjusts_bias_without_enabling_feedback() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    operations: list[str] = []
+    try:
+        zero_counts = float(out2_voltage_to_counts(0.85)) + 0.5
+        zero_volts = out2_counts_to_voltage(zero_counts)
+        window.pending_lock_point = {
+            "selected_peak_index": 100,
+            "zero_crossing_index": 101.5,
+            "zero_crossing_time_s": 0.00125,
+            "zero_crossing_out2_counts": zero_counts,
+            "zero_crossing_pzt_volts": zero_volts,
+            "target_out2_counts": int(round(zero_counts)),
+            "target_out2_volts": zero_volts,
+            "out2_counts": int(round(zero_counts)),
+            "lock_bias_counts": int(round(zero_counts)),
+            "lock_bias_volts": zero_volts,
+            "error_setpoint_counts": 0,
+            "error_residual_counts": 0.0,
+            "slope": 0.25,
+            "ramp_direction": "rising",
+            "target_window_counts": 64,
+            "safe_min_counts": out2_voltage_to_counts(0.80),
+            "safe_max_counts": out2_voltage_to_counts(0.90),
+            "bias_trim_volts": 0.0,
+        }
+        window._start_custom_fpga_operation = lambda operation, **_kwargs: operations.append(operation)
+        window._apply_button_state(window.connection_state)
+
+        window.lock_bias_plus_1mv_button.click()
+
+        assert window.pending_lock_point is not None
+        assert abs(float(window.pending_lock_point["bias_trim_volts"]) - 0.001) < 1e-12
+        assert window.pending_lock_point["error_setpoint_counts"] == 0
+        assert abs(float(window.pending_lock_point["target_out2_volts"]) - (zero_volts + 0.001)) < 0.0002
+        assert operations == []
+
+        window._confirm_pending_lock_point()
+        assert window.pending_lock_point is None
+        assert window.selected_lock_point is not None
+        assert window.selected_lock_point["lock_bias_counts"] == window.selected_lock_point["out2_counts"]
+        window.lock_bias_plus_5mv_button.click()
+
+        assert window.selected_lock_point is not None
+        assert abs(float(window.selected_lock_point["bias_trim_volts"]) - 0.006) < 1e-12
+        assert window.selected_lock_point["error_setpoint_counts"] == 0
+        assert operations == []
+        candidate_text = window.operator_candidate_label.text()
+        for field in ("Index:", "Time:", "Error:", "Slope:", "PZT:"):
+            assert field in candidate_text
+    finally:
+        window.close()
+        app.processEvents()
+
+
 def test_basic_lock_lock_here_stops_at_p_lock_kp_zero_without_auto_gain() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
@@ -1688,7 +1767,14 @@ def test_candidate_markers_remain_on_fixed_time_axis() -> None:
 
         assert window.custom_scope_x_axis_combo.currentText() == "time (ms)"
         for marker, candidate in zip(window.custom_candidate_markers, window.basic_lock_candidates):
-            assert marker.value() == float(window.custom_scope_data["time_s"][candidate.index]) * 1000.0
+            expected_time_ms = float(
+                np.interp(
+                    candidate.index,
+                    np.arange(len(window.custom_scope_data["time_s"]), dtype=float),
+                    window.custom_scope_data["time_s"],
+                )
+            ) * 1000.0
+            assert marker.value() == expected_time_ms
     finally:
         window.close()
         app.processEvents()
@@ -1726,13 +1812,18 @@ def test_target_and_zero_markers_keep_raw_time_after_layered_display() -> None:
 
         assert window.pending_lock_point is not None
         peak_index = int(window.pending_lock_point["selected_peak_index"])
-        zero_index = int(window.pending_lock_point["zero_crossing_index"])
+        zero_index = float(window.pending_lock_point["zero_crossing_index"])
         assert window.custom_target_marker.value() == float(
             window.custom_scope_data["time_s"][peak_index]
         ) * 1000.0
-        assert window.custom_zero_marker.value() == float(
-            window.custom_scope_data["time_s"][zero_index]
+        expected_zero_time_ms = float(
+            np.interp(
+                zero_index,
+                np.arange(len(window.custom_scope_data["time_s"]), dtype=float),
+                window.custom_scope_data["time_s"],
+            )
         ) * 1000.0
+        assert window.custom_zero_marker.value() == expected_zero_time_ms
     finally:
         window.close()
         app.processEvents()
@@ -2183,7 +2274,7 @@ def test_auto_set_changes_display_only() -> None:
         app.processEvents()
 
 
-def test_direct_error_zero_crossing_is_default_and_only_creates_pending() -> None:
+def test_target_region_click_finds_error_zero_crossing_and_only_creates_pending() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from PySide6.QtCore import QPointF
@@ -2211,9 +2302,9 @@ def test_direct_error_zero_crossing_is_default_and_only_creates_pending() -> Non
         x_value = float(window.custom_scope_data["time_s"][candidate_index]) * 1000.0
         plot_item = window.custom_scope_plot.getPlotItem()
         scan_y = float(window.custom_scope_display_data["ch4"][candidate_index])
-        error_y = float(window.custom_scope_display_data["ch3"][candidate_index])
+        pd_y = float(window.custom_scope_display_data["ch1"][candidate_index])
         scan_scene_pos = plot_item.vb.mapViewToScene(QPointF(x_value, scan_y))
-        error_scene_pos = plot_item.vb.mapViewToScene(QPointF(x_value, error_y))
+        pd_scene_pos = plot_item.vb.mapViewToScene(QPointF(x_value, pd_y))
 
         assert window.lock_point_selection_mode.currentText() == "Direct ERROR Zero Crossing"
         assert window.lock_point_selection_mode.count() == 1
@@ -2221,9 +2312,9 @@ def test_direct_error_zero_crossing_is_default_and_only_creates_pending() -> Non
         window._on_custom_scope_clicked(ScopeClick(scan_scene_pos))
 
         assert window.pending_lock_point is None
-        assert "CH3 ERROR" in window.operator_alert_label.text()
+        assert "CH1 or CH3" in window.operator_alert_label.text()
 
-        window._on_custom_scope_clicked(ScopeClick(error_scene_pos))
+        window._on_custom_scope_clicked(ScopeClick(pd_scene_pos))
 
         assert window.pending_lock_point is not None
         assert window.selected_lock_point is None
@@ -2244,7 +2335,7 @@ def test_direct_error_zero_crossing_is_default_and_only_creates_pending() -> Non
         app.processEvents()
 
 
-def test_direct_error_zero_crossing_resolver_uses_nearest_valid_crossing() -> None:
+def test_direct_error_zero_crossing_resolver_returns_interpolated_crossing() -> None:
     count = 256
     out2 = np.linspace(6500.0, 7300.0, count)
     error = np.arange(count, dtype=float) - 130.0
@@ -2258,9 +2349,50 @@ def test_direct_error_zero_crossing_resolver_uses_nearest_valid_crossing() -> No
     )
 
     assert result["zero_crossing_index"] == 130
-    assert result["selected_peak_index"] == 130
+    assert isinstance(result["zero_crossing_index"], float)
+    assert result["selected_peak_index"] == 128
     assert result["ramp_direction"] == "rising"
     assert abs(float(result["slope"])) > 0.0
+
+
+def test_direct_zero_crossing_prefers_steepest_persistent_sign_change() -> None:
+    count = 256
+    out2 = np.linspace(6000.0, 7600.0, count)
+    time_s = np.arange(count, dtype=float) * 1e-4
+    error = np.full(count, -20.0)
+    error[105:116] = np.linspace(-20.0, 20.0, 11)
+    error[116:125] = 20.0
+    error[125:136] = np.linspace(20.0, -40.0, 11)
+    error[136:] = -40.0
+
+    result = resolve_direct_error_zero_crossing(
+        error_counts=error,
+        out2_counts=out2,
+        time_s=time_s,
+        clicked_index=120,
+        safe_min_counts=5900,
+        safe_max_counts=7700,
+    )
+
+    assert abs(float(result["zero_crossing_index"]) - (128.0 + 1.0 / 3.0)) < 1e-12
+    assert abs(float(result["error_residual_counts"])) < 1e-12
+    assert abs(float(result["zero_crossing_time_s"]) - (128.0 + 1.0 / 3.0) * 1e-4) < 1e-12
+    expected_pzt = float(np.interp(float(result["zero_crossing_index"]), np.arange(count), out2))
+    assert abs(float(result["zero_crossing_out2_counts"]) - expected_pzt) < 1e-12
+
+
+def test_direct_zero_crossing_rejects_single_sample_noise_reversal() -> None:
+    error = np.full(256, 10.0)
+    error[128] = -10.0
+
+    with np.testing.assert_raises(LockPointSelectionError):
+        resolve_direct_error_zero_crossing(
+            error_counts=error,
+            out2_counts=np.linspace(6500.0, 7300.0, 256),
+            clicked_index=128,
+            safe_min_counts=6400,
+            safe_max_counts=7400,
+        )
 
 
 def test_lock_here_requires_confirmed_point_and_kp_zero() -> None:

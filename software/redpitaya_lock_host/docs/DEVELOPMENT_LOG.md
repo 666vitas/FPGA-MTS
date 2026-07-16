@@ -840,3 +840,13 @@ git diff --check
 - 自动化验证：tabnanny PASS；PowerShell 展开实际 Python 文件后的 py_compile PASS（原样 `*.py` 参数因 Windows 不展开通配符返回 Invalid argument）；collect-only `94 tests collected`；targeted `6 passed`；`test_custom_fpga_backend.py` `88 passed`；完整 tests `94 passed`。
 - 未修改 RTL、Vivado、寄存器地址/语义、`MAGIC`、`VERSION` 或 bitstream。结论：OUT2 voltage mapping software correction implemented；Waiting hardware re-validation。
 - 下一步唯一动作：PZT 断开、OUT2 只接示波器，在原测量条件下验证 center `0.800 V`、amplitude `0.100 V`、50 Hz 应得到中心约 `0.800 V`、Vpp 约 `0.200 V`，误差均小于 5%，随后 SAFE。
+
+## 2026-07-16 MTS zero crossing 插值与人工锁点校准
+
+- 问题：真实 CH3 MTS error 已有色散结构，但原 candidate 把过零压成整数采样点，并用该样点 CH4 作为 PZT bias，放大观察时不位于真实 `error=0`。
+- 修改：新增相邻异号样点线性插值，统一得到 float index、nominal time、CH3 residual、`dError/dPZT` 和插值 CH4/PZT；点击 CH1/CH3 只定义搜索区域，持续异号和 local Vpp/noise 用于拒绝单样点噪声，最大绝对斜率决定候选。
+- GUI：candidate 显示 Index/Time/Error/Slope/PZT；新增 `Lock Point Calibration` 的 `-5/-1/+1/+5 mV`，只改变 host-side `LOCK_BIAS` 目标，保持过零 `ERROR_SETPOINT`，不立即运行 worker 或启用反馈。Confirm 保存该组值供后续 `LOCK HERE` 使用。
+- 既有硬件语义保持：`LOCK HERE` 到达确认 OUT2 count 后仍由 FPGA `CAPTURE_LOCK_POINT` 同时锁存 `OUT2_MONITOR` 与 `ERROR_MONITOR`；未修改 RTL、Vivado、寄存器、接口或 PID/P-only。
+- 验证：人工数组 `[-10,-5,5,10]` 得到 `zero_index=1.5`、residual `0` 和插值 PZT；单样点反号噪声被拒绝；targeted `24 passed, 68 deselected`，collect `98 tests`，完整 software tests `98 passed`，tabnanny/py_compile/git diff check 通过。
+- 当前状态：[AUTOMATED VERIFIED] 人工锁点校准功能软件实现完成；真实 GUI/硬件 `[NOT VERIFIED]`。
+- 下一步唯一动作：PZT 安全范围确认、`Kp=0`，执行一次目标区域选点、Confirm 和 `LOCK HERE`，核对 LOCK_BIAS/ERROR_SETPOINT readback 与 CH4 无跳变后立即 SAFE；PASS 后再进入小步 P-only。

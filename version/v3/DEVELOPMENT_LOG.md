@@ -150,3 +150,12 @@
 - 校准后 HOLD `0 V` 不再等于 raw count 0；旧 exact-count=0 步骤已暂停，当前 SOP 只授权 PZT 断开时执行 center `0.800 V`、amplitude `0.100 V`、50 Hz 单组复测。
 - 自动化验证：tabnanny PASS；PowerShell 展开实际 Python 文件后的 py_compile PASS（原样 `*.py` 参数因 Windows 不展开通配符返回 Invalid argument）；collect-only `94 tests collected`；targeted `6 passed`；当前测试文件 `88 passed`；完整 software tests `94 passed`。
 - 阶段结论：OUT2 voltage mapping software correction implemented；Waiting hardware re-validation。下一步唯一动作是在原示波器条件下复测 `center=0.800 V`、`amplitude=0.100 V`、`50 Hz`，确认中心和 Vpp 均小于 5% 误差后 SAFE。
+
+## 2026-07-16 v3LOCK-P0 MTS zero crossing 插值与人工锁点校准
+
+- 根因：原上位机以整数 index 表示 CH3 过零，并从最近单个样点读取 CH4/PZT，导致 candidate 与真实 `error=0` 存在采样量化偏差。
+- 实现：相邻异号 CH3 样点按 `fraction=-e0/(e1-e0)` 插值得到 float index；同一 fraction 用于 error residual、CH4/PZT 和 nominal time。搜索要求持续异号、local Vpp/noise、CH4 单调和 PZT safe range，多候选选择最大 `|dError/dPZT|`。
+- 人工校准：新增 `-5/-1/+1/+5 mV`，只更新 host-side `LOCK_BIAS` 目标，不改变插值 `ERROR_SETPOINT`、不立即进入反馈；Confirm 保存候选供既有 `LOCK HERE` 使用。
+- 验证：`[-10,-5,5,10] -> zero_index=1.5`、residual `0`、PZT 线性插值通过；噪声拒绝、最大斜率、浮点 marker、Confirm 和无反馈微调均有回归测试。targeted `24 passed`；collect `98`；完整 tests `98 passed`；tabnanny、py_compile、git diff check 通过。
+- 边界：未修改 RTL、Vivado、寄存器地址/语义、FPGA 接口、PID/P-only 或 bitstream，未运行 Vivado，未执行真实 `LOCK HERE`。
+- 当前状态：[AUTOMATED VERIFIED] 人工锁点校准功能软件实现完成；下一步唯一动作是在 `Kp=0` 下完成一次真实选点/Confirm/LOCK HERE readback 与 CH4 无跳变验证，随后 SAFE；PASS 后再做小步 P-only。

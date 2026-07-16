@@ -90,9 +90,10 @@ class BasicLockConfig:
 
 @dataclass(frozen=True)
 class ZeroCrossingCandidate:
-    index: int
-    out2_counts: int
-    error_counts: int
+    index: float
+    out2_counts: float
+    error_counts: float
+    error_residual_counts: float
     score: float
     slope: float
     local_vpp: float
@@ -101,9 +102,10 @@ class ZeroCrossingCandidate:
 @dataclass(frozen=True)
 class ResolvedLockPoint:
     clicked_index: int
-    index: int
-    out2_counts: int
-    error_counts: int
+    index: float
+    out2_counts: float
+    error_counts: float
+    error_residual_counts: float
     slope: float
     local_vpp: float
     valid: bool
@@ -201,6 +203,58 @@ def robust_noise_counts(values: np.ndarray | list[float]) -> float:
     return 1.4826 * mad
 
 
+def interpolate_zero_crossing(
+    *,
+    error_counts: np.ndarray | list[float],
+    out2_counts: np.ndarray | list[float],
+    left_index: int,
+    error_setpoint_counts: float = 0.0,
+) -> ZeroCrossingCandidate:
+    """Linearly interpolate one CH3 sign change and its matching CH4 value."""
+    error = np.asarray(error_counts, dtype=float)
+    out2 = np.asarray(out2_counts, dtype=float)
+    count = min(error.size, out2.size)
+    index = int(left_index)
+    if index < 0 or index + 1 >= count:
+        raise CustomFpgaBackendError("zero crossing pair is outside the capture")
+
+    raw0 = float(error[index])
+    raw1 = float(error[index + 1])
+    pzt0 = float(out2[index])
+    pzt1 = float(out2[index + 1])
+    setpoint = float(error_setpoint_counts)
+    e0 = raw0 - setpoint
+    e1 = raw1 - setpoint
+    if not all(np.isfinite(value) for value in (raw0, raw1, pzt0, pzt1, setpoint)):
+        raise CustomFpgaBackendError("zero crossing pair contains non-finite data")
+    if e0 == 0.0 and e1 == 0.0:
+        raise CustomFpgaBackendError("zero crossing pair is flat at the setpoint")
+    if e0 * e1 > 0.0:
+        raise CustomFpgaBackendError("zero crossing pair does not change sign")
+
+    delta_error = raw1 - raw0
+    delta_out2 = pzt1 - pzt0
+    if abs(delta_error) < 1e-12:
+        raise CustomFpgaBackendError("zero crossing pair has zero error slope")
+    if abs(delta_out2) < 0.5:
+        raise CustomFpgaBackendError("zero crossing pair has no usable PZT change")
+
+    fraction = -e0 / (e1 - e0)
+    if fraction < 0.0 or fraction > 1.0:
+        raise CustomFpgaBackendError("interpolated zero crossing falls outside the sample pair")
+    zero_error = raw0 + fraction * delta_error
+    zero_out2 = pzt0 + fraction * delta_out2
+    return ZeroCrossingCandidate(
+        index=float(index) + float(fraction),
+        out2_counts=float(zero_out2),
+        error_counts=float(zero_error),
+        error_residual_counts=float(zero_error - setpoint),
+        score=0.0,
+        slope=float(delta_error / delta_out2),
+        local_vpp=0.0,
+    )
+
+
 def validate_basic_lock_capture(
     *,
     ch1_counts: np.ndarray | list[float],
@@ -247,44 +301,63 @@ def find_zero_crossing_candidates(
     window = max(5, min(51, (count // 32) | 1))
     kernel = np.ones(window, dtype=float) / float(window)
     smooth = np.convolve(error, kernel, mode="same")
-    baseline = float(np.nanmedian(smooth[edge:-edge]))
-    centered = smooth - baseline
-    noise = max(robust_noise_counts(np.diff(centered[edge:-edge])) * 0.25, 1.0)
+    noise = max(robust_noise_counts(np.diff(smooth[edge:-edge])) * 0.25, 1.0)
     min_local_vpp = max(noise * 6.0, 3.0)
     min_abs_slope = max(noise * 0.05, 0.05)
 
     candidates: list[ZeroCrossingCandidate] = []
     for idx in range(edge, count - edge - 1):
-        y0 = float(centered[idx])
-        y1 = float(centered[idx + 1])
+        y0 = float(error[idx])
+        y1 = float(error[idx + 1])
         if y0 == 0.0:
-            crossing = idx
+            continue
+        if y1 == 0.0:
+            if idx + 2 >= count or y0 * float(error[idx + 2]) >= 0.0:
+                continue
         elif y0 * y1 > 0.0:
             continue
-        else:
-            crossing = idx if abs(y0) <= abs(y1) else idx + 1
-        left = max(edge, crossing - window)
-        right = min(count - edge, crossing + window + 1)
-        local = centered[left:right]
+        try:
+            crossing = interpolate_zero_crossing(
+                error_counts=error,
+                out2_counts=out2,
+                left_index=idx,
+            )
+        except CustomFpgaBackendError:
+            continue
+        crossing_index = int(round(crossing.index))
+        left = max(edge, crossing_index - window)
+        right = min(count - edge, crossing_index + window + 1)
+        local = error[left:right]
         if local.size < 5:
             continue
+        before = error[max(edge, idx - 3):idx + 1]
+        after = error[idx + 1:min(count - edge, idx + 5)]
+        if before.size < 2 or after.size < 2:
+            continue
+        before_level = float(np.nanmedian(before))
+        after_level = float(np.nanmedian(after))
+        if before_level * after_level >= 0.0:
+            continue
+        if min(abs(before_level), abs(after_level)) < noise:
+            continue
         local_vpp = signal_vpp(local)
-        slope = float((centered[min(count - 1, crossing + 1)] - centered[max(0, crossing - 1)]) / 2.0)
+        slope = float(crossing.slope)
         if local_vpp < min_local_vpp or abs(slope) < min_abs_slope:
             continue
         score = abs(slope) * local_vpp / max(noise, 1.0)
         candidates.append(
             ZeroCrossingCandidate(
-                index=int(crossing),
-                out2_counts=int(round(float(out2[crossing]))),
-                error_counts=int(round(float(error[crossing]))),
+                index=float(crossing.index),
+                out2_counts=float(crossing.out2_counts),
+                error_counts=float(crossing.error_counts),
+                error_residual_counts=float(crossing.error_residual_counts),
                 score=float(score),
                 slope=float(slope),
                 local_vpp=float(local_vpp),
             )
         )
 
-    unique: dict[int, ZeroCrossingCandidate] = {}
+    unique: dict[float, ZeroCrossingCandidate] = {}
     for item in sorted(candidates, key=lambda candidate: candidate.score, reverse=True):
         if all(abs(item.index - kept.index) > window for kept in unique.values()):
             unique[item.index] = item
@@ -333,17 +406,18 @@ def resolve_target_transition(
 
     adjusted: list[ZeroCrossingCandidate] = []
     for item in candidates:
-        idx = left + int(item.index)
+        idx = float(left) + float(item.index)
         if idx < edge or idx >= count - edge:
             continue
-        out2_value = int(round(float(out2[idx])))
+        out2_value = float(item.out2_counts)
         if out2_value < int(safe_min_counts) or out2_value > int(safe_max_counts):
             continue
         adjusted.append(
             ZeroCrossingCandidate(
                 index=idx,
                 out2_counts=out2_value,
-                error_counts=int(round(float(error[idx]))),
+                error_counts=float(item.error_counts),
+                error_residual_counts=float(item.error_residual_counts),
                 score=float(item.score) / max(1.0, abs(idx - click)),
                 slope=float(item.slope),
                 local_vpp=float(item.local_vpp),
@@ -351,12 +425,13 @@ def resolve_target_transition(
         )
     if not adjusted:
         raise CustomFpgaBackendError("target rejected: zero crossing is outside the PZT safe range or capture edge")
-    best = min(adjusted, key=lambda item: (abs(item.index - click), -item.score))
+    best = max(adjusted, key=lambda item: (abs(item.slope), -abs(item.index - click)))
     return ResolvedLockPoint(
         clicked_index=click,
-        index=int(best.index),
-        out2_counts=int(best.out2_counts),
-        error_counts=int(best.error_counts),
+        index=float(best.index),
+        out2_counts=float(best.out2_counts),
+        error_counts=float(best.error_counts),
+        error_residual_counts=float(best.error_residual_counts),
         slope=float(best.slope),
         local_vpp=float(best.local_vpp),
         valid=True,

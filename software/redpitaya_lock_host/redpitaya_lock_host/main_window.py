@@ -57,8 +57,11 @@ from .custom_fpga_backend import (
     CustomFpgaBackendError,
     build_basic_lock_config,
     find_zero_crossing_candidates,
+    interpolate_zero_crossing,
     missing_magic_guidance,
+    robust_noise_counts,
     resolve_target_transition,
+    signal_vpp,
     status_payload_has_expected_magic,
     validate_basic_lock_capture,
 )
@@ -240,10 +243,22 @@ class LockPointSelectionError(ValueError):
     """Raised when the current capture cannot yield a safe lock point."""
 
 
+def _interpolate_capture_value(values: np.ndarray | list[float], index: float) -> float:
+    samples = np.asarray(values, dtype=float)
+    if samples.size == 0:
+        return float("nan")
+    position = float(np.clip(index, 0.0, float(samples.size - 1)))
+    left = int(np.floor(position))
+    right = min(left + 1, samples.size - 1)
+    fraction = position - float(left)
+    return float(samples[left] + fraction * (samples[right] - samples[left]))
+
+
 def resolve_direct_error_zero_crossing(
     *,
     error_counts: np.ndarray | list[float],
     out2_counts: np.ndarray | list[float],
+    time_s: np.ndarray | list[float] | None = None,
     clicked_index: int,
     safe_min_counts: int = -8191,
     safe_max_counts: int = 8191,
@@ -251,7 +266,7 @@ def resolve_direct_error_zero_crossing(
     target_window_counts: int = 64,
     saturated: bool = False,
 ) -> dict[str, int | float | str]:
-    """Resolve an operator click to the nearest safe CH3 zero crossing."""
+    """Resolve an operator-selected region to its steepest valid CH3 zero crossing."""
     error = np.asarray(error_counts, dtype=float)
     out2 = np.asarray(out2_counts, dtype=float)
     count = min(error.size, out2.size)
@@ -266,19 +281,46 @@ def resolve_direct_error_zero_crossing(
 
     left = max(edge, click - max(4, int(search_radius)))
     right = min(count - edge - 1, click + max(4, int(search_radius)))
-    candidates: list[tuple[int, float, int, float, str]] = []
+    local_noise = max(robust_noise_counts(np.diff(error[left:right + 2])) * 0.25, 1.0)
+    min_local_vpp = max(local_noise * 6.0, 3.0)
+    candidates: list[tuple[float, float, Any, str]] = []
     for index in range(left, right + 1):
         next_index = min(index + 1, count - 1)
         e0 = float(error[index])
         e1 = float(error[next_index])
         if not np.isfinite(e0) or not np.isfinite(e1):
             continue
-        if e0 != 0.0 and e1 != 0.0 and e0 * e1 > 0.0:
+        if e0 == 0.0:
+            continue
+        if e1 == 0.0:
+            if index + 2 >= count or e0 * float(error[index + 2]) >= 0.0:
+                continue
+        elif e0 * e1 > 0.0:
             continue
 
-        zero_index = index if abs(e0) <= abs(e1) else next_index
+        try:
+            crossing = interpolate_zero_crossing(
+                error_counts=error,
+                out2_counts=out2,
+                left_index=index,
+            )
+        except CustomFpgaBackendError:
+            continue
+
         local_left = max(edge, index - 8)
         local_right = min(count - edge - 1, index + 8)
+        before = error[max(edge, index - 3):index + 1]
+        after = error[index + 1:min(count - edge, index + 5)]
+        if before.size < 2 or after.size < 2:
+            continue
+        before_level = float(np.nanmedian(before))
+        after_level = float(np.nanmedian(after))
+        if before_level * after_level >= 0.0:
+            continue
+        if min(abs(before_level), abs(after_level)) < local_noise:
+            continue
+        if signal_vpp(error[local_left:local_right + 1]) < min_local_vpp:
+            continue
         ramp_diffs = np.diff(out2[local_left:local_right + 1])
         ramp_diffs = ramp_diffs[np.isfinite(ramp_diffs)]
         if ramp_diffs.size < 4:
@@ -289,35 +331,43 @@ def resolve_direct_error_zero_crossing(
         if float(np.mean(np.sign(ramp_diffs) == np.sign(median_ramp))) < 0.8:
             continue
 
-        slope_left = max(edge, zero_index - 1)
-        slope_right = min(count - edge - 1, zero_index + 1)
-        delta_out2 = float(out2[slope_right] - out2[slope_left])
-        delta_error = float(error[slope_right] - error[slope_left])
-        if slope_right <= slope_left or abs(delta_out2) < 0.5:
-            continue
-        slope = delta_error / delta_out2
+        slope = float(crossing.slope)
         if not np.isfinite(slope) or abs(slope) < 1e-9:
             continue
-        target_out2 = float(out2[zero_index])
+        target_out2 = float(crossing.out2_counts)
         if target_out2 < int(safe_min_counts) or target_out2 > int(safe_max_counts):
             continue
         direction = "rising" if median_ramp > 0.0 else "falling"
-        candidates.append((abs(zero_index - click), -abs(slope), zero_index, slope, direction))
+        candidates.append((abs(slope), -abs(crossing.index - click), crossing, direction))
 
     if not candidates:
         raise LockPointSelectionError("No valid ERROR zero crossing in the selected region")
 
-    _, _, zero_index, slope, direction = min(candidates)
-    target_out2_counts = int(round(float(out2[zero_index])))
+    _, _, crossing, direction = max(candidates, key=lambda item: (item[0], item[1]))
+    zero_index = float(crossing.index)
+    target_out2_float = float(crossing.out2_counts)
+    target_out2_counts = int(round(target_out2_float))
+    crossing_time_s = (
+        _interpolate_capture_value(time_s, zero_index)
+        if time_s is not None
+        else float("nan")
+    )
     return {
-        "selected_peak_index": int(zero_index),
-        "zero_crossing_index": int(zero_index),
+        "selected_peak_index": int(click),
+        "zero_crossing_index": zero_index,
+        "zero_crossing_time_s": crossing_time_s,
+        "zero_crossing_out2_counts": target_out2_float,
+        "zero_crossing_pzt_volts": out2_counts_to_voltage(target_out2_float),
         "target_out2_counts": target_out2_counts,
-        "target_out2_volts": out2_counts_to_voltage(target_out2_counts),
-        "error_setpoint_counts": int(round(float(error[zero_index]))),
-        "slope": float(slope),
+        "target_out2_volts": out2_counts_to_voltage(target_out2_float),
+        "error_setpoint_counts": int(round(float(crossing.error_counts))),
+        "error_residual_counts": float(crossing.error_residual_counts),
+        "slope": float(crossing.slope),
         "ramp_direction": direction,
         "target_window_counts": int(max(1, target_window_counts)),
+        "safe_min_counts": int(safe_min_counts),
+        "safe_max_counts": int(safe_max_counts),
+        "bias_trim_volts": 0.0,
     }
 
 
@@ -369,6 +419,7 @@ def resolve_lock_point_selection(
     ch1_counts: np.ndarray | list[float],
     error_counts: np.ndarray | list[float],
     out2_counts: np.ndarray | list[float],
+    time_s: np.ndarray | list[float] | None = None,
     clicked_index: int,
     error_setpoint_counts: float = 0.0,
     safe_min_counts: int = -8191,
@@ -398,14 +449,44 @@ def resolve_lock_point_selection(
     left = max(edge, peak - max(4, int(search_radius)))
     right = min(count - edge - 1, peak + max(4, int(search_radius)))
     setpoint = float(error_setpoint_counts)
-    candidates: list[tuple[float, int, float, str, int, float]] = []
+    local_noise = max(robust_noise_counts(np.diff(error[left:right + 2])) * 0.25, 1.0)
+    min_local_vpp = max(local_noise * 6.0, 3.0)
+    candidates: list[tuple[float, float, Any, str]] = []
     for index in range(left, right):
         e0 = float(error[index] - setpoint)
         e1 = float(error[index + 1] - setpoint)
-        if not np.isfinite(e0) or not np.isfinite(e1) or e0 * e1 > 0.0:
+        if not np.isfinite(e0) or not np.isfinite(e1):
+            continue
+        if e0 == 0.0:
+            continue
+        if e1 == 0.0:
+            if index + 2 >= count or e0 * float(error[index + 2] - setpoint) >= 0.0:
+                continue
+        elif e0 * e1 > 0.0:
+            continue
+        try:
+            crossing = interpolate_zero_crossing(
+                error_counts=error,
+                out2_counts=out2,
+                left_index=index,
+                error_setpoint_counts=setpoint,
+            )
+        except CustomFpgaBackendError:
             continue
         local_left = max(edge, index - 8)
         local_right = min(count - 1 - edge, index + 8)
+        before = error[max(edge, index - 3):index + 1] - setpoint
+        after = error[index + 1:min(count - edge, index + 5)] - setpoint
+        if before.size < 2 or after.size < 2:
+            continue
+        before_level = float(np.nanmedian(before))
+        after_level = float(np.nanmedian(after))
+        if before_level * after_level >= 0.0:
+            continue
+        if min(abs(before_level), abs(after_level)) < local_noise:
+            continue
+        if signal_vpp(error[local_left:local_right + 1]) < min_local_vpp:
+            continue
         ramp_diffs = np.diff(out2[local_left:local_right + 1])
         ramp_diffs = ramp_diffs[np.isfinite(ramp_diffs)]
         if ramp_diffs.size < 4:
@@ -416,17 +497,14 @@ def resolve_lock_point_selection(
         same_direction = float(np.mean(np.sign(ramp_diffs) == np.sign(median_ramp)))
         if same_direction < 0.8:
             continue
-        delta_out2 = float(out2[index + 1] - out2[index])
-        if not np.isfinite(delta_out2) or abs(delta_out2) < 0.5:
-            continue
-        slope = float((error[index + 1] - error[index]) / delta_out2)
+        slope = float(crossing.slope)
         if not np.isfinite(slope):
             continue
-        target_out2 = float(out2[index] if abs(e0) <= abs(e1) else out2[index + 1])
+        target_out2 = float(crossing.out2_counts)
         if target_out2 < int(safe_min_counts) or target_out2 > int(safe_max_counts):
             continue
         direction = "rising" if median_ramp > 0.0 else "falling"
-        candidates.append((abs(slope), abs(index - peak), slope, direction, index, target_out2))
+        candidates.append((abs(slope), -abs(crossing.index - peak), crossing, direction))
 
     if not candidates:
         # Distinguish an undetermined ramp from an ordinary missing crossing.
@@ -437,18 +515,30 @@ def resolve_lock_point_selection(
         raise LockPointSelectionError("No valid zero crossing near selected transition; adjust scan offset/amp or target window.")
 
     # Maximum |dError/dOut2| is primary; distance to the selected CH1 peak breaks ties.
-    best_abs_slope, best_distance, best_slope, direction, zero_index, target_out2 = max(
-        candidates, key=lambda item: (item[0], -item[1])
+    _, _, crossing, direction = max(candidates, key=lambda item: (item[0], item[1]))
+    zero_index = float(crossing.index)
+    target_out2 = float(crossing.out2_counts)
+    crossing_time_s = (
+        _interpolate_capture_value(time_s, zero_index)
+        if time_s is not None
+        else float("nan")
     )
     return {
         "selected_peak_index": int(peak),
-        "zero_crossing_index": int(zero_index),
+        "zero_crossing_index": zero_index,
+        "zero_crossing_time_s": crossing_time_s,
+        "zero_crossing_out2_counts": target_out2,
+        "zero_crossing_pzt_volts": out2_counts_to_voltage(target_out2),
         "target_out2_counts": int(round(target_out2)),
         "target_out2_volts": out2_counts_to_voltage(target_out2),
-        "error_setpoint_counts": int(round(setpoint)),
-        "slope": float(best_slope),
+        "error_setpoint_counts": int(round(float(crossing.error_counts))),
+        "error_residual_counts": float(crossing.error_residual_counts),
+        "slope": float(crossing.slope),
         "ramp_direction": direction,
         "target_window_counts": int(max(1, target_window_counts)),
+        "safe_min_counts": int(safe_min_counts),
+        "safe_max_counts": int(safe_max_counts),
+        "bias_trim_volts": 0.0,
     }
 
 DISCONNECTED = "DISCONNECTED"
@@ -980,6 +1070,24 @@ class MainWindow(QMainWindow):
         status_row.addWidget(self.operator_alert_label)
         layout.addLayout(status_row)
 
+        calibration_row = QHBoxLayout()
+        calibration_row.addWidget(QLabel("Lock Point Calibration"))
+        self.lock_bias_minus_5mv_button = QPushButton("-5 mV")
+        self.lock_bias_minus_1mv_button = QPushButton("-1 mV")
+        self.lock_bias_plus_1mv_button = QPushButton("+1 mV")
+        self.lock_bias_plus_5mv_button = QPushButton("+5 mV")
+        self.lock_bias_trim_buttons = (
+            self.lock_bias_minus_5mv_button,
+            self.lock_bias_minus_1mv_button,
+            self.lock_bias_plus_1mv_button,
+            self.lock_bias_plus_5mv_button,
+        )
+        for button in self.lock_bias_trim_buttons:
+            self._style_button(button)
+            calibration_row.addWidget(button)
+        calibration_row.addStretch(1)
+        layout.addLayout(calibration_row)
+
         self.lock_point_selection_mode = QComboBox(panel)
         self.lock_point_selection_mode.addItem("Direct ERROR Zero Crossing")
         self.lock_point_selection_mode.setVisible(False)
@@ -1338,7 +1446,7 @@ class MainWindow(QMainWindow):
         ):
             self._style_button(button)
         self.custom_select_target_check.setToolTip(
-            "Click the CH1/PD plot near a target absorption feature; GUI resolves the nearby CH3/error zero crossing."
+            "Click CH1/PD or CH3/error near the target feature; GUI resolves the nearby CH3 zero crossing."
         )
         self.custom_p_lock_button.setVisible(False)
         self.custom_pi_lock_button.setVisible(False)
@@ -1877,6 +1985,10 @@ class MainWindow(QMainWindow):
         self.custom_start_live_button.clicked.connect(self._start_live_capture)
         self.custom_stop_live_button.clicked.connect(self._stop_live_capture)
         self.custom_confirm_lock_point_button.clicked.connect(self._confirm_pending_lock_point)
+        self.lock_bias_minus_5mv_button.clicked.connect(lambda: self._adjust_lock_bias_mv(-5.0))
+        self.lock_bias_minus_1mv_button.clicked.connect(lambda: self._adjust_lock_bias_mv(-1.0))
+        self.lock_bias_plus_1mv_button.clicked.connect(lambda: self._adjust_lock_bias_mv(1.0))
+        self.lock_bias_plus_5mv_button.clicked.connect(lambda: self._adjust_lock_bias_mv(5.0))
         self.custom_pick_lock_button.toggled.connect(self._set_lock_point_selection_active)
         self.custom_select_target_check.toggled.connect(self._sync_legacy_lock_point_selector)
         self.custom_polarity.currentIndexChanged.connect(self._on_polarity_selection_changed)
@@ -2401,11 +2513,11 @@ class MainWindow(QMainWindow):
             return np.asarray(self.custom_scope_data.get("time_s", []), dtype=float) * 1000.0
         return np.asarray(self.custom_scope_data.get("ch4", []), dtype=float)
 
-    def _scope_x_value(self, index: int) -> float:
+    def _scope_x_value(self, index: int | float) -> float:
         values = self._scope_x_values()
         if values.size == 0:
             return 0.0
-        return float(values[int(np.clip(index, 0, values.size - 1))])
+        return _interpolate_capture_value(values, float(index))
 
     def _set_scope_x_axis_label(self) -> None:
         if self.custom_scope_x_axis_combo.currentText() == "time (ms)":
@@ -2419,8 +2531,8 @@ class MainWindow(QMainWindow):
             self.custom_zero_marker.setVisible(False)
             self.custom_target_window_region.setVisible(False)
             return
-        target_index = int(lock_point.get("selected_peak_index", lock_point.get("clicked_index", 0)))
-        zero_index = int(lock_point.get("zero_crossing_index", lock_point.get("index", target_index)))
+        target_index = float(lock_point.get("selected_peak_index", lock_point.get("clicked_index", 0)))
+        zero_index = float(lock_point.get("zero_crossing_index", lock_point.get("index", target_index)))
         target_x = self._scope_x_value(target_index)
         zero_x = self._scope_x_value(zero_index)
         window_counts = float(lock_point.get("target_window_counts", self.custom_zero_threshold_counts.value()))
@@ -2431,8 +2543,8 @@ class MainWindow(QMainWindow):
             out2 = np.asarray(self.custom_scope_data.get("ch4", []), dtype=float)
             sample_count = min(time_ms.size, out2.size)
             if sample_count >= 2:
-                i0 = int(np.clip(target_index - 1, 0, sample_count - 1))
-                i1 = int(np.clip(target_index + 1, 0, sample_count - 1))
+                i0 = int(np.clip(np.floor(target_index) - 1, 0, sample_count - 1))
+                i1 = int(np.clip(np.ceil(target_index) + 1, 0, sample_count - 1))
                 delta_time_ms = float(time_ms[i1] - time_ms[i0])
                 delta_counts = float(out2[i1] - out2[i0])
                 if i1 > i0 and np.isfinite(delta_time_ms) and abs(delta_time_ms) > 1e-12:
@@ -2679,13 +2791,18 @@ class MainWindow(QMainWindow):
             return
         clicked_index = int(np.argmin(np.abs(x_values - float(view_pos.x()))))
         error_display = np.asarray(self.custom_scope_display_data.get("ch3", []), dtype=float)
-        if clicked_index >= error_display.size or not np.isfinite(error_display[clicked_index]):
+        ch1_display = np.asarray(self.custom_scope_display_data.get("ch1", []), dtype=float)
+        if clicked_index >= min(error_display.size, ch1_display.size):
+            return
+        if not np.isfinite(error_display[clicked_index]) or not np.isfinite(ch1_display[clicked_index]):
             return
         y_range = plot_item.vb.viewRange()[1]
         click_tolerance = max(0.25, abs(float(y_range[1]) - float(y_range[0])) * 0.04)
-        if abs(float(view_pos.y()) - float(error_display[clicked_index])) > click_tolerance:
-            self.operator_alert_label.setText("Click directly on the CH3 ERROR waveform")
-            self.operator_candidate_label.setText("Click the desired ERROR zero crossing")
+        error_distance = abs(float(view_pos.y()) - float(error_display[clicked_index]))
+        ch1_distance = abs(float(view_pos.y()) - float(ch1_display[clicked_index]))
+        if min(error_distance, ch1_distance) > click_tolerance:
+            self.operator_alert_label.setText("Click CH1 or CH3 near the target transition")
+            self.operator_candidate_label.setText("Click the target region; zero crossing is found automatically")
             return
         try:
             config = build_basic_lock_config(
@@ -2695,6 +2812,7 @@ class MainWindow(QMainWindow):
             selected = resolve_direct_error_zero_crossing(
                 error_counts=error,
                 out2_counts=out2,
+                time_s=t,
                 clicked_index=clicked_index,
                 safe_min_counts=config.safe_min_counts,
                 safe_max_counts=config.safe_max_counts,
@@ -2710,11 +2828,13 @@ class MainWindow(QMainWindow):
             self.operator_alert_label.setText(message)
             return
         peak_index = int(selected["selected_peak_index"])
-        zero_index = int(selected["zero_crossing_index"])
+        zero_index = float(selected["zero_crossing_index"])
         selected["clicked_index"] = clicked_index
-        selected["time_s"] = float(t[zero_index])
+        selected["time_s"] = float(selected["zero_crossing_time_s"])
         selected["out2_counts"] = int(selected["target_out2_counts"])
-        selected["error_counts"] = int(round(float(error[zero_index])))
+        selected["lock_bias_counts"] = int(selected["target_out2_counts"])
+        selected["lock_bias_volts"] = float(selected["target_out2_volts"])
+        selected["error_counts"] = int(selected["error_setpoint_counts"])
         self.pending_lock_point = {
             **selected,
             "index": zero_index,
@@ -2728,19 +2848,66 @@ class MainWindow(QMainWindow):
         self._update_lock_point_markers(self.pending_lock_point)
         self.operator_state_label.setText("WAITING FOR CONFIRMATION")
         self.operator_alert_label.setText("")
-        self.operator_candidate_label.setText(
-            "Candidate lock point | "
-            f"PZT: {format_scope_voltage(float(selected['target_out2_volts']))} | "
-            f"Direction: {str(selected['ramp_direction']).title()} | "
-            "Status: Waiting for confirmation"
-        )
+        self.operator_candidate_label.setText(self._lock_point_candidate_text(selected, "Waiting for confirmation"))
         self.selected_lock_label.setText(
             "pending lock point: "
-            f"peak {peak_index}, zero {zero_index}, OUT2 {selected['target_out2_counts']} counts / "
-            f"{selected['target_out2_volts']:.6g} V, ERROR_SETPOINT {selected['error_setpoint_counts']} counts, "
+            f"click {peak_index}, zero {zero_index:.3f}, time {float(selected['zero_crossing_time_s']) * 1000.0:.6g} ms, "
+            f"PZT {float(selected['target_out2_volts']) * 1000.0:.3f} mV, "
+            f"ERROR residual {float(selected['error_residual_counts']) / COUNTS_PER_VOLT * 1000.0:.6g} mV, "
             f"slope {selected['slope']:.6g}, ramp {selected['ramp_direction']}. "
             "Press Confirm Lock Point before LOCK HERE."
         )
+
+    def _lock_point_candidate_text(self, lock_point: dict[str, int | float | str], status: str) -> str:
+        time_ms = float(lock_point.get("zero_crossing_time_s", float("nan"))) * 1000.0
+        error_mv = float(lock_point.get("error_residual_counts", 0.0)) / COUNTS_PER_VOLT * 1000.0
+        pzt_mv = float(lock_point["target_out2_volts"]) * 1000.0
+        trim_mv = float(lock_point.get("bias_trim_volts", 0.0)) * 1000.0
+        return (
+            "Lock point candidate: "
+            f"Index: {float(lock_point['zero_crossing_index']):.3f} | "
+            f"Time: {time_ms:.6g} ms | Error: {error_mv:.6g} mV | "
+            f"Slope: {float(lock_point['slope']):.6g} | PZT: {pzt_mv:.3f} mV | "
+            f"Bias trim: {trim_mv:+.1f} mV | Status: {status}"
+        )
+
+    def _adjust_lock_bias_mv(self, delta_mv: float) -> None:
+        lock_point = self.pending_lock_point if self.pending_lock_point is not None else self.selected_lock_point
+        if lock_point is None:
+            self.operator_alert_label.setText("Select a valid zero crossing before calibrating LOCK_BIAS")
+            return
+
+        updated = dict(lock_point)
+        trim_volts = float(updated.get("bias_trim_volts", 0.0)) + float(delta_mv) / 1000.0
+        zero_pzt_volts = float(updated["zero_crossing_pzt_volts"])
+        requested_bias_volts = zero_pzt_volts + trim_volts
+        bias_counts = out2_voltage_to_counts(requested_bias_volts)
+        safe_min = int(updated.get("safe_min_counts", -8191))
+        safe_max = int(updated.get("safe_max_counts", 8191))
+        if bias_counts < safe_min or bias_counts > safe_max:
+            self.operator_alert_label.setText("LOCK_BIAS calibration rejected: PZT safe range exceeded")
+            return
+
+        updated["bias_trim_volts"] = trim_volts
+        updated["target_out2_counts"] = bias_counts
+        updated["out2_counts"] = bias_counts
+        updated["lock_bias_counts"] = bias_counts
+        updated["target_out2_volts"] = out2_counts_to_voltage(bias_counts)
+        updated["lock_bias_volts"] = float(updated["target_out2_volts"])
+        if self.pending_lock_point is not None:
+            self.pending_lock_point = updated
+            status = "Waiting for confirmation"
+        else:
+            self.selected_lock_point = updated
+            status = "Confirmed"
+        self.operator_alert_label.setText("")
+        self.operator_candidate_label.setText(self._lock_point_candidate_text(updated, status))
+        self.selected_lock_label.setText(
+            f"LOCK_BIAS calibrated to {float(updated['target_out2_volts']) * 1000.0:.3f} mV; "
+            f"ERROR_SETPOINT remains {int(updated['error_setpoint_counts'])} counts. "
+            "No feedback has been enabled."
+        )
+        self._apply_button_state(self.connection_state)
 
     def _confirm_pending_lock_point(self) -> None:
         if self.pending_lock_point is None:
@@ -2748,23 +2915,21 @@ class MainWindow(QMainWindow):
             self.operator_alert_label.setText("Lock point not confirmed")
             return
         self.selected_lock_point = dict(self.pending_lock_point)
+        self.pending_lock_point = None
         self._update_lock_point_markers(self.selected_lock_point)
         self.custom_pick_lock_button.setChecked(False)
         self.operator_state_label.setText("LOCK POINT CONFIRMED")
         self.operator_alert_label.setText("")
-        self.operator_candidate_label.setText(
-            "Candidate lock point | "
-            f"PZT: {format_scope_voltage(float(self.selected_lock_point['target_out2_volts']))} | "
-            f"Direction: {str(self.selected_lock_point['ramp_direction']).title()} | "
-            "Status: Confirmed"
-        )
+        self.operator_candidate_label.setText(self._lock_point_candidate_text(self.selected_lock_point, "Confirmed"))
         self.selected_lock_label.setText(
             "selected lock point confirmed: "
-            f"peak {int(self.selected_lock_point['selected_peak_index'])}, "
-            f"zero {int(self.selected_lock_point['zero_crossing_index'])}, "
-            f"OUT2 {int(self.selected_lock_point['target_out2_counts'])} counts / "
-            f"{float(self.selected_lock_point['target_out2_volts']):.6g} V, "
+            f"click {int(self.selected_lock_point['selected_peak_index'])}, "
+            f"zero {float(self.selected_lock_point['zero_crossing_index']):.3f}, "
+            f"time {float(self.selected_lock_point['zero_crossing_time_s']) * 1000.0:.6g} ms, "
+            f"LOCK_BIAS {int(self.selected_lock_point['lock_bias_counts'])} counts / "
+            f"{float(self.selected_lock_point['lock_bias_volts']):.6g} V, "
             f"ERROR_SETPOINT {int(self.selected_lock_point['error_setpoint_counts'])}, "
+            f"residual {float(self.selected_lock_point['error_residual_counts']):.6g} counts, "
             f"slope {float(self.selected_lock_point['slope']):.6g}, "
             f"ramp {self.selected_lock_point['ramp_direction']}"
         )
@@ -3833,6 +3998,8 @@ class MainWindow(QMainWindow):
         self.custom_confirm_lock_point_button.setEnabled(
             identity_enabled and self.pending_lock_point is not None
         )
+        for button in self.lock_bias_trim_buttons:
+            button.setEnabled(self.pending_lock_point is not None or self.selected_lock_point is not None)
         self.custom_lock_button.setEnabled(
             identity_enabled and self.selected_lock_point is not None
         )
