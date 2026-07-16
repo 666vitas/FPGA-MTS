@@ -1,5 +1,36 @@
 # STATUS
 
+## 2026-07-16 FPGA-MTS AI Workflow 模式分离
+
+### 本轮范围
+
+- 本轮为纯规则重构，只使用当前本地 workspace；未执行 `git fetch`、`git pull`、`git ls-remote`，未读取 GitHub online，也未比较 `origin/main`。
+- 开始时本地 working tree clean。本轮只修改 `AGENTS.md`、`AI_REVIEW_README.md`、`version/CURRENT_REVIEW_MANIFEST.md` 和本 STATUS。
+- 当前 v3LOCK-P0 代码、实验状态和硬件下一步不变；下方上一条状态记录继续保存项目技术事实。
+
+### 新工作模式
+
+- `Development Mode` 成为默认模式：数据源是 Current local workspace；本地文件是开发依据；允许按用户范围修改代码、测试和文档并运行本地验证；禁止主动访问 GitHub remote 或等待网络。
+- Development Mode 不再要求 Git Gate、`git fetch` 或 `HEAD == origin/main`。已知且不冲突的本地修改不阻塞开发；来源不明或与任务重叠的修改仍需保护并报告。
+- 只有用户明确输入 `@GitHub 审计` 或 `审查最新main` 才进入 `Review Mode`。该模式允许 fetch、版本和 push 状态检查，但只读审查，禁止修改项目文件。
+- `version/CURRENT_REVIEW_MANIFEST.md` 已收敛为 Review Mode 专用清单，不再是 Development Mode 的必读入口。
+
+### 保留规则
+
+- 保留任务范围、版本/状态记录、本地测试、证据等级、既有修改保护和交接要求。
+- 保留 RTL、Vivado、寄存器、bitstream 和 OUT2/PZT 安全边界。
+- 默认不 commit、不 push；完成后等待用户审核。
+
+### 本地验证
+
+- `git diff --check`：通过，无输出。
+- 规则搜索确认：Development Mode 中不存在默认 fetch/origin Gate；`git fetch`、`origin/main` 和 GitHub online 访问只在 Review Mode 的允许范围或 Development Mode 的禁止说明中出现。
+- 未修改 RTL、Vivado、Python、测试、bitstream、寄存器或项目逻辑；未运行 Vivado 或软件测试。
+
+### 后续动作
+
+用户审核 `git diff --stat` 和 `git diff`，再决定是否 commit。
+
 ## 2026-07-16 v3LOCK-P0 OUT2 voltage mapping software correction
 
 ### Local Git Baseline
