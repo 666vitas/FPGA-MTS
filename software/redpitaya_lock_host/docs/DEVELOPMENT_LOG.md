@@ -829,3 +829,14 @@ git diff --check
 - 验证：tabnanny、四文件 py_compile 通过；collect `84 tests`；targeted `13 passed, 71 deselected`；当前文件 `84 passed`；完整 tests `90 passed, 4 subtests passed`。1450x900 离屏布局无明显重叠，但不属于真实 GUI 证据。
 - 未修改 backend、worker、RTL、Vivado、寄存器、MAGIC、VERSION、bitstream、Hardware Validation 实验结果或 SOP；未运行 Vivado，未执行硬件实验。
 - 结论：`SYSTEM IDENTITY SOFTWARE PASS / WAITING USER HARDWARE HV-1`。下一步唯一动作仍是 PZT 断开、OUT2 只接示波器，按 SOP 只执行 count=0 HV-1，记录 readback/示波器电压后立即 SAFE。
+
+## 2026-07-16 OUT2 voltage mapping software correction
+
+- 用户提供 STEM125-14 OUT2 修复前示波器数据：50 Hz 三角波频率/波形正常；center 拟合 `V_actual ~= 1.13 * V_GUI + 0.009 V`；single-sided amplitude gain 约 `1.18`。
+- 审计链路为 GUI float -> Python count -> `/dev/mem` register -> `custom_register_bank` -> `ramp_generator`/`out2_lock_controller` -> `selected_out2` -> DAC -> OUT2。RTL 对 signed14 count 无额外 scale/offset，根因位于理想 count 到当前板卡模拟输出的映射。
+- 新增 `redpitaya_lock_host/out2_calibration.py`，absolute voltage 使用中心 gain/offset 逆补偿，amplitude/delta 使用幅度 gain 逆补偿；backend、独立 CLI、SCAN、HOLD、manual LOCK_BIAS 和 PZT safe count 共用该层。
+- `LOCK HERE` 继续直接捕获 `OUT2_MONITOR` count，不重复校准；P correction 仍为 RTL raw-count 路径，未改变 Kp、correction limit 或锁定逻辑。
+- 校准后 `hold-v=0.0000 V` 为补偿后的约 `-65 counts`，旧 HOLD exact-count=0 SOP 已暂停；`HARDWARE_CALIBRATION_SOP.md` 改为只允许 center `0.800 V`、amplitude `0.100 V`、50 Hz 的修复后单组复测。
+- 自动化验证：tabnanny PASS；PowerShell 展开实际 Python 文件后的 py_compile PASS（原样 `*.py` 参数因 Windows 不展开通配符返回 Invalid argument）；collect-only `94 tests collected`；targeted `6 passed`；`test_custom_fpga_backend.py` `88 passed`；完整 tests `94 passed`。
+- 未修改 RTL、Vivado、寄存器地址/语义、`MAGIC`、`VERSION` 或 bitstream。结论：OUT2 voltage mapping software correction implemented；Waiting hardware re-validation。
+- 下一步唯一动作：PZT 断开、OUT2 只接示波器，在原测量条件下验证 center `0.800 V`、amplitude `0.100 V`、50 Hz 应得到中心约 `0.800 V`、Vpp 约 `0.200 V`，误差均小于 5%，随后 SAFE。

@@ -140,3 +140,13 @@
 - 自动化：tabnanny、py_compile 通过；collect `84`；targeted `13 passed, 71 deselected`；当前文件 `84 passed`；完整 software tests `90 passed, 4 subtests passed`。
 - 未修改 backend/worker、RTL、Vivado、寄存器、MAGIC、VERSION、bitstream、Hardware Validation 结果或 SOP；未执行真实 GUI/硬件实验。
 - 结论：`SYSTEM IDENTITY SOFTWARE PASS / WAITING USER HARDWARE HV-1`；下一步仍为 PZT 断开、OUT2 只接示波器，按 SOP 只执行 count=0 HV-1，记录后立即 SAFE。
+
+## 2026-07-16 OUT2 voltage mapping software correction
+
+- 本地工程 `main` initial HEAD `016f8d51b4500ec90f9d8006d138a8504c58b12a`；用户禁止联网和 Git 历史改写，本轮未执行 fetch/pull/reset/rebase。
+- 修复前硬件证据：STEM125-14 OUT2 50 Hz 三角波频率/波形正常；center 为 `0.5/0.6/0.7/0.8/0.9 V -> 0.574/0.6875/0.8015/0.913/1.0255 V`；拟合 `V_actual ~= 1.13 * V_GUI + 0.009 V`；amplitude gain 约 `1.18`。
+- RTL 审计确认 register、ramp、mode selector 和 DAC 入口均保持 signed14 count，无二次缩放。新增 Python 单一校准层，修正 SCAN center/amplitude、HOLD、manual LOCK_BIAS 和 PZT safe count；自动捕获 LOCK_BIAS 保持原始 `OUT2_MONITOR` count。
+- P correction 仍在 RTL raw-count 域计算，本轮未修改 mixer、LPF、PID/P-only、锁定逻辑、RTL、Vivado、register 或 bitstream。
+- 校准后 HOLD `0 V` 不再等于 raw count 0；旧 exact-count=0 步骤已暂停，当前 SOP 只授权 PZT 断开时执行 center `0.800 V`、amplitude `0.100 V`、50 Hz 单组复测。
+- 自动化验证：tabnanny PASS；PowerShell 展开实际 Python 文件后的 py_compile PASS（原样 `*.py` 参数因 Windows 不展开通配符返回 Invalid argument）；collect-only `94 tests collected`；targeted `6 passed`；当前测试文件 `88 passed`；完整 software tests `94 passed`。
+- 阶段结论：OUT2 voltage mapping software correction implemented；Waiting hardware re-validation。下一步唯一动作是在原示波器条件下复测 `center=0.800 V`、`amplitude=0.100 V`、`50 Hz`，确认中心和 Vpp 均小于 5% 误差后 SAFE。

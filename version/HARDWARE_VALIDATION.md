@@ -4,18 +4,18 @@
 
 ```text
 Current Stage: v3LOCK-P0 / Stage 3 Hardware Verification
-Current Gate: HV-1 OUT2 fixed-count physical voltage calibration
-Git baseline: main clean, HEAD == origin/main
-Latest main commit: 0e13f2806d7a716d3e66d365babbe2b247e59d8b
+Current Gate: corrected OUT2 voltage mapping hardware re-validation
+Git baseline: local main clean at task start; no remote refresh by user request
+Latest local commit: 016f8d51b4500ec90f9d8006d138a8504c58b12a
 Bitstream MAGIC: 0x4D545330
 Bitstream VERSION: 0x00030001
-Board model: NOT RECORDED
+Board model: Red Pitaya STEM125-14
 Board identity: NOT RECORDED
 Experiment date: NOT RECORDED
-Operator: NOT RECORDED
+Operator: user-reported measurement
 ```
 
-当前只准备 HV-1，尚未执行硬件校准。当前唯一允许的实验点是 count=0；非零点、SCAN、LOCK HERE 和 P-only 均不在本次 Gate 操作范围内。
+用户已提供修复前 SCAN center/amplitude 的示波器测量。本轮已根据这些数据实现软件预补偿；修复后的模拟输出尚未复测，当前 Gate 仍为 `[NOT VERIFIED]`。
 
 ## 证据等级
 
@@ -30,46 +30,85 @@ Operator: NOT RECORDED
 
 ```text
 CODE/REGISTER TRACE PASS
-GUI ABSOLUTE VOLTAGE FAIL
-PHYSICAL ADC/DAC CALIBRATION NOT VERIFIED
+PRE-CORRECTION GUI ABSOLUTE VOLTAGE FAIL
+OUT2 VOLTAGE MAPPING SOFTWARE CORRECTION AUTOMATED VERIFIED
+POST-CORRECTION OUT2 HARDWARE RE-VALIDATION NOT VERIFIED
 OUT1 LOCK MEANING NOT VERIFIED
 P-ONLY CLOSED LOOP NOT VERIFIED
 ```
 
-这里的 `GUI ABSOLUTE VOLTAGE FAIL` 表示 GUI nominal/ideal 换算不能作为真实物理电压证据，不表示 raw signed14 count 链失败。
+这里的修复前 `GUI ABSOLUTE VOLTAGE FAIL` 不表示 raw signed14 count 链失败。RTL 审计确认 count 链无额外缩放；软件修正通过自动化测试仍不等于真实 OUT2 已校准。
+
+## 2026-07-16 修复前 OUT2 mapping evidence
+
+实验条件：Red Pitaya STEM125-14，OUT2 直接连接示波器，SCAN frequency `50 Hz`，三角波形和频率正常。scope load、coupling、probe ratio 和实验日期未记录。
+
+| GUI Scan center (V) | scope actual center (V) |
+|---:|---:|
+| 0.500 | 0.5740 |
+| 0.600 | 0.6875 |
+| 0.700 | 0.8015 |
+| 0.800 | 0.9130 |
+| 0.900 | 1.0255 |
+
+中心拟合：
+
+```text
+V_actual ~= 1.13 * V_GUI + 0.009 V
+```
+
+| GUI single-sided amplitude (V) | scope Vpp (V) |
+|---:|---:|
+| 0.050 | 0.125 |
+| 0.100 | 0.237 |
+| 0.200 | 0.462 |
+
+幅度增益约 `1.18`。软件逆补偿为：
+
+```text
+absolute count = round(((V_target - 0.009) / 1.13) * 8191)
+delta count    = round((V_delta / 1.18) * 8191)
+```
+
+- [AUTOMATED VERIFIED] SCAN center/amplitude、HOLD、manual LOCK_BIAS 和 PZT safe count 边界已使用统一软件校准层。
+- `LOCK HERE` 捕获已在 count 域中的 `OUT2_MONITOR`，不重复转换。
+- P correction 仍由 RTL 以 raw count 计算；未修改 Kp、correction limit 或锁定逻辑。修复后 P-only 物理增量为 `[NOT VERIFIED]`。
+- 未修改 RTL、Vivado、register address/semantics 或 bitstream。
 
 ## Hardware Verification Gates
 
 | Gate | 目标 | 准备状态 | 实验状态 |
 |---|---|---|---|
-| HV-1 | OUT2 fixed count -> scope voltage | `[IMPLEMENTED]` | `[NOT VERIFIED]` |
-| HV-2 | OUT2 SCAN CH4 -> scope OUT2 | `[NOT VERIFIED]` | `[NOT VERIFIED]` |
+| HV-1A | 修复前 GUI SCAN -> scope voltage mapping | `[IMPLEMENTED]` | `[USER HARDWARE VERIFIED]` |
+| HV-1B | 修复后 center=0.8 V / amplitude=0.1 V 复测 | `[AUTOMATED VERIFIED]` | `[NOT VERIFIED]` |
+| HV-2 | OUT2 SCAN CH4 -> scope OUT2 扩展验证 | `[NOT VERIFIED]` | `[NOT VERIFIED]` |
 | HV-3 | CH3 -> physical OUT1 | `[NOT VERIFIED]` | `[NOT VERIFIED]` |
 | HV-4 | IN1/IN2 physical voltage -> ADC counts | `[NOT VERIFIED]` | `[NOT VERIFIED]` |
 | HV-5 | error zero crossing physical meaning | `[NOT VERIFIED]` | `[NOT VERIFIED]` |
 | HV-6 | LOCK HERE Kp=0 bumpless transfer | `[NOT VERIFIED]` | `[NOT VERIFIED]` |
 | HV-7 | minimal nonzero Kp P-only | `[NOT VERIFIED]` | `[NOT VERIFIED]` |
 
-只有 HV-1 的文档和既有操作入口可以使用。HV-1 未获 `[USER HARDWARE VERIFIED]` 前，不得进入 HV-2 至 HV-7。
+当前只允许执行 HV-1B 的单组修复后复测；HV-1B 未通过前不得进入 HV-2 至 HV-7。
 
 ## 上位机能力审计
 
 - `[IMPLEMENTED]` `Probe Registers` 和 `Status` 可读 `MAGIC`、`VERSION`、`MODE`、`ENABLE`、`STATUS`、`OUT2_MONITOR` 和 saturation。
-- `[IMPLEMENTED]` 现有 `hold-v` 经 `round(volts * 8191)` 转成 signed14 count；`0.0000` 精确转换为 count=0。
+- `[AUTOMATED VERIFIED]` SCAN center、HOLD 和 manual LOCK_BIAS 经 `round(((V_target - 0.009) / 1.13) * 8191)` 转成 signed14 count。
+- `[AUTOMATED VERIFIED]` SCAN single-sided amplitude 经 `round((V_delta / 1.18) * 8191)` 转换；`0.100 V` 为 `694 counts`。
 - `[IMPLEMENTED]` HOLD 写入顺序为 `ENABLE=0 -> HOLD_VALUE -> MODE=2 -> ENABLE=1`，随后返回状态 readback。
 - `[IMPLEMENTED]` `Capture Waveform` 可记录 CH4=`selected_out2` raw count。
-- 风险：HOLD 不受 SCAN `OUT2_LIMIT` 保护；使用者必须先 SAFE，且当前只允许 count=0。
-- 风险：上位机输入和显示的 V 是 nominal/ideal，不是实测或校准电压。
+- 风险：校准后 `hold-v=0.0000 V` 预补偿为 `-65 counts`，不再是 exact count=0；旧 count=0 SOP 已暂停。
+- 风险：软件电压是基于本次实测系数的估算；示波器仍是硬件 Gate 的物理真值。
 
-结论：现有上位机足够安全执行本次唯一授权的 count=0 点，无需修改 Python。该结论不授权用 `hold-v` 执行任意非零 count 校准；后续扩展 HV-1 点位前必须重新审查 exact-count 操作和安全边界。
+结论：现有上位机已实现 HV-1B 所需的软件预补偿。只授权 PZT 断开时执行 center `0.800 V`、amplitude `0.100 V`、50 Hz 的示波器复测；不授权 LOCK HERE 或 P-only。
 
-## HV-1 OUT2 calibration record
+## Earlier exact-count calibration record
 
-当前仅第一行可由用户执行。其余行只是后续 HV-1 记录占位，不是本轮操作授权。
+该表保留为早期 exact-count 计划记录，不是当前操作入口。校准后的 `hold-v` 是物理电压请求，不能再用于指定 raw count；在增加独立 exact-count 安全入口前，禁止执行本表点位。
 
 | requested_count | OUT2_MONITOR_count | CH4_count | mode | enable | saturation | scope_load | scope_coupling | probe_ratio | measured_voltage_mean_V | measured_voltage_min_V | measured_voltage_max_V | repeat_index | result | notes |
 |---:|---:|---:|---:|---:|---|---|---|---|---:|---:|---:|---:|---|---|
-| 0 | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | 1 | `[NOT VERIFIED]` | 当前唯一允许点 |
+| 0 | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | 1 | `[NOT VERIFIED]` | 历史占位；当前禁止执行 |
 | +1024 | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | `[NOT VERIFIED]` | 本轮禁止执行 |
 | -1024 | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | `[NOT VERIFIED]` | 本轮禁止执行 |
 | +2048 | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | NOT RECORDED | `[NOT VERIFIED]` | 本轮禁止执行 |
@@ -107,4 +146,4 @@ fit_result: NOT VERIFIED
 
 ## 下一步唯一动作
 
-断开 PZT，使 OUT2 只连接示波器，按照 `software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md` 只执行 count=0 的 HV-1 测量，记录 readback 和示波器真实电压，然后立即 SAFE。
+保持 PZT 断开且 OUT2 只接示波器，按 `software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md` 复测 `Scan center=0.800 V`、`Scan amplitude=0.100 V`、`50 Hz`；中心约 `0.800 V`、Vpp 约 `0.200 V` 且误差均小于 5% 才 PASS，记录后立即 SAFE。

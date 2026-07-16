@@ -1,5 +1,70 @@
 # STATUS
 
+## 2026-07-16 v3LOCK-P0 OUT2 voltage mapping software correction
+
+### Local Git Baseline
+
+- 用户明确要求只使用本地工程，禁止 `git fetch`、`git pull`、`git reset` 和 `git rebase`；本轮未执行这些命令。
+- branch：`main`；initial HEAD：`016f8d51b4500ec90f9d8006d138a8504c58b12a`；本地记录的 `origin/main` 为同一提交。
+- 开始时 working tree clean，无 rebase / merge / cherry-pick 状态。该结论只代表本地快照，未联网刷新远端。
+
+### Current Stage / Gate
+
+```text
+Current Stage: v3LOCK-P0 / Stage 3 Hardware Verification
+Current Gate: corrected OUT2 voltage mapping hardware re-validation
+```
+
+### 修复前硬件证据
+
+- [USER HARDWARE VERIFIED] Red Pitaya STEM125-14，OUT2 直接连接示波器，50 Hz 三角波频率和波形正常；GUI center `0.5/0.6/0.7/0.8/0.9 V` 对应实测中心 `0.574/0.6875/0.8015/0.913/1.0255 V`。
+- [USER HARDWARE VERIFIED] 拟合为 `V_actual ~= 1.13 * V_GUI + 0.009 V`。
+- [USER HARDWARE VERIFIED] GUI amplitude `0.05/0.10/0.20 V` 对应实测 Vpp `0.125/0.237/0.462 V`；单边幅度增益约 `1.18`。
+- 示波器 load、coupling、probe ratio 和实验日期未记录；该组系数只用于当前报告的板卡/接线条件，不能外推为其他板卡或负载的通用常数。
+
+### 根因与信号链
+
+```text
+GUI physical voltage
+  -> main_window.py float parameter
+  -> custom_fpga_backend.py calibration + signed14 count
+  -> custom_fpga_scan_control.py /dev/mem register write
+  -> custom_register_bank.sv signed14 register
+  -> ramp_generator.sv or out2_lock_controller
+  -> selected_out2 signed14 count
+  -> red_pitaya_top.sv existing DAC saturation/encoding
+  -> STEM125-14 OUT2 analog voltage
+```
+
+- Python 修复前只使用理想 `8191 counts/V`；RTL 对 OUT2 signed14 count 没有额外 multiply、shift 或 offset，未发现 Python/RTL 重复缩放。
+- 误差位于理想 DAC count 到当前板卡实际模拟电压的物理映射；本轮用 Python 物理电压入口预补偿，不修改 RTL。
+
+### 实现与验证
+
+- [AUTOMATED VERIFIED] 新增单一 `out2_calibration.py`：绝对值使用 `count = round(((V_target - 0.009) / 1.13) * 8191)`；扫描半幅/零偏置增量使用 `count = round((V_delta / 1.18) * 8191)`，均限制到 signed14 DAC 范围。
+- [AUTOMATED VERIFIED] SCAN center、SCAN amplitude、HOLD、manual LOCK_BIAS、PZT safe min/max count 边界和独立 CLI 共用校准层。
+- [AUTOMATED VERIFIED] `0.5/0.7/0.9 V` 转换为 `3559/5009/6459 counts`；`0.1 V` 单边 amplitude 转换为 `694 counts`。
+- `LOCK HERE` 的 `LOCK_BIAS` 由 FPGA 直接捕获当前 `OUT2_MONITOR` count，不进行第二次校准；这样保持 SCAN 到 Kp=0 锁点的同一 count。
+- P correction 由 `out2_lock_controller` 在 FPGA 内以 raw count 计算，当前 GUI 不提供 P correction 电压输入；本轮未改变 Kp、correction-limit count 语义或锁定逻辑。其 count-to-physical-delta 估算使用同一 amplitude gain，但修复后的真实闭环增量仍待硬件验证。
+- `python -m tabnanny redpitaya_lock_host tests scripts\custom_fpga_scan_control.py`：通过。
+- 对 `redpitaya_lock_host/*.py` 和 `scripts/custom_fpga_scan_control.py` 执行 `python -m py_compile`：通过。
+- 仓库根目录原样执行 `python -m py_compile software/redpitaya_lock_host/*.py`：Windows PowerShell 未展开通配符，返回 `Invalid argument`；随后使用 `Get-ChildItem` 展开同一目录并连同 package/script 文件执行，全部通过。
+- `python -m pytest --collect-only -q tests`：`94 tests collected`。
+- targeted calibration/LOCK_BIAS/CH4 display：`6 passed, 82 deselected`。
+- `python -m pytest -q tests/test_custom_fpga_backend.py`：`88 passed`。
+- `python -m pytest -q tests`：`94 passed`。
+
+### 修改边界与阶段结论
+
+- 修改上位机 Python、聚焦测试、本 STATUS、`version/HARDWARE_VALIDATION.md`、`HARDWARE_CALIBRATION_SOP.md` 和两份现有 `DEVELOPMENT_LOG.md`。
+- 未修改 mixer、LPF、PID/P-only、锁定逻辑、RTL、Vivado 工程、寄存器地址/语义、`MAGIC`、`VERSION` 或 bitstream；未运行 Vivado、未生成或烧录 bitstream。
+- [AUTOMATED VERIFIED] OUT2 voltage mapping software correction implemented。
+- [NOT VERIFIED] Waiting hardware re-validation；不得写成 OUT2 calibration complete。
+
+### 下一步唯一动作
+
+保持 PZT 断开且 OUT2 只接示波器，在与原实验相同 load/coupling/probe 条件下设置 `Scan center=0.800 V`、`Scan amplitude=0.100 V`、`frequency=50 Hz`，确认中心接近 `0.800 V` 且 `Vpp` 接近 `0.200 V`（两者误差均小于 5%），记录结果后立即 SAFE。
+
 ## 2026-07-16 v3LOCK-P0 System Identity 只读上位机准备
 
 ### Git Baseline Gate

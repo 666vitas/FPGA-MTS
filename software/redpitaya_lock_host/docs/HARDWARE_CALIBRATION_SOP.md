@@ -4,64 +4,49 @@
 
 ```text
 Current Stage: v3LOCK-P0 / Stage 3 Hardware Verification
-Current Gate: HV-1 OUT2 fixed-count physical voltage calibration
-Allowed point: count=0 only
+Current Gate: corrected OUT2 voltage mapping hardware re-validation
+Allowed point: Scan center=0.800 V, amplitude=0.100 V, frequency=50 Hz
 Hardware result: NOT VERIFIED
 ```
 
-本 SOP 只建立 OUT2 的第一个真实测量点。禁止执行非零 count、SCAN、LOCK HERE、APPLY P 或 P-only。本文中的判据是计划判据，必须由用户真实实验结果确认；当前没有执行任何硬件校准。
+本 SOP 只验证修复后的单组 OUT2 SCAN 电压映射，不授权 LOCK HERE、APPLY P、P-only 或其他点位。软件测试通过不代表真实模拟输出已经通过。
 
-## 目标
-
-验证上位机请求 count=0 后，`OUT2_MONITOR`、CH4 和示波器 OUT2 真实 DC 电压之间的对应关系。GUI 的 `V` / `mV` 只表示 nominal/ideal 换算，示波器读数才是本 Gate 记录的真实物理电压。
+校准后 `hold-v=0.0000 V` 会发送约 `-65 counts` 以抵消实测零偏，不再等于 raw count=0。旧的 HOLD exact-count=0 流程已暂停；没有独立 exact-count 安全入口时不得继续该旧流程。
 
 ## 接线
 
-1. 断开 PZT；本次不允许 OUT2 连接激光器或任何 Scan/PZT 输入。
-2. 只连接 `Red Pitaya OUT2 -> oscilloscope input`。
-3. 禁止 OUT2 与 D2-125 Servo Output、D2-125 Aux Output 或任何其他有源输出并联。
-4. 记录 scope input 为 `50 ohm` 或 `1 Mohm/Hi-Z`、probe ratio 和 `DC coupling`。若不是 DC coupling，停止本实验。
-5. 同一份校准记录不得混用不同 load、probe ratio、coupling 或线缆配置。
+1. 断开 PZT；OUT2 本次只允许连接示波器。
+2. 禁止 OUT2 与 D2-125 Servo Output、D2-125 Aux Output 或任何其他有源输出并联。
+3. 使用与修复前测量相同的 scope load、DC coupling、probe ratio 和线缆；若原条件无法确认，记录实际条件并把结果标为不可直接比较。
+4. 若不是 DC coupling，停止实验。
 
 ## 开始前检查
 
-1. 确认当前 GUI 连接的是目标 Red Pitaya，PZT 已物理断开，OUT2 只接示波器。
-2. 在 `Advanced` 中点击 `Probe Registers`。
-3. 只在读回 `MAGIC=0x4D545330` 且 `VERSION=0x00030001` 时继续；否则停止，不尝试绕过身份检查。
-4. 点击 `Status`，记录初始 `MODE`、`ENABLE`、`STATUS`、`OUT2_MONITOR` 和 saturation。
-5. 点击 `SAFE`，再点击 `Status`；必须看到 `MODE=0`、`ENABLE=0`、无 saturation。无法确认时停止。
+1. 点击 `Probe Registers`，只在 `MAGIC=0x4D545330`、`VERSION=0x00030001`、Identity=`Matched` 时继续。
+2. 点击 `SAFE` 后再点 `Status`；必须看到 `MODE=0`、`ENABLE=0`、无 saturation。
+3. 确认 PZT 已断开、OUT2 只接示波器、示波器量程足以覆盖 `0.7 V` 至 `0.9 V`。
 
-## HV-1 count=0 单点步骤
+## HV-1B 单组步骤
 
-1. 在 `Advanced` 的 `hold-v` 输入 `0.0000 V`。该字段是 nominal 输入，但代码会把它精确转换成 requested count=0；不得把 `0.0000 V` 标签当作示波器真实电压。
-2. 再确认 PZT 已断开、OUT2 只接示波器且没有有源输出并联。
-3. 点击 `HOLD`。现有上位机发送 `HOLD_VALUE=0`，选择 `MODE=2` 并设置 `ENABLE=1`。注意：HOLD 不受 SCAN `OUT2_LIMIT` 保护，因此本轮禁止输入任何非零值。
-4. 操作返回后点击 `Status`，记录：requested count=`0`、`OUT2_MONITOR`、`MODE`、`ENABLE`、`STATUS` 和 saturation。
-5. 只有 `MODE=2`、`ENABLE=1`、`OUT2_MONITOR=0` 且无 saturation 时，才点击一次 `Capture Waveform`，记录 CH4 raw count。CH4 是 pre-DAC digital count，不是物理电压。
-6. 在示波器上读取并记录 OUT2 的 DC mean、min 和 max，同时记录 scope load、coupling、probe ratio 和 repeat index。
-7. 测量完成后立即点击 `SAFE`，再点击 `Status`，确认 `MODE=0`、`ENABLE=0` 且无 saturation。
-8. 将记录写入 `version/HARDWARE_VALIDATION.md` 的 count=0 行；在用户确认前保持 `[NOT VERIFIED]`。
+1. 设置 `PZT safe min=0.700 V`、`PZT safe max=0.900 V`。
+2. 设置 `Scan center=0.800 V`、`Scan amplitude=0.100 V`、`Scan frequency=50 Hz`。
+3. 点击 `START SCAN`。软件预期写入 center `5734 counts`、amplitude `694 counts`；`OUT2_MONITOR` 应在约 `5040..6428 counts` 内变化且无 saturation。
+4. 示波器记录三角波 center、Vpp、frequency，以及 scope load、coupling、probe ratio。
+5. 测量完成后立即点击 `STOP / SAFE`，再点 `Status` 确认 `MODE=0`、`ENABLE=0` 且无 saturation。
+6. 将结果写入 `version/HARDWARE_VALIDATION.md`；未提供复测结果前保持 `[NOT VERIFIED]`。
 
-## PASS / FAIL 判据
+## PASS / FAIL
 
-PASS 只能由用户真实硬件结果确认，并至少满足：
+PASS 必须同时满足：
 
-- `MAGIC` / `VERSION` 正确。
-- requested count=0、`OUT2_MONITOR=0`，CH4 稳定在 0 count 或能解释的单 count 读回范围内。
-- `MODE=2`、`ENABLE=1` 且无 saturation。
-- 示波器波形稳定，无异常跳变、削顶或过压；DC mean/min/max 已记录。
+- 三角波形正常，frequency 接近 `50 Hz`。
+- center 在 `0.800 V` 的 +/-5% 内。
+- Vpp 在 `0.200 V` 的 +/-5% 内。
+- 无 saturation、削顶、异常跳变或通信错误。
 - 实验后已确认 SAFE。
 
-以下任一项为 FAIL：readback 不一致、通信中断、身份不匹配、saturation、异常跳变、削顶、过压、接线或负载不清楚、PZT 未断开，或无法确认最终 SAFE。FAIL 后停止当前 Gate，先审计证据，不进入非零点、SCAN、LOCK HERE 或 P-only，也不直接猜测修改 RTL。
-
-## 负载与系数限制
-
-本次 count=0 只能记录零点，不能得到 `counts_per_volt` 或完整线性校准。未来即使在 50 ohm 下拟合出系数，也不能自动用于 Hi-Z 或 PZT；Hi-Z/PZT 系数也不能反向用于 50 ohm。每组系数必须绑定对应的 load、probe ratio、coupling、线缆和板卡身份。
-
-## 通信失败处理
-
-通信失败时，不得绕过上位机直接写寄存器，也不得继续下一步。若 GUI 仍可通信，点击 SAFE 并确认；若无法确认 SAFE，则停止操作并报告“SAFE NOT CONFIRMED”，不要继续接线或测量。
+以下任一情况立即 SAFE 并停止：身份不匹配、通信失败、OUT2 越界、saturation、削顶、异常跳变、接线/负载不清楚、PZT 未断开、OUT2 与其他输出并联，或无法确认最终 SAFE。失败后先记录证据，不修改 RTL，不提高 Kp，不切换 polarity，不执行 LOCK HERE。
 
 ## 下一步唯一动作
 
-断开 PZT，使 OUT2 只连接示波器，按照本 SOP 只执行 count=0 的 HV-1 测量，记录 readback 和示波器真实电压，然后立即 SAFE。
+保持 PZT 断开且 OUT2 只接示波器，执行上述 HV-1B 单组复测，记录 center、Vpp、frequency 和测量条件，然后立即 SAFE。

@@ -65,6 +65,11 @@ from .custom_fpga_backend import (
 from .custom_fpga_workflow import CustomFpgaMeasurements, analyze_custom_fpga_measurements
 from .data_logger import save_plot_png, save_waveforms_csv, timestamped_name
 from .mock_client import MockRedPitayaClient
+from .out2_calibration import (
+    out2_counts_to_voltage,
+    out2_delta_counts_to_voltage,
+    out2_voltage_to_counts,
+)
 from .waveform_preview import PreviewConfig, generate_waveform_preview
 from .rp_scpi_client import RedPitayaScpiClient
 from .safety import (
@@ -308,7 +313,7 @@ def resolve_direct_error_zero_crossing(
         "selected_peak_index": int(zero_index),
         "zero_crossing_index": int(zero_index),
         "target_out2_counts": target_out2_counts,
-        "target_out2_volts": target_out2_counts / COUNTS_PER_VOLT,
+        "target_out2_volts": out2_counts_to_voltage(target_out2_counts),
         "error_setpoint_counts": int(round(float(error[zero_index]))),
         "slope": float(slope),
         "ramp_direction": direction,
@@ -439,7 +444,7 @@ def resolve_lock_point_selection(
         "selected_peak_index": int(peak),
         "zero_crossing_index": int(zero_index),
         "target_out2_counts": int(round(target_out2)),
-        "target_out2_volts": target_out2 / COUNTS_PER_VOLT,
+        "target_out2_volts": out2_counts_to_voltage(target_out2),
         "error_setpoint_counts": int(round(setpoint)),
         "slope": float(best_slope),
         "ramp_direction": direction,
@@ -1256,7 +1261,7 @@ class MainWindow(QMainWindow):
         self.custom_zero_threshold_counts.setToolTip("LOCK HERE waits until OUT2 is within this count window of the confirmed target.")
         self.custom_capture_length.setToolTip("Number of custom_debug_capture samples.")
         self.custom_capture_decimation.setToolTip("FPGA capture decimation; display-only scope timing, not physical gain.")
-        self.captured_bias_label = QLabel("captured lock_bias: -- counts / -- V ideal")
+        self.captured_bias_label = QLabel("captured lock_bias: -- counts / -- V calibrated")
         self.captured_bias_label.setToolTip("LOCK_BIAS is captured by FPGA from OUT2_MONITOR at LOCK HERE.")
         self.captured_bias_label.setWordWrap(True)
         for widget in (self.basic_pzt_min_v, self.basic_pzt_max_v):
@@ -2156,7 +2161,7 @@ class MainWindow(QMainWindow):
                 return
             safe_limit_counts = min(
                 8191,
-                int(round(max(abs(safe_min_v), abs(safe_max_v)) * COUNTS_PER_VOLT)),
+                max(abs(out2_voltage_to_counts(safe_min_v)), abs(out2_voltage_to_counts(safe_max_v))),
             )
             params = {
                 "offset_v": scan_center_v,
@@ -2508,7 +2513,12 @@ class MainWindow(QMainWindow):
         finite = values[np.isfinite(values)]
         if finite.size == 0:
             return
-        vpp_volts = float(np.nanmax(finite) - np.nanmin(finite)) / COUNTS_PER_VOLT
+        vpp_counts = float(np.nanmax(finite) - np.nanmin(finite))
+        vpp_volts = (
+            out2_delta_counts_to_voltage(vpp_counts)
+            if key == "ch4"
+            else vpp_counts / COUNTS_PER_VOLT
+        )
         chosen = choose_scope_volts_per_div(vpp_volts)
         combo = self.custom_scope_volts_div_combos[key]
         index = combo.findData(chosen)
@@ -2525,9 +2535,6 @@ class MainWindow(QMainWindow):
     def _update_channel_cards(self) -> None:
         if not hasattr(self, "channel_card_labels"):
             return
-        calibration_tip = (
-            "Ideal voltage conversion from FPGA counts; hardware calibration not yet verified"
-        )
         titles = {"ch4": "CH4 SCAN", "ch3": "CH3 ERROR", "ch1": "CH1 PD"}
         for key, label in self.channel_card_labels.items():
             if self.custom_scope_data is None or key not in self.custom_scope_data:
@@ -2538,8 +2545,13 @@ class MainWindow(QMainWindow):
             if finite.size == 0:
                 label.setText(f"{titles[key]} | Vpp --")
                 continue
-            volts = finite / COUNTS_PER_VOLT
-            vpp = float(np.nanmax(volts) - np.nanmin(volts))
+            vpp_counts = float(np.nanmax(finite) - np.nanmin(finite))
+            if key == "ch4":
+                vpp = out2_delta_counts_to_voltage(vpp_counts)
+                calibration_tip = "OUT2 Vpp uses measured gain 1.18; waiting hardware re-validation"
+            else:
+                vpp = vpp_counts / COUNTS_PER_VOLT
+                calibration_tip = "Ideal voltage conversion from FPGA counts; hardware calibration not yet verified"
             label.setText(f"{titles[key]} | Vpp {format_scope_voltage(vpp)}")
             label.setToolTip(calibration_tip)
 
@@ -2887,20 +2899,27 @@ class MainWindow(QMainWindow):
             values = data[key]
             if values.size:
                 vpp = np.nanmax(values) - np.nanmin(values)
-                detail_lines.append(
-                    f"{label}: Vpp {vpp:.0f} counts / {vpp / COUNTS_PER_VOLT:.6g} V ideal | "
-                    f"min {np.nanmin(values):.0f} counts / {np.nanmin(values) / COUNTS_PER_VOLT:.6g} V ideal | "
-                    f"max {np.nanmax(values):.0f} counts / {np.nanmax(values) / COUNTS_PER_VOLT:.6g} V ideal | "
-                    f"mean {np.nanmean(values):.1f} counts / {np.nanmean(values) / COUNTS_PER_VOLT:.6g} V ideal"
-                )
+                if key == "ch4":
+                    detail_lines.append(
+                        f"{label}: Vpp {vpp:.0f} counts / {out2_delta_counts_to_voltage(vpp):.6g} V calibrated | "
+                        f"min {np.nanmin(values):.0f} counts / {out2_counts_to_voltage(np.nanmin(values)):.6g} V calibrated | "
+                        f"max {np.nanmax(values):.0f} counts / {out2_counts_to_voltage(np.nanmax(values)):.6g} V calibrated | "
+                        f"mean {np.nanmean(values):.1f} counts / {out2_counts_to_voltage(np.nanmean(values)):.6g} V calibrated"
+                    )
+                else:
+                    detail_lines.append(
+                        f"{label}: Vpp {vpp:.0f} counts / {vpp / COUNTS_PER_VOLT:.6g} V ideal | "
+                        f"min {np.nanmin(values):.0f} counts / {np.nanmin(values) / COUNTS_PER_VOLT:.6g} V ideal | "
+                        f"max {np.nanmax(values):.0f} counts / {np.nanmax(values) / COUNTS_PER_VOLT:.6g} V ideal | "
+                        f"mean {np.nanmean(values):.1f} counts / {np.nanmean(values) / COUNTS_PER_VOLT:.6g} V ideal"
+                    )
         for key in ("ch1", "ch3", "ch4"):
             values = data[key]
             if values.size:
                 stats_lines.append(f"{key.upper()} Vpp {np.nanmax(values) - np.nanmin(values):.0f} counts")
         out2_counts = payload.get("out2_counts", "--")
-        out2_volts = payload.get("out2_volts", "--")
         try:
-            out2_volts_str = f"{float(out2_volts):.6g} V"
+            out2_volts_str = f"{out2_counts_to_voltage(int(out2_counts)):.6g} V calibrated"
         except (TypeError, ValueError):
             out2_volts_str = "-- V"
         stats_lines.insert(
@@ -2911,8 +2930,8 @@ class MainWindow(QMainWindow):
         lock_bias = payload.get("captured_lock_bias_counts")
         if lock_bias is not None:
             try:
-                lock_bias_v = payload.get("captured_lock_bias_volts_ideal", "--")
-                detail_lines.append(f"LOCK_BIAS {lock_bias} counts / {lock_bias_v} V ideal")
+                lock_bias_v = out2_counts_to_voltage(int(lock_bias))
+                detail_lines.append(f"LOCK_BIAS {lock_bias} counts / {lock_bias_v:.6g} V calibrated")
             except Exception:
                 pass
         self.custom_scope_stats.setText("\n".join(stats_lines))
@@ -3015,7 +3034,7 @@ class MainWindow(QMainWindow):
             self.custom_candidate_markers.append(marker)
             lines.append(
                 f"candidate {idx + 1}: index {candidate.index}, OUT2 {candidate.out2_counts} counts, "
-                f"PZT {candidate.out2_counts / 8191.0:.5f} V ideal, "
+                f"PZT {out2_counts_to_voltage(candidate.out2_counts):.5f} V calibrated, "
                 f"ERROR {candidate.error_counts} counts, slope {candidate.slope:.3g}, "
                 f"local Vpp {candidate.local_vpp:.1f}, valid yes, score {candidate.score:.1f}"
             )
@@ -3034,14 +3053,12 @@ class MainWindow(QMainWindow):
             )
             out2_counts = int(payload.get("out2_counts", 0))
             if out2_counts < config.safe_min_counts or out2_counts > config.safe_max_counts:
-                out2_volts_val = float(payload.get("out2_volts", 0))
-                safe_min_v = config.safe_min_counts / 8191.0
-                safe_max_v = config.safe_max_counts / 8191.0
+                out2_volts_val = out2_counts_to_voltage(out2_counts)
                 return (
                     f"OUT2 is outside the configured PZT safe range; Live stopped.\n"
-                    f"  current OUT2: {out2_counts} counts / {out2_volts_val:.6g} V ideal\n"
-                    f"  configured safe_min: {config.safe_min_counts} counts / {safe_min_v:.6g} V\n"
-                    f"  configured safe_max: {config.safe_max_counts} counts / {safe_max_v:.6g} V\n"
+                    f"  current OUT2: {out2_counts} counts / {out2_volts_val:.6g} V calibrated\n"
+                    f"  configured safe_min: {config.safe_min_counts} counts / {config.safe_min_v:.6g} V\n"
+                    f"  configured safe_max: {config.safe_max_counts} counts / {config.safe_max_v:.6g} V\n"
                     f"  suggestion: adjust SCAN offset/amp to keep OUT2 within "
                     f"[{config.safe_min_counts}, {config.safe_max_counts}] counts, "
                     f"or widen PZT safe min/max range in BASIC LOCK panel"
@@ -3235,15 +3252,13 @@ class MainWindow(QMainWindow):
         enable = payload.get("enable", "--")
         status = str(payload.get("status_raw", "--"))
         out2_counts = payload.get("out2_counts", "--")
-        out2_volts = payload.get("out2_volts", "--")
         error_counts = payload.get("error_counts", "--")
         error_volts = payload.get("error_volts", "--")
         error_setpoint_counts = payload.get("error_setpoint_counts", "--")
         lock_error_counts = payload.get("lock_error_counts", "--")
         control_counts = payload.get("control_counts", "--")
-        control_volts = payload.get("control_volts", "--")
         try:
-            out2_volts_text = f"{float(out2_volts):.6g} V"
+            out2_volts_text = f"{out2_counts_to_voltage(int(out2_counts)):.6g} V calibrated"
         except (TypeError, ValueError):
             out2_volts_text = "-- V"
         try:
@@ -3251,7 +3266,7 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             error_volts_text = "-- V"
         try:
-            control_volts_text = f"{float(control_volts):.6g} V"
+            control_volts_text = f"{out2_counts_to_voltage(int(control_counts)):.6g} V calibrated"
         except (TypeError, ValueError):
             control_volts_text = "-- V"
         self.custom_register_summary.setText(
@@ -3259,12 +3274,12 @@ class MainWindow(QMainWindow):
             f"STATUS {status} | OUT2 {out2_counts} counts / {out2_volts_text}"
         )
         captured_counts = payload.get("captured_lock_bias_counts")
-        captured_volts = payload.get("captured_lock_bias_volts_ideal")
         if captured_counts is not None:
             try:
-                captured_text = f"{int(captured_counts)} counts / {float(captured_volts):.6g} V ideal"
+                captured_volts = out2_counts_to_voltage(int(captured_counts))
+                captured_text = f"{int(captured_counts)} counts / {captured_volts:.6g} V calibrated"
             except (TypeError, ValueError):
-                captured_text = f"{captured_counts} counts / -- V ideal"
+                captured_text = f"{captured_counts} counts / -- V calibrated"
             self.captured_bias_label.setText(f"captured lock_bias: {captured_text}")
         lines = [
             f"{operation.upper()} result",
@@ -3283,7 +3298,7 @@ class MainWindow(QMainWindow):
             lines.append(f"LOCK_BIAS source: FPGA CAPTURE_LOCK_POINT captured OUT2_MONITOR = {captured_counts} counts")
             captured_setpoint = payload.get("captured_error_setpoint_counts", error_setpoint_counts)
             lines.append(f"ERROR_SETPOINT source: FPGA CAPTURE_LOCK_POINT captured ERROR_MONITOR = {captured_setpoint} counts")
-            lines.append("Ideal volts are register-scale estimates only; oscilloscope measurement is the DAC truth.")
+            lines.append("Calibrated OUT2 volts are software estimates; oscilloscope measurement is the DAC truth.")
         if operation in {"p-lock", "update-p-lock", "pi-lock", "lock"}:
             lines.append("Current LOCK path is P-only; Ki/PI is disabled in the timing-friendly RTL.")
             lines.append("PZT path: keep Kp low; never connect current modulation or D2-125 outputs.")

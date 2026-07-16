@@ -14,6 +14,12 @@ from typing import Any
 
 import numpy as np
 
+from .out2_calibration import (
+    COUNTS_PER_VOLT,
+    out2_amplitude_to_counts,
+    out2_counts_to_voltage,
+    out2_voltage_to_counts,
+)
 from .ssh_client import RedPitayaSshClient, SshCommandResult
 
 
@@ -21,7 +27,6 @@ EXPECTED_MAGIC = 0x4D545330
 EXPECTED_VERSION = 0x00030001
 DEFAULT_BASE_ADDR = 0x4060_0000
 DEFAULT_CLK_HZ = 125_000_000.0
-COUNTS_PER_VOLT = 8191.0
 ALLOWED_UPDATE_KP = (0, 4, 8, 16, 32)
 BASIC_LOCK_FREQ_HZ = 10.0
 BASIC_LOCK_CAPTURE_LENGTH = 2048
@@ -138,8 +143,7 @@ class CustomFpgaResponse:
 
 
 def volts_to_counts(volts: float) -> int:
-    counts = int(round(float(volts) * COUNTS_PER_VOLT))
-    return max(-8191, min(8191, counts))
+    return out2_voltage_to_counts(volts)
 
 
 def counts_to_volts(counts: int) -> float:
@@ -368,7 +372,7 @@ def build_scan_config(
     limit_counts: int,
     clk_hz: float = DEFAULT_CLK_HZ,
 ) -> ScanConfig:
-    amp_counts = abs(volts_to_counts(amp_v))
+    amp_counts = out2_amplitude_to_counts(amp_v)
     if amp_counts < 1:
         raise CustomFpgaBackendError("scan amplitude must be at least one DAC count")
     if freq_hz <= 0:
@@ -661,6 +665,7 @@ class CustomFpgaBackend:
         out2_counts = int(payload.get("out2_counts", 0))
         payload["captured_lock_bias_counts"] = out2_counts
         payload["captured_lock_bias_volts_ideal"] = counts_to_volts(out2_counts)
+        payload["captured_lock_bias_volts_calibrated"] = out2_counts_to_voltage(out2_counts)
         return CustomFpgaResponse(
             operation="capture-bias",
             payload=payload,

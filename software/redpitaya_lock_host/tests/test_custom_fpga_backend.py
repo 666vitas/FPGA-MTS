@@ -2,6 +2,7 @@ import importlib.util
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -10,6 +11,9 @@ from redpitaya_lock_host.custom_fpga_backend import (
     EXPECTED_VERSION,
     CustomFpgaBackendError,
     build_basic_lock_config,
+    build_hold_config,
+    build_lock_config,
+    build_scan_config,
     build_update_p_lock_config,
     build_lock_config_from_counts,
     find_zero_crossing_candidates,
@@ -17,6 +21,15 @@ from redpitaya_lock_host.custom_fpga_backend import (
     status_payload_has_expected_magic,
     missing_magic_guidance,
     validate_basic_lock_capture,
+)
+from redpitaya_lock_host.out2_calibration import (
+    OUT2_AMPLITUDE_GAIN,
+    OUT2_CENTER_GAIN,
+    OUT2_CENTER_OFFSET,
+    out2_amplitude_to_counts,
+    out2_counts_to_voltage,
+    out2_delta_counts_to_voltage,
+    out2_voltage_to_counts,
 )
 from redpitaya_lock_host.main_window import (
     LockPointSelectionError,
@@ -84,6 +97,74 @@ def load_scan_control_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def test_out2_absolute_voltage_calibration_counts() -> None:
+    expected_counts = {0.5: 3559, 0.7: 5009, 0.9: 6459}
+
+    assert OUT2_CENTER_GAIN == 1.13
+    assert OUT2_CENTER_OFFSET == 0.009
+    for voltage, expected in expected_counts.items():
+        config = build_scan_config(
+            offset_v=voltage,
+            amp_v=0.1,
+            freq_hz=50.0,
+            step_counts=1,
+            limit_counts=8191,
+        )
+        assert config.offset_counts == expected
+        assert out2_voltage_to_counts(voltage) == expected
+        assert abs(out2_counts_to_voltage(expected) - voltage) < 0.0001
+
+
+def test_out2_amplitude_calibration_uses_measured_delta_gain() -> None:
+    expected_counts = round((0.1 / 1.18) * 8191)
+    config = build_scan_config(
+        offset_v=0.8,
+        amp_v=0.1,
+        freq_hz=50.0,
+        step_counts=1,
+        limit_counts=8191,
+    )
+
+    assert OUT2_AMPLITUDE_GAIN == 1.18
+    assert config.amp_counts == expected_counts == 694
+    assert out2_amplitude_to_counts(0.1) == expected_counts
+    assert abs(out2_delta_counts_to_voltage(expected_counts) - 0.1) < 0.0001
+
+
+def test_hold_and_manual_lock_bias_share_absolute_out2_calibration() -> None:
+    expected_counts = out2_voltage_to_counts(0.7)
+    hold = build_hold_config(hold_v=0.7)
+    lock = build_lock_config(
+        kp=4,
+        ki=0,
+        polarity=0,
+        lock_bias_v=0.7,
+        lock_limit_counts=8191,
+        correction_limit_counts=128,
+    )
+
+    assert hold.hold_counts == expected_counts == 5009
+    assert lock.lock_bias_counts == expected_counts
+
+
+def test_scan_control_cli_uses_shared_out2_calibration() -> None:
+    module = load_scan_control_module()
+    scan = module.build_scan_config(
+        SimpleNamespace(
+            offset_v=0.9,
+            amp_v=0.1,
+            freq_hz=50.0,
+            step_counts=1,
+            limit_counts=8191,
+            clk_hz=125_000_000.0,
+        )
+    )
+
+    assert module.volts_to_counts(0.5) == out2_voltage_to_counts(0.5)
+    assert scan.offset_counts == out2_voltage_to_counts(0.9)
+    assert scan.amp_counts == out2_amplitude_to_counts(0.1)
 
 
 def test_status_payload_rejects_zero_magic_string() -> None:
@@ -2016,16 +2097,17 @@ def test_scope_channel_cards_show_only_vpp_in_voltage() -> None:
     window = MainWindow({}, start_mock=True)
     try:
         window._render_custom_capture_payload(make_capture_payload())
-        values = window.custom_scope_data["ch4"] / 8191.0
+        values = window.custom_scope_data["ch4"]
         text = window.channel_card_labels["ch4"].text()
 
-        assert f"Vpp {format_scope_voltage(float(np.ptp(values)))}" in text
+        expected_vpp = out2_delta_counts_to_voltage(float(np.ptp(values)))
+        assert f"Vpp {format_scope_voltage(expected_vpp)}" in text
         assert text.startswith("CH4 SCAN | Vpp ")
         assert "Min" not in text
         assert "Max" not in text
         assert "Mean" not in text
         assert "counts" not in text
-        assert "hardware calibration not yet verified" in window.channel_card_labels["ch4"].toolTip()
+        assert "measured gain 1.18" in window.channel_card_labels["ch4"].toolTip()
     finally:
         window.close()
         app.processEvents()

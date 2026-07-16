@@ -15,9 +15,22 @@ import subprocess
 import sys
 import textwrap
 from dataclasses import dataclass
+from pathlib import Path
 
+try:
+    from redpitaya_lock_host.out2_calibration import (
+        COUNTS_PER_VOLT,
+        out2_amplitude_to_counts,
+        out2_voltage_to_counts,
+    )
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from redpitaya_lock_host.out2_calibration import (
+        COUNTS_PER_VOLT,
+        out2_amplitude_to_counts,
+        out2_voltage_to_counts,
+    )
 
-COUNTS_PER_VOLT = 8191.0
 DEFAULT_CLK_HZ = 125_000_000.0
 DEFAULT_BASE_ADDR = 0x4060_0000
 ALLOWED_UPDATE_KP = (0, 4, 8, 16, 32)
@@ -583,13 +596,12 @@ class UpdatePLockConfig:
 
 
 def volts_to_counts(volts: float) -> int:
-    counts = int(round(volts * COUNTS_PER_VOLT))
-    return max(-8191, min(8191, counts))
+    return out2_voltage_to_counts(volts)
 
 
 def build_scan_config(args: argparse.Namespace) -> ScanConfig:
     offset_counts = volts_to_counts(args.offset_v)
-    amp_counts = abs(volts_to_counts(args.amp_v))
+    amp_counts = out2_amplitude_to_counts(args.amp_v)
     if amp_counts < 1:
         raise SystemExit("scan amplitude must be at least one DAC count")
     if args.freq_hz <= 0:
