@@ -7,16 +7,21 @@
 ```text
 Repository: 666vitas/FPGA-MTS
 Primary branch: main
-Current stage: PZT 基础稳频最小闭环；SCAN / LOCK HERE / P-only 小增益 / SAFE
+Current stage: v3LOCK-P0 / Stage 3 Hardware Verification
+Current gate: HV-1 OUT2 fixed-count physical voltage calibration
 Primary RTL root: v0.94/rtl
 Primary Vivado project: v0.94/project/redpitaya.xpr
 Primary status file: version/STATUS.md
+Hardware validation record: version/HARDWARE_VALIDATION.md
+Hardware calibration SOP: software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md
 Strict review rules: version/AI_STRICT_REVIEW_ENTRY.md
 Root entrypoint: AI_REVIEW_README.md
 Shared Codex/Claude Code rules: AGENTS.md
 ```
 
 当前状态优先级：`version/STATUS.md` 顶部快照与本 Manifest 的“当前验证等级”优先于历史段落。`version/AI_STRICT_REVIEW_ENTRY.md` 目前含未解决合并标记和过期验证文字；在用户另行授权修复前，只能作为规则读取，不得将其中的旧验证结论覆盖当前快照。
+
+当前 Git Baseline Gate：`main` clean，遗留 interactive rebase 已由用户结束，`HEAD=origin/main=0e13f2806d7a716d3e66d365babbe2b247e59d8b`；保险分支只作为恢复点，不影响 `main`。本轮不得因历史 rebase 再次尝试 rebase。
 
 ## 2. 当前结论基线
 
@@ -206,6 +211,7 @@ VERSION = 0x00030001
 ### 仍等待实验验证
 
 ```text
+HV-1 OUT2 count=0 对应示波器真实 DC 电压
 HOLD 的真实行为
 LOCK HERE 的真实切换
 P_LOCK 的真实 PZT 闭环效果
@@ -250,11 +256,11 @@ AI 自动识峰
 ## 7. 下一步最小安全动作
 
 ```text
-1. 当前唯一任务是设计并实现示波器式三/四通道显示层。
-2. 本任务只允许上位机 GUI 与状态/日志记录；不修改 RTL、不运行 Vivado、不生成 bitstream、不烧录。
-3. 用户实验只需重新启动上位机，执行 `Probe Registers -> Status -> SCAN -> Capture Waveform`，确认真实 capture 曲线可见并记录布局现象。
-4. PASS：capture 数据非零且 GUI 曲线可见；FAIL：capture 已返回数据但图仍空白，或 OUT2 出现异常。
-5. OUT2 异常、saturation、通信/寄存器身份失败、输出越界或准备连接禁止端口时，立即 SAFE；禁止接激光器电流调制输入、D2-125 Servo Output、D2-125 Aux Output，禁止任何输出端并联。
+1. 当前只允许 HV-1 的 count=0 单点；不得执行非零点、SCAN、LOCK HERE 或 P-only。
+2. PZT 必须断开，OUT2 只能连接示波器，禁止任何有源输出并联。
+3. 按 `software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md` 执行 `Probe Registers -> Status -> SAFE -> HOLD count=0 -> readback -> CH4 capture -> scope DC mean -> SAFE`。
+4. 记录 requested count、OUT2_MONITOR、CH4、MODE、ENABLE、saturation、scope load/coupling/probe 和真实 mean/min/max；nominal V 不能作为真实 V。
+5. 身份、通信、readback、saturation、接线或输出行为任何异常，立即请求 SAFE 并停止当前 Gate。
 ```
 
 ## 8. 审查输出必须包含

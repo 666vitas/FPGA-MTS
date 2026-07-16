@@ -9,10 +9,29 @@
 3. 接管不改变项目架构、版本主线、文档模式、任务范围或安全边界；Claude Code 与 Codex 使用完全相同的本文件流程。
 4. 每次只完成用户指定的一个任务。不得借机重新规划项目、引入新主线、扩大修改范围，或修改未获授权的文件。
 
+## Git Baseline Gate
+
+每个新 Codex / Claude Code 窗口必须先执行 Git Gate，再读取项目入口；不得只依赖聊天历史。先记录：
+
+```text
+git status -sb
+git status
+git branch --show-current
+git rev-parse HEAD
+git rev-parse origin/main
+git log -1 --oneline
+```
+
+只有同时满足以下条件才允许继续：branch 为 `main`、working tree clean、无 rebase / merge / cherry-pick 状态、`HEAD == origin/main`。初始 Gate PASS 后执行 `git fetch origin`，再复核 `HEAD == origin/main`；远端变化、身份不明或原因不清楚时停止并报告。
+
+出现 detached HEAD、interactive rebase in progress、merge conflict、来源不明的未提交修改，或 `HEAD` 与 `origin/main` 不一致且原因不清楚时，必须停止，不得自行执行 `git rebase --continue`、`git rebase --abort`、`git reset --hard`、`git clean` 或 `git commit --amend`。
+
+如果终端已经显示 `Successfully rebased and updated refs/heads/main.`，随后 `git status` 显示正常 `main`，且 `git rebase --continue` 显示 `no rebase in progress`，表示 rebase 已结束，不是错误；不得继续尝试 rebase。保险分支只作为恢复点，不影响正常 `main` Gate。
+
 ## 每次开始前
 
-1. 依次读取 `AI_REVIEW_README.md`、`version/CURRENT_REVIEW_MANIFEST.md`、`version/STATUS.md` 顶部、`AGENTS.md`、`version/AI_STRICT_REVIEW_ENTRY.md` 和相关 `DEVELOPMENT_LOG.md` 末尾，再读取任务关联代码与测试。
-2. 执行并记录 `git branch --show-current`、`git rev-parse HEAD`、`git fetch origin`、`git rev-parse origin/main`、`git status --short --branch`、`git diff --name-only`、`git diff --cached --name-only` 和 `git log -3 --oneline`。
+1. Git Gate PASS 后，依次读取 `AI_REVIEW_README.md`、`AGENTS.md`、`version/AI_STRICT_REVIEW_ENTRY.md`、`version/CURRENT_REVIEW_MANIFEST.md`、`version/STATUS.md` 顶部和相关 `DEVELOPMENT_LOG.md` 末尾，再读取最新 commit、任务关联代码与测试。
+2. 执行并记录 `git fetch origin` 后的 branch、HEAD、`origin/main`、工作区和 rebase / merge / cherry-pick 状态，以及 `git diff --name-only`、`git diff --cached --name-only` 和 `git log -3 --oneline`。
 3. `version/STATUS.md` 是当前状态唯一权威快照；`DEVELOPMENT_LOG.md` 是只追加的历史记录。历史日志和严格审查模板不能覆盖当前代码事实与 STATUS 顶部。
 4. 开始修改前明确当前阶段、已有功能、缺失项、允许/禁止文件、完成标准和本轮不进入的下一阶段。
 5. 发现未提交修改、rebase/merge、冲突标记、旧结论或未经证实的说法时，先保护并报告；未经用户授权不得改变或清理这些状态。
@@ -21,14 +40,30 @@
 
 项目状态只使用以下等级：
 
-- `[IMPLEMENTED]`：代码存在，尚未完成自动化验证。
+- `[IMPLEMENTED]`：代码、文档或操作入口存在，尚未完成对应验证。
 - `[AUTOMATED VERIFIED]`：本轮实际执行 `pytest`、`py_compile`、`tabnanny` 等并通过。
 - `[USER GUI VERIFIED]`：用户已在真实 Windows GUI 或真实 Red Pitaya 数据中操作并提供明确结果。
-- `[BOARD EXPERIMENT VERIFIED]`：用户已完成真实接线与对应物理实验。
-- `[CLOSED-LOOP VERIFIED]`：用户已确认非零 Kp、正确反馈方向、OUT2 不越界、无 saturation、误差被抑制且激光保持目标锁点。
+- `[USER HARDWARE VERIFIED]`：用户已完成真实接线与物理实验，并提供对应测量结果。
+- `[FAILED]`：当前 Gate 已有明确失败证据，必须停止推进。
 - `[NOT VERIFIED]`：尚未执行或证据不足。
 
-禁止把代码存在写成测试通过，把 mock/自动化测试写成真实 GUI 或板卡验证，把波形显示或 Kp=0 切换写成闭环锁定成功，把短时现象写成长时间稳频成功。
+没有真实硬件结果时，硬件结论只能是 `[IMPLEMENTED]`、`[AUTOMATED VERIFIED]` 或 `[NOT VERIFIED]`；`[USER GUI VERIFIED]` 只证明 GUI 操作，不证明物理电压或硬件 Gate。尚未准备或执行的未来硬件 Gate 统一标记 `[NOT VERIFIED]`，不得用计划标签伪装进度。禁止把代码存在写成测试通过，把 mock/自动化测试写成真实 GUI 或硬件验证，把波形显示或 Kp=0 切换写成闭环锁定成功，把短时现象写成长时间稳频成功。
+
+## 固定开发阶段与 Gate
+
+项目开发固定按以下顺序推进：
+
+```text
+Stage 0: Audit
+Stage 1: Code
+Stage 2: Software Verification
+Stage 3: Hardware Verification
+Stage 4: Review
+```
+
+软件测试通过只完成 Stage 2，不等于项目阶段通过。任一 Gate 为 `[FAILED]` 时不得进入下一大阶段；硬件实验失败后必须先审计接线、寄存器 readback、测量条件和证据，不得直接猜测并修改 RTL。
+
+每次任务只能记录一个 `Current Stage`、一个 `Current Gate` 和一个“下一步唯一动作”。`version/STATUS.md`、相关 `DEVELOPMENT_LOG.md` 与 `version/HARDWARE_VALIDATION.md` 的 Stage、Gate 和证据等级必须一致。
 
 ## 修改与记录
 

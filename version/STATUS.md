@@ -1,5 +1,63 @@
 # STATUS
 
+## 2026-07-16 v3LOCK-P0 Hardware Verification Infrastructure / HV-1 准备
+
+### Git Baseline Gate
+
+- 当前 branch：`main`；initial/final HEAD：`0e13f2806d7a716d3e66d365babbe2b247e59d8b`。
+- 本轮开始和 `git fetch origin` 后均确认 `HEAD == origin/main`；working tree 初始 clean，无 rebase / merge / cherry-pick 状态，Git Gate PASS。
+- 工程曾存在遗留 interactive rebase；用户已执行 `rebase --continue` 并恢复 `main`，后续状态为 `no rebase in progress`。已建立保险分支，只作为恢复点，不影响当前 `main`；本轮未再次执行任何 rebase、reset、clean 或 amend。
+
+### Current Stage / Gate
+
+```text
+Current Stage: v3LOCK-P0 / Stage 3 Hardware Verification
+Current Gate: HV-1 OUT2 fixed-count physical voltage calibration
+```
+
+- 固定开发流程已写入 `AGENTS.md` 和 `AI_REVIEW_README.md`：Stage 0 Audit -> Stage 1 Code -> Stage 2 Software Verification -> Stage 3 Hardware Verification -> Stage 4 Review。
+- 软件 PASS 不等于项目 PASS；任一 Gate FAIL 阻止进入下一阶段；每次任务只保留一个 Current Stage、一个 Current Gate 和一个下一步唯一动作。
+- 当前证据继续保持：`CODE/REGISTER TRACE PASS`、`GUI ABSOLUTE VOLTAGE FAIL`、`PHYSICAL ADC/DAC CALIBRATION NOT VERIFIED`、`OUT1 LOCK MEANING NOT VERIFIED`、`P-ONLY CLOSED LOOP NOT VERIFIED`。
+
+### 本轮实现
+
+- [IMPLEMENTED] 新增 `version/HARDWARE_VALIDATION.md`，记录 HV-1 至 HV-7、当前 evidence、OUT2 校准表、拟合占位、负载约束和停止条件；只有 HV-1 准备完成，所有硬件结果仍为 `[NOT VERIFIED]`。
+- [IMPLEMENTED] 新增 `software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md`，本轮只允许 PZT 断开、OUT2 只接示波器、count=0 的单点流程。
+- [AUTOMATED VERIFIED] 上位机审计确认现有功能足够执行当前 count=0：`hold-v=0.0000` 精确转换为 count=0；Probe/Status 返回身份、MODE、ENABLE、STATUS、OUT2_MONITOR 和 saturation；Capture Waveform 返回 CH4 raw count。
+- 上位机 Python 未修改。现有 HOLD 不是通用 exact-count 校准界面，且 HOLD 不受 SCAN `OUT2_LIMIT` 保护；因此本轮禁止非零值，不把 nominal/ideal V 写成真实 V。
+- `version/AI_STRICT_REVIEW_ENTRY.md` 中既有 merge conflict markers 仍是已知文档污染；本轮未获授权修复，也未使用其中旧状态覆盖 STATUS/Manifest。
+
+### 自动化验证
+
+- `python -m tabnanny redpitaya_lock_host tests`：通过，无输出。
+- `python -m py_compile redpitaya_lock_host\main_window.py`：通过。
+- `python -m py_compile redpitaya_lock_host\waveform_plot.py`：通过。
+- `python -m py_compile redpitaya_lock_host\custom_fpga_backend.py`：通过。
+- `python -m py_compile redpitaya_lock_host\connection_workers.py`：通过。
+- `python -m py_compile scripts\custom_fpga_scan_control.py`：通过。
+- `python -m pytest --collect-only -q tests`：通过，`81 tests collected`。
+- `python -m pytest -q tests`：通过，`81 passed`。
+- 软件验证只证明既有 SAFE/HOLD/readback/capture 路径未回归，不证明 OUT2 真实电压已经校准。
+
+### 修改与未修改边界
+
+- 修改：`AGENTS.md`、`AI_REVIEW_README.md`、`version/CURRENT_REVIEW_MANIFEST.md`、本 STATUS、`version/HARDWARE_VALIDATION.md`、`version/v3/DEVELOPMENT_LOG.md`、上位机 `DEVELOPMENT_LOG.md` 和 `HARDWARE_CALIBRATION_SOP.md`。
+- 未修改上位机 Python、测试、RTL、Vivado 工程、寄存器地址/语义、`MAGIC`、`VERSION` 或 bitstream。
+- 未运行 Vivado、未生成或烧录 bitstream、未执行硬件校准、未执行 SCAN、LOCK HERE、APPLY P 或 P-only。
+
+### 阶段结论
+
+```text
+CALIBRATION INFRASTRUCTURE CODE PASS
+WAITING USER HARDWARE HV-1
+```
+
+硬件证据等级仍为 `[NOT VERIFIED]`；当前 Gate 尚未 `[USER HARDWARE VERIFIED]`。
+
+### 下一步唯一动作
+
+断开 PZT，使 OUT2 只连接示波器，按照 `software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md` 只执行 count=0 的 HV-1 测量，记录 readback 和示波器真实电压，然后立即 SAFE。
+
 ## 2026-07-15 v3LOCK-P0 RTL/电压映射只读审查与硬件校准方案
 
 ### Git 基线与任务边界

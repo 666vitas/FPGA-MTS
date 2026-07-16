@@ -804,3 +804,15 @@ git diff --check
 - `git diff --check` 通过，无输出。
 - 未修改 Python、RTL、Vivado、寄存器或 bitstream；未运行 Vivado；未进行新的 GUI/板卡/闭环实验。
 - 下一步唯一动作：完成 OUT2 MODE=2 HOLD 的 scope exact-count 校准；在 count/V 和 zero offset 得到前，不执行 LOCK HERE 或非零 Kp。
+
+## 2026-07-16 v3LOCK-P0 Hardware Verification Infrastructure / HV-1 准备
+
+- Git Gate：历史遗留 interactive rebase 已由用户结束，`main` 恢复正常；本轮开始及 `git fetch origin` 后均确认 working tree clean、无进行中的 Git 操作、`HEAD=origin/main=0e13f2806d7a716d3e66d365babbe2b247e59d8b`。保险分支只作为恢复点；本轮未再次执行 rebase、reset、clean 或 amend。
+- 固化流程：`AGENTS.md` 和 `AI_REVIEW_README.md` 明确 Stage 0 Audit、Stage 1 Code、Stage 2 Software Verification、Stage 3 Hardware Verification、Stage 4 Review，以及软件 PASS 不等于项目 PASS、Gate FAIL 阻止推进和单一 Current Stage/Gate/下一步规则。
+- 新增 `version/HARDWARE_VALIDATION.md`：Current Gate 为 HV-1 OUT2 fixed-count physical voltage calibration；记录 HV-1 至 HV-7、证据基线、校准表、fit 占位、负载约束和停止条件。所有物理校准结果仍为 `[NOT VERIFIED]`。
+- 新增 `docs/HARDWARE_CALIBRATION_SOP.md`：当前只允许 PZT 断开、OUT2 只接示波器、count=0；步骤为 Probe/身份检查 -> Status -> SAFE -> HOLD count=0 -> readback -> CH4 capture -> scope mean/min/max -> SAFE。
+- 上位机审计：现有 `hold-v=0.0000` 精确转换为 count=0；Probe/Status 可读 MAGIC、VERSION、MODE、ENABLE、STATUS、OUT2_MONITOR 和 saturation；Capture Waveform 可读 CH4。当前唯一零点足够，不修改 Python；非零 exact-count 尚未授权，HOLD 也不受 SCAN `OUT2_LIMIT` 保护。
+- 自动化：`tabnanny` 和五个指定 `py_compile` 通过；`pytest --collect-only -q tests` 为 `81 tests collected`；`pytest -q tests` 为 `81 passed`。只证明既有软件路径未回归，不构成真实硬件校准。
+- 未修改上位机 Python、测试、RTL、Vivado、寄存器地址/语义、MAGIC、VERSION 或 bitstream；未运行 Vivado、未生成/烧录 bitstream；未执行硬件校准、SCAN、LOCK HERE、APPLY P 或 P-only。
+- 阶段结论：`CALIBRATION INFRASTRUCTURE CODE PASS / WAITING USER HARDWARE HV-1`。
+- 下一步唯一动作：断开 PZT，使 OUT2 只连接示波器，按照 `docs/HARDWARE_CALIBRATION_SOP.md` 只执行 count=0 的 HV-1 测量，记录 readback 和示波器真实电压，然后立即 SAFE。

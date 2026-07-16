@@ -4,15 +4,30 @@
 
 ## 必读顺序
 
-1. `AI_REVIEW_README.md`
-2. `version/CURRENT_REVIEW_MANIFEST.md`
-3. `version/STATUS.md` 顶部最新记录
-4. `AGENTS.md`
-5. `version/AI_STRICT_REVIEW_ENTRY.md`
-6. 当前任务相关 `DEVELOPMENT_LOG.md` 末尾
-7. 当前任务相关代码和测试
+新 Codex / Claude Code 窗口不得只依赖聊天历史。先按 `AGENTS.md` 的 `Git Baseline Gate` 执行只读 Git 检查；只有 branch=`main`、working tree clean、无 rebase / merge / cherry-pick 且 `HEAD == origin/main` 才继续。Gate PASS 后按以下顺序读取：
 
-随后执行 `git fetch origin` 并记录 branch、HEAD、`origin/main`、工作区和 rebase/merge 状态。开发任务按 `AGENTS.md` 的最小修改与分层验证流程执行；只读审查不得修改文件、Git 状态或外部系统。
+1. `AI_REVIEW_README.md`
+2. `AGENTS.md`
+3. `version/AI_STRICT_REVIEW_ENTRY.md`
+4. `version/CURRENT_REVIEW_MANIFEST.md`
+5. `version/STATUS.md` 顶部最新记录
+6. 当前任务相关 `DEVELOPMENT_LOG.md` 末尾
+7. 当前最新 commit 的 message 与完整 diff
+8. 当前任务相关代码和测试
+
+初始 Git Gate PASS 后执行 `git fetch origin` 并再次确认 `HEAD == origin/main`。开发任务按 `AGENTS.md` 的最小修改与分层验证流程执行；只读审查不得修改文件、Git 状态或外部系统。
+
+## 固定阶段与 Gate
+
+```text
+Stage 0: Audit
+Stage 1: Code
+Stage 2: Software Verification
+Stage 3: Hardware Verification
+Stage 4: Review
+```
+
+软件 PASS 不等于项目 PASS。任一 Gate FAIL 都阻止进入下一阶段；没有用户真实硬件实验结果时不得标记 `[USER HARDWARE VERIFIED]`。每次任务只允许一个 `Current Stage`、一个 `Current Gate` 和一个下一步唯一动作；硬件失败先审计证据，不直接猜测修改 RTL。动态 Stage/Gate 和证据等级以 `version/STATUS.md` 顶部、相关 `DEVELOPMENT_LOG.md` 与 `version/HARDWARE_VALIDATION.md` 的一致记录为准。
 
 ## 禁止作为当前结论依据的路径
 
