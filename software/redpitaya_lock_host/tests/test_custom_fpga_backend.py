@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from redpitaya_lock_host.custom_fpga_backend import (
+    EXPECTED_MAGIC,
     EXPECTED_VERSION,
     CustomFpgaBackendError,
     build_basic_lock_config,
@@ -19,8 +20,11 @@ from redpitaya_lock_host.custom_fpga_backend import (
 )
 from redpitaya_lock_host.main_window import (
     LockPointSelectionError,
+    classify_identity_error,
     choose_scope_volts_per_div,
+    format_fpga_version,
     format_scope_voltage,
+    identity_payload_matches,
     resolve_direct_error_zero_crossing,
     resolve_lock_point_selection,
 )
@@ -57,6 +61,20 @@ def make_capture_payload(count: int = 256) -> dict:
     }
 
 
+def make_identity_payload(**overrides) -> dict:
+    payload = {
+        "magic": f"0x{EXPECTED_MAGIC:08X}",
+        "version": f"0x{EXPECTED_VERSION:08X}",
+        "mode": 0,
+        "enable": 0,
+        "status_raw": "0x00000000",
+        "saturated": False,
+        "out2_counts": 0,
+    }
+    payload.update(overrides)
+    return payload
+
+
 def load_scan_control_module():
     script_path = ROOT / "scripts" / "custom_fpga_scan_control.py"
     spec = importlib.util.spec_from_file_location("_test_custom_fpga_scan_control", script_path)
@@ -79,6 +97,22 @@ def test_status_payload_accepts_expected_magic_string() -> None:
     payload = {"magic": "0x4D545330"}
 
     assert status_payload_has_expected_magic(payload)
+
+
+def test_system_identity_formats_version_and_requires_magic_and_version() -> None:
+    assert format_fpga_version("0x00030001") == "v3.0.1"
+    assert format_fpga_version("--") == "--"
+    assert identity_payload_matches(make_identity_payload())
+    assert not identity_payload_matches(make_identity_payload(magic="0x00000000"))
+    assert not identity_payload_matches(make_identity_payload(version="0x00030000"))
+
+
+def test_system_identity_error_classification_is_specific() -> None:
+    assert classify_identity_error("No authentication methods available") == "Authentication failed"
+    assert classify_identity_error("No route to host") == "Host unreachable"
+    assert classify_identity_error("VERSION mismatch") == "FPGA identity mismatch"
+    assert classify_identity_error("/dev/mem register read failed") == "Register read failed"
+    assert classify_identity_error("SSH connection closed") == "Communication lost"
 
 
 def test_remote_helper_requires_magic_before_safe_and_scan_writes() -> None:
@@ -672,6 +706,236 @@ def test_main_window_constructs_without_legacy_scpi_output_controls() -> None:
         assert window.custom_stop_live_button.text() == "STOP"
         assert window.custom_live_interval_ms.currentText() == "1000"
         assert set(window.custom_scope_curves) == {"ch1", "ch2", "ch3", "ch4"}
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_system_identity_defaults_are_unknown_and_build_date_is_unavailable() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        assert window.system_connection_value.text() == "Disconnected"
+        assert window.system_identity_value.text() == "Unknown"
+        assert window.system_fpga_version_value.text() == "--"
+        assert window.system_mode_value.text() == "UNKNOWN"
+        assert window.system_output_value.text() == "Unknown"
+        assert window.system_last_probe_value.text() == "--"
+        assert window.system_bitstream_value.text() == "Build date unavailable"
+        assert window.system_bitstream_value.toolTip() == "Not encoded in the current FPGA register protocol."
+        assert "does not identify the loaded bitstream" in window.system_host_code_value.toolTip()
+        assert window.system_identity_refresh_button.text() == "REFRESH IDENTITY"
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_system_identity_success_shows_readback_and_local_probe_time() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._update_system_identity_from_payload(
+            make_identity_payload(mode=1, enable=1, status_raw="0x00000001"),
+            record_probe=True,
+        )
+
+        assert window.system_connection_value.text() == "Connected"
+        assert window.system_identity_value.text() == "Matched"
+        assert window.system_fpga_version_value.text() == "v3.0.1"
+        assert window.system_mode_value.text() == "SCAN"
+        assert window.system_output_value.text() == "Enabled"
+        assert window.last_identity_probe_time is not None
+        assert window.system_last_probe_title.text() == "Last probe"
+        assert window.system_last_probe_value.text() == window.last_identity_probe_time.strftime("%H:%M:%S")
+        details = window.system_identity_group.toolTip()
+        assert "MAGIC   0x4D545330" in details
+        assert "VERSION 0x00030001" in details
+        assert "MODE    1" in details
+        assert "ENABLE  1" in details
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_system_identity_magic_and_version_mismatch_disable_dangerous_actions() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window.mock_check.setChecked(False)
+        window._update_system_identity_from_payload(make_identity_payload(), record_probe=True)
+        window._apply_button_state("DISCONNECTED")
+        assert window.custom_scan_button.isEnabled()
+        assert window.custom_start_live_button.isEnabled()
+        assert window.custom_capture_once_button.isEnabled()
+        assert window.custom_pick_lock_button.isEnabled()
+
+        for payload in (
+            make_identity_payload(magic="0x00000000"),
+            make_identity_payload(version="0x00030000"),
+        ):
+            window._update_system_identity_from_payload(payload, record_probe=True)
+            assert window.system_identity_value.text() == "Mismatch"
+            assert not window.custom_scan_button.isEnabled()
+            assert not window.custom_start_live_button.isEnabled()
+            assert not window.custom_capture_once_button.isEnabled()
+            assert not window.custom_pick_lock_button.isEnabled()
+            assert not window.custom_confirm_lock_point_button.isEnabled()
+            assert not window.custom_lock_button.isEnabled()
+            assert not window.custom_apply_p_button.isEnabled()
+            assert window.custom_safe_button.isEnabled()
+            assert window.scan_stop_safe_button.isEnabled()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_system_identity_saturation_and_unknown_mode_are_explicit() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window.mock_check.setChecked(False)
+        for mode, expected in {
+            0: "SAFE",
+            1: "SCAN",
+            2: "HOLD",
+            3: "P_LOCK",
+            4: "PI_LOCK",
+        }.items():
+            window._update_system_identity_from_payload(
+                make_identity_payload(mode=mode),
+                record_probe=False,
+            )
+            assert window.system_mode_value.text() == expected
+
+        window._update_system_identity_from_payload(
+            make_identity_payload(mode=99, enable=1, status_raw="0x00000003", saturated=True),
+            record_probe=True,
+        )
+        assert window.system_mode_value.text() == "UNKNOWN"
+        assert window.system_output_value.text() == "Saturated"
+        assert not window.custom_scan_button.isEnabled()
+        assert not window.custom_start_live_button.isEnabled()
+        assert not window.custom_capture_once_button.isEnabled()
+        assert window.custom_safe_button.isEnabled()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_incomplete_status_payload_clears_stale_identity_as_register_failure() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._update_system_identity_from_payload(make_identity_payload(), record_probe=True)
+        window._on_custom_fpga_finished(
+            {
+                "operation": "status",
+                "payload": {"magic": f"0x{EXPECTED_MAGIC:08X}"},
+                "stderr": "",
+            }
+        )
+
+        assert window.system_connection_value.text() == "Communication lost"
+        assert window.system_identity_value.text() == "Unknown"
+        assert window.system_fpga_version_value.text() == "--"
+        assert window.system_mode_value.text() == "UNKNOWN"
+        assert window.system_output_value.text() == "Unknown"
+        assert window.system_identity_error_label.text() == "Register read failed"
+        assert window.system_last_probe_title.text() == "Last successful probe"
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_system_identity_failure_clears_stale_readback_and_classifies_authentication() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window._update_system_identity_from_payload(make_identity_payload(mode=2, enable=1), record_probe=True)
+        successful_time = window.last_identity_probe_time
+        window.current_custom_operation = "status"
+
+        window._on_custom_fpga_failed("SSH command failed: No authentication methods available")
+
+        assert window.system_connection_value.text() == "Communication lost"
+        assert window.system_identity_value.text() == "Unknown"
+        assert window.system_fpga_version_value.text() == "--"
+        assert window.system_mode_value.text() == "UNKNOWN"
+        assert window.system_output_value.text() == "Unknown"
+        assert window.system_identity_error_label.text() == "Authentication failed"
+        assert "No authentication methods available" in window.system_identity_error_label.toolTip()
+        assert window.last_identity_probe_time == successful_time
+        assert window.system_last_probe_title.text() == "Last successful probe"
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_refresh_identity_requests_only_read_only_status_operation() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    calls = []
+    try:
+        window._start_custom_fpga_operation = (
+            lambda operation, preserve_basic=False: calls.append((operation, preserve_basic))
+        )
+
+        window._refresh_system_identity()
+
+        assert calls == [("status", True)]
+        worker_source = (ROOT / "redpitaya_lock_host" / "connection_workers.py").read_text(encoding="utf-8")
+        backend_source = (ROOT / "redpitaya_lock_host" / "custom_fpga_backend.py").read_text(encoding="utf-8")
+        assert 'elif self.operation == "status":\n                response = backend.read_status()' in worker_source
+        assert 'def read_status(self) -> CustomFpgaResponse:\n        return self._run("status", None, allow_nonzero=False)' in backend_source
     finally:
         window.close()
         app.processEvents()
@@ -1713,6 +1977,7 @@ def test_project_scope_defaults_hide_counts_and_engineer_details() -> None:
         assert visible_groups == {
             "Device Connection",
             "PZT Scan",
+            "System Identity",
             "Three-Channel Waveform",
             "Manual Lock Point and P Lock",
         }
@@ -1855,6 +2120,8 @@ def test_direct_error_zero_crossing_is_default_and_only_creates_pending() -> Non
     app = QApplication.instance() or QApplication([])
     window = MainWindow({}, start_mock=True)
     try:
+        window.mock_check.setChecked(False)
+        window._update_system_identity_from_payload(make_identity_payload(), record_probe=True)
         window.show()
         window._render_custom_capture_payload(make_capture_payload())
         app.processEvents()

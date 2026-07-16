@@ -816,3 +816,16 @@ git diff --check
 - 未修改上位机 Python、测试、RTL、Vivado、寄存器地址/语义、MAGIC、VERSION 或 bitstream；未运行 Vivado、未生成/烧录 bitstream；未执行硬件校准、SCAN、LOCK HERE、APPLY P 或 P-only。
 - 阶段结论：`CALIBRATION INFRASTRUCTURE CODE PASS / WAITING USER HARDWARE HV-1`。
 - 下一步唯一动作：断开 PZT，使 OUT2 只连接示波器，按照 `docs/HARDWARE_CALIBRATION_SOP.md` 只执行 count=0 的 HV-1 测量，记录 readback 和示波器真实电压，然后立即 SAFE。
+## 2026-07-16 v3LOCK-P0 System Identity 只读面板
+
+- Git Gate PASS：本轮开始及 fetch 后均为 `main`、working tree clean、无 rebase/merge/cherry-pick，`HEAD=origin/main=4a0b7b0ecf30a215191f930f491447f7cc17a417`；未 commit 或 push。
+- Current Stage/Gate 保持 `v3LOCK-P0 / Stage 3 Hardware Verification` 和 `HV-1 OUT2 fixed-count physical voltage calibration`，本轮只做 `System Identity read-only UI preparation`。
+- 在左侧 `PZT Scan` 下方增加 `System Identity`：Connection、Host、FPGA version、Identity、Mode、Output、Last probe、Bitstream、Host code 和 `REFRESH IDENTITY`。
+- 数据源：复用 `CustomFpgaRegisterWorker("status") -> CustomFpgaBackend.read_status() -> remote --op status`；只读取现有 `MAGIC/VERSION/MODE/ENABLE/STATUS/OUT2_MONITOR` 等 readback，无寄存器写操作。
+- 身份规则：MAGIC 和 VERSION 同时匹配才显示 `Matched`；版本 `0x00030001` 显示 `v3.0.1`。失败或不完整 payload 清空旧 version/mode/output，保留时间时改标 `Last successful probe`。
+- `Bitstream` 固定为 `Build date unavailable`；当前协议没有 build date/time、Git SHA、Vivado build ID 或 filename。Host code 仅为本地 HEAD，不代表板端 bitstream。
+- 错误分类：Authentication failed、Host unreachable、Communication lost、FPGA identity mismatch、Register read failed；完整错误只进 tooltip/内部诊断。
+- 安全守卫：Identity 非 Matched 或 Saturated 时禁用 SCAN、RUN/SINGLE、人工选点、Confirm、LOCK HERE 和 APPLY P；SAFE 保持可用，既有 MAGIC/VERSION/saturation/safe-range 守卫未降低。
+- 验证：tabnanny、四文件 py_compile 通过；collect `84 tests`；targeted `13 passed, 71 deselected`；当前文件 `84 passed`；完整 tests `90 passed, 4 subtests passed`。1450x900 离屏布局无明显重叠，但不属于真实 GUI 证据。
+- 未修改 backend、worker、RTL、Vivado、寄存器、MAGIC、VERSION、bitstream、Hardware Validation 实验结果或 SOP；未运行 Vivado，未执行硬件实验。
+- 结论：`SYSTEM IDENTITY SOFTWARE PASS / WAITING USER HARDWARE HV-1`。下一步唯一动作仍是 PZT 断开、OUT2 只接示波器，按 SOP 只执行 count=0 HV-1，记录 readback/示波器电压后立即 SAFE。

@@ -1,5 +1,67 @@
 # STATUS
 
+## 2026-07-16 v3LOCK-P0 System Identity 只读上位机准备
+
+### Git Baseline Gate
+
+- branch：`main`；initial/final HEAD：`4a0b7b0ecf30a215191f930f491447f7cc17a417`。
+- 本轮开始和 `git fetch origin` 后均确认 working tree clean、无 rebase / merge / cherry-pick，且 `HEAD == origin/main`；Git Gate PASS。
+- 本轮未执行 reset、restore、checkout、clean、rebase、commit 或 push。
+
+### Current Stage / Gate
+
+```text
+Current Stage: v3LOCK-P0 / Stage 3 Hardware Verification
+Current Gate: HV-1 OUT2 fixed-count physical voltage calibration
+Software subtask: System Identity read-only UI preparation
+```
+
+Current Stage 和 Current Gate 未改变；软件测试通过不表示 HV-1 已通过。
+
+### 本轮实现
+
+- [AUTOMATED VERIFIED] 在左侧 `PZT Scan` 下方增加紧凑 `System Identity`，显示 Connection、Host、FPGA version、Identity、Mode、Output、Last probe、Bitstream 和 Host code。
+- [AUTOMATED VERIFIED] `REFRESH IDENTITY` 只调用既有 `status` 路径；该路径读取 `MAGIC`、`VERSION`、`MODE`、`ENABLE`、`STATUS`、`OUT2_MONITOR` 等现有 readback，不执行寄存器写入。
+- [AUTOMATED VERIFIED] `MAGIC=0x4D545330` 且 `VERSION=0x00030001` 才显示 `Matched`；版本显示为 `v3.0.1`，模式映射为 SAFE/SCAN/HOLD/P_LOCK/PI_LOCK，输出显示 Disabled/Enabled/Saturated。
+- [AUTOMATED VERIFIED] 读取失败或 payload 不完整会清除旧 FPGA identity/version/mode/output；最近成功时间只保留为 `Last successful probe`，不会把旧状态继续显示为当前有效状态。
+- [AUTOMATED VERIFIED] 错误分类区分 Authentication failed、Host unreachable、Communication lost、FPGA identity mismatch 和 Register read failed；完整底层错误只保留在 tooltip/内部诊断文本。
+- [AUTOMATED VERIFIED] Identity 非 Matched 或 output Saturated 时禁用 START SCAN、RUN、SINGLE、PICK LOCK POINT、CONFIRM、LOCK HERE 和 APPLY P；既有 SAFE、MAGIC、VERSION、saturation 和 safe-range 守卫未降低。
+- [AUTOMATED VERIFIED] `Bitstream` 固定显示 `Build date unavailable`，tooltip 说明当前寄存器协议未编码该信息。`Host code` 只显示本地 HEAD 短 SHA，并明确不代表已加载 bitstream。
+
+### 当前协议限制
+
+- 当前板端协议不提供 bitstream build date/time、Git SHA、Vivado build ID 或 bitstream filename。
+- 本轮未根据本地文件日期或 Git HEAD 猜测板端 bitstream 信息，也未声称板上已加载最新程序。
+
+### 自动化验证
+
+- `python -m tabnanny main_window.py custom_fpga_backend.py connection_workers.py test_custom_fpga_backend.py`：通过，无输出。
+- 对同四文件执行 `python -m py_compile`：通过，无输出。
+- `pytest --collect-only -q tests/test_custom_fpga_backend.py`：`84 tests collected`。
+- targeted：`13 passed, 71 deselected`。
+- 当前测试文件：`84 passed`。
+- 完整 software tests：`90 passed, 4 subtests passed`。
+- `git diff --check`：通过，无输出；离屏 1450x900 只确认面板布局无明显重叠，不属于真实 Windows GUI 或硬件证据。
+
+### 修改与未修改边界
+
+- 修改：`main_window.py`、`test_custom_fpga_backend.py`、本 STATUS、上位机 `DEVELOPMENT_LOG.md`、`version/v3/DEVELOPMENT_LOG.md`。
+- 未修改 `custom_fpga_backend.py`、`connection_workers.py`、RTL、Vivado 工程、寄存器地址/语义、`MAGIC`、`VERSION`、bitstream、`version/HARDWARE_VALIDATION.md` 或校准 SOP。
+- 未运行 Vivado、未生成/烧录 bitstream、未执行真实 GUI、SCAN、LOCK HERE、APPLY P 或任何硬件校准。
+
+### 阶段结论
+
+```text
+SYSTEM IDENTITY SOFTWARE PASS
+WAITING USER HARDWARE HV-1
+```
+
+硬件证据仍为 `[NOT VERIFIED]`，HV-1 未执行。
+
+### 下一步唯一动作
+
+断开 PZT，使 OUT2 只连接示波器，按照 `software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md` 只执行 count=0 的 HV-1 测量，记录 readback 和示波器真实电压，然后立即 SAFE。
+
 ## 2026-07-16 v3LOCK-P0 Hardware Verification Infrastructure / HV-1 准备
 
 ### Git Baseline Gate

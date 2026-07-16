@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import time
 import csv
+import subprocess
 from dataclasses import dataclass
+from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +52,7 @@ from .connection_workers import (
 from .custom_fpga_backend import (
     COUNTS_PER_VOLT,
     EXPECTED_MAGIC,
+    EXPECTED_VERSION,
     BasicLockConfig,
     CustomFpgaBackendError,
     build_basic_lock_config,
@@ -112,6 +116,68 @@ SCOPE_CHANNELS = {
     "ch1": ("CH1 PD / IN1", "#59c36a", -3.0),
     "ch2": ("CH2 REF / IN2", "#f2994a", -6.0),
 }
+
+FPGA_MODE_NAMES = {
+    0: "SAFE",
+    1: "SCAN",
+    2: "HOLD",
+    3: "P_LOCK",
+    4: "PI_LOCK",
+}
+
+
+def parse_register_value(value: object) -> int | None:
+    try:
+        if isinstance(value, str):
+            return int(value.strip(), 0)
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def format_fpga_version(value: object) -> str:
+    raw = parse_register_value(value)
+    if raw is None:
+        return "--"
+    return f"v{(raw >> 16) & 0xFF}.{(raw >> 8) & 0xFF}.{raw & 0xFF}"
+
+
+def identity_payload_matches(payload: dict[str, Any]) -> bool:
+    return (
+        parse_register_value(payload.get("magic")) == EXPECTED_MAGIC
+        and parse_register_value(payload.get("version")) == EXPECTED_VERSION
+    )
+
+
+def classify_identity_error(message: str) -> str:
+    text = str(message).lower()
+    if any(token in text for token in ("no authentication methods available", "authentication failed", "permission denied")):
+        return "Authentication failed"
+    if any(token in text for token in ("no route to host", "host unreachable", "could not resolve", "name or service not known")):
+        return "Host unreachable"
+    if "magic mismatch" in text or "version mismatch" in text:
+        return "FPGA identity mismatch"
+    if any(token in text for token in ("register read", "/dev/mem", "did not return json")):
+        return "Register read failed"
+    return "Communication lost"
+
+
+@lru_cache(maxsize=1)
+def local_host_commit() -> str:
+    repo_root = Path(__file__).resolve().parents[3]
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "Unavailable"
+    revision = result.stdout.strip()
+    return revision if result.returncode == 0 and revision else "Unavailable"
 
 
 def format_scope_voltage(value: float, *, signed: bool = False) -> str:
@@ -524,6 +590,11 @@ class MainWindow(QMainWindow):
         self.basic_lock_candidates: list[Any] = []
         self.current_custom_operation: str | None = None
         self.connection_state = DISCONNECTED
+        self.system_identity_matched = False
+        self.system_identity_communication_ok = False
+        self.system_identity_saturated = False
+        self.last_identity_probe_time: datetime | None = None
+        self.host_code_revision = local_host_commit()
         self.worker: (
             ProbeWorker
             | StartScpiServerWorker
@@ -595,6 +666,7 @@ class MainWindow(QMainWindow):
         left_layout.setSpacing(8)
         left_layout.addWidget(self._build_operator_connection_group())
         left_layout.addWidget(self._build_operator_scan_group())
+        left_layout.addWidget(self._build_system_identity_group())
         left_layout.addStretch(1)
 
         right_column = QWidget()
@@ -666,6 +738,150 @@ class MainWindow(QMainWindow):
         form.addRow(buttons)
         form.addRow("Status", self.operator_scan_state_label)
         return self.operator_scan_group
+
+    def _build_system_identity_group(self) -> QGroupBox:
+        self.system_identity_group = QGroupBox("System Identity")
+        form = QFormLayout(self.system_identity_group)
+        form.setContentsMargins(10, 16, 10, 8)
+        form.setHorizontalSpacing(10)
+        form.setVerticalSpacing(4)
+        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+
+        self.system_connection_value = QLabel("Disconnected")
+        self.system_host_value = QLabel(self._target_host())
+        self.system_fpga_version_value = QLabel("--")
+        self.system_identity_value = QLabel("Unknown")
+        self.system_mode_value = QLabel("UNKNOWN")
+        self.system_output_value = QLabel("Unknown")
+        self.system_last_probe_title = QLabel("Last probe")
+        self.system_last_probe_value = QLabel("--")
+        self.system_bitstream_value = QLabel("Build date unavailable")
+        self.system_bitstream_value.setToolTip(
+            "Not encoded in the current FPGA register protocol."
+        )
+        self.system_host_code_value = QLabel(self.host_code_revision)
+        self.system_host_code_value.setToolTip(
+            "Local host repository commit; does not identify the loaded bitstream."
+        )
+        self.system_identity_error_label = QLabel("")
+        self.system_identity_error_label.setWordWrap(True)
+        self.system_identity_error_label.setStyleSheet("color: #b00020; font-weight: 600;")
+        self.system_identity_refresh_button = QPushButton("REFRESH IDENTITY")
+        self._style_button(self.system_identity_refresh_button)
+
+        form.addRow("Connection", self.system_connection_value)
+        form.addRow("Host", self.system_host_value)
+        form.addRow("FPGA", self.system_fpga_version_value)
+        form.addRow("Identity", self.system_identity_value)
+        form.addRow("Mode", self.system_mode_value)
+        form.addRow("Output", self.system_output_value)
+        form.addRow(self.system_last_probe_title, self.system_last_probe_value)
+        form.addRow("Bitstream", self.system_bitstream_value)
+        form.addRow("Host code", self.system_host_code_value)
+        form.addRow(self.system_identity_refresh_button)
+        form.addRow(self.system_identity_error_label)
+        return self.system_identity_group
+
+    def _update_system_identity_host(self) -> None:
+        if hasattr(self, "system_host_value"):
+            self.system_host_value.setText(self._target_host())
+
+    def _refresh_system_identity(self) -> None:
+        self._update_system_identity_host()
+        self.system_identity_error_label.setText("")
+        self._start_custom_fpga_operation("status", preserve_basic=True)
+
+    def _clear_system_identity(self, connection: str, error: str = "") -> None:
+        self.system_identity_matched = False
+        self.system_identity_communication_ok = False
+        self.system_identity_saturated = False
+        self.system_connection_value.setText(connection)
+        self.system_fpga_version_value.setText("--")
+        self.system_identity_value.setText("Unknown")
+        self.system_mode_value.setText("UNKNOWN")
+        self.system_output_value.setText("Unknown")
+        self.system_identity_error_label.setText(error)
+        self.system_identity_group.setToolTip("")
+        self._update_system_identity_host()
+        if self.last_identity_probe_time is None:
+            self.system_last_probe_title.setText("Last probe")
+            self.system_last_probe_value.setText("--")
+        else:
+            self.system_last_probe_title.setText("Last successful probe")
+            self.system_last_probe_value.setText(
+                self.last_identity_probe_time.strftime("%H:%M:%S")
+            )
+
+    def _update_system_identity_from_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        record_probe: bool,
+    ) -> None:
+        required = ("magic", "version", "mode", "enable", "status_raw")
+        if any(parse_register_value(payload.get(key)) is None for key in required):
+            if record_probe:
+                self._clear_system_identity("Connected", "Register read failed")
+                self.operator_alert_label.setText("Register read failed")
+                self._apply_button_state(self.connection_state)
+            return
+
+        magic = int(parse_register_value(payload["magic"]))
+        version = int(parse_register_value(payload["version"]))
+        mode = int(parse_register_value(payload["mode"]))
+        enable = int(parse_register_value(payload["enable"]))
+        status = int(parse_register_value(payload["status_raw"]))
+        saturated = bool(payload.get("saturated", bool(status & 0x2)))
+
+        self.system_identity_communication_ok = True
+        self.system_identity_matched = identity_payload_matches(payload)
+        self.system_identity_saturated = saturated
+        self.system_connection_value.setText("Connected")
+        self.system_fpga_version_value.setText(format_fpga_version(version))
+        self.system_identity_value.setText(
+            "Matched" if self.system_identity_matched else "Mismatch"
+        )
+        self.system_mode_value.setText(FPGA_MODE_NAMES.get(mode, "UNKNOWN"))
+        self.system_output_value.setText(
+            "Saturated" if saturated else ("Enabled" if enable else "Disabled")
+        )
+        identity_message = (
+            "Saturation detected"
+            if saturated
+            else ("" if self.system_identity_matched else "FPGA identity mismatch")
+        )
+        self.system_identity_error_label.setText(identity_message)
+        self.operator_connection_status_label.setText("Connected")
+        self.operator_alert_label.setText(identity_message)
+        self._update_system_identity_host()
+
+        details = (
+            f"MAGIC   0x{magic:08X}\n"
+            f"VERSION 0x{version:08X}\n"
+            f"MODE    {mode}\n"
+            f"ENABLE  {enable}\n"
+            f"STATUS  0x{status:08X}"
+        )
+        self.system_identity_group.setToolTip(details)
+        for label in (
+            self.system_fpga_version_value,
+            self.system_identity_value,
+            self.system_mode_value,
+            self.system_output_value,
+        ):
+            label.setToolTip(details)
+
+        if record_probe:
+            self.last_identity_probe_time = datetime.now()
+            self.system_last_probe_title.setText("Last probe")
+            self.system_last_probe_value.setText(
+                self.last_identity_probe_time.strftime("%H:%M:%S")
+            )
+        if saturated:
+            self._stop_live_capture("Saturation detected; Live stopped")
+        elif not self.system_identity_matched:
+            self._stop_live_capture("FPGA identity mismatch; Live stopped")
+        self._apply_button_state(self.connection_state)
 
     def _build_channel_status_bar(self) -> QWidget:
         bar = QWidget()
@@ -1631,6 +1847,11 @@ class MainWindow(QMainWindow):
         self.start_scpi_button.clicked.connect(self.start_scpi_server)
         self.connect_scpi_button.clicked.connect(self.connect_scpi)
         self.disconnect_button.clicked.connect(self.disconnect_from_device)
+        self.system_identity_refresh_button.clicked.connect(self._refresh_system_identity)
+        self.host_edit.textChanged.connect(lambda _text: self._update_system_identity_host())
+        self.resolved_ip_combo.currentTextChanged.connect(
+            lambda _text: self._update_system_identity_host()
+        )
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
         self.app_mode_tabs.currentChanged.connect(self._on_app_mode_tab_changed)
         self.custom_probe_button.clicked.connect(lambda: self._start_custom_fpga_operation("probe"))
@@ -2491,7 +2712,7 @@ class MainWindow(QMainWindow):
             "time_s": float(t[peak_index]),
             "out2_counts": int(round(float(out2[peak_index]))),
         }
-        self.custom_confirm_lock_point_button.setEnabled(True)
+        self._apply_button_state(self.connection_state)
         self._update_lock_point_markers(self.pending_lock_point)
         self.operator_state_label.setText("WAITING FOR CONFIRMATION")
         self.operator_alert_label.setText("")
@@ -2515,7 +2736,6 @@ class MainWindow(QMainWindow):
             self.operator_alert_label.setText("Lock point not confirmed")
             return
         self.selected_lock_point = dict(self.pending_lock_point)
-        self.custom_lock_button.setEnabled(True)
         self._update_lock_point_markers(self.selected_lock_point)
         self.custom_pick_lock_button.setChecked(False)
         self.operator_state_label.setText("LOCK POINT CONFIRMED")
@@ -2536,6 +2756,7 @@ class MainWindow(QMainWindow):
             f"slope {float(self.selected_lock_point['slope']):.6g}, "
             f"ramp {self.selected_lock_point['ramp_direction']}"
         )
+        self._apply_button_state(self.connection_state)
 
     def _render_custom_capture_payload(self, payload: dict[str, Any]) -> None:
         self.custom_last_capture_payload = dict(payload)
@@ -2802,7 +3023,7 @@ class MainWindow(QMainWindow):
         return candidates
 
     def _capture_payload_hazard(self, payload: dict[str, Any]) -> str | None:
-        if not status_payload_has_expected_magic(payload):
+        if not identity_payload_matches(payload):
             return "MAGIC / VERSION readback failed; Live stopped"
         if bool(payload.get("saturated", False)):
             return "FPGA status reports saturation; Live stopped"
@@ -2846,11 +3067,14 @@ class MainWindow(QMainWindow):
         payload = data.get("payload", {})
         if not isinstance(payload, dict):
             payload = {}
-        operation_verified = status_payload_has_expected_magic(payload) and not bool(
+        operation_verified = identity_payload_matches(payload) and not bool(
             payload.get("saturated", False)
         )
         self._render_custom_fpga_payload(operation, payload, str(data.get("stderr", "")))
-        message = f"Custom FPGA {operation} complete"
+        if operation == "status" and not self.system_identity_matched:
+            message = self.system_identity_error_label.text() or "FPGA identity mismatch"
+        else:
+            message = f"Custom FPGA {operation} complete"
         self.statusBar().showMessage(message)
         self._append_connection_log(message)
         if operation == "capture":
@@ -2869,7 +3093,6 @@ class MainWindow(QMainWindow):
             self.p_lock_ready = True
             self.applied_kp = 0
             self.applied_polarity_index = self.custom_polarity.currentIndex()
-            self.custom_apply_p_button.setEnabled(True)
             self.operator_state_label.setText("P_LOCK Kp=0")
             self.operator_alert_label.setText("")
         elif operation == "update-p-lock" and operation_verified:
@@ -2878,7 +3101,15 @@ class MainWindow(QMainWindow):
             self.applied_polarity_index = self.custom_polarity.currentIndex()
             self.operator_state_label.setText("P_LOCK Kp=0" if kp == 0 else "P_LOCK ACTIVE")
             self.operator_alert_label.setText("")
-        self._restore_after_custom_fpga_operation()
+        if operation == "status" and not self.system_identity_communication_ok:
+            error_text = self.system_identity_error_label.text() or "Register read failed"
+            self.connection_state = ERROR
+            self.operator_connection_status_label.setText("Communication lost")
+            self.system_connection_value.setText("Communication lost")
+            self.system_identity_error_label.setText(error_text)
+            self._apply_button_state(ERROR)
+        else:
+            self._restore_after_custom_fpga_operation()
         self._continue_basic_lock_after_success(operation, payload)
         if operation == "capture" and self.live_capture_active:
             self._schedule_next_live_capture()
@@ -2915,15 +3146,14 @@ class MainWindow(QMainWindow):
             "MODE read failed | ENABLE read failed | STATUS read failed | OUT2 read failed"
         )
         self.custom_warning_text.setPlainText(guidance)
-        identity_mismatch = "MAGIC" in text or "VERSION" in text or "actual magic" in text.lower()
-        self.operator_alert_label.setText(
-            "FPGA identity mismatch" if identity_mismatch else "Communication lost"
-        )
-        if hasattr(self, "operator_connection_status_label"):
-            self.operator_connection_status_label.setText(
-                "FPGA mismatch" if identity_mismatch else "Communication lost"
-            )
-        self.statusBar().showMessage(f"Custom FPGA error: {text.splitlines()[0] if text else 'unknown'}")
+        error_category = classify_identity_error(text)
+        self._clear_system_identity("Communication lost", error_category)
+        if error_category == "FPGA identity mismatch":
+            self.system_identity_value.setText("Mismatch")
+        self.system_identity_error_label.setToolTip(text)
+        self.operator_alert_label.setText(error_category)
+        self.operator_connection_status_label.setText("Communication lost")
+        self.statusBar().showMessage(error_category)
         self._append_connection_log(f"Custom FPGA error: {text}")
         if self.basic_lock_active:
             self._basic_lock_fail(f"{operation} failed: {text.splitlines()[0] if text else 'unknown'}")
@@ -2933,12 +3163,23 @@ class MainWindow(QMainWindow):
     def _restore_after_custom_fpga_operation(self) -> None:
         if self.last_probe is not None and self.last_probe.port_5000 and self._official_mode():
             self._set_connection_state(SCPI_READY)
-        elif self.last_probe is not None and self.last_probe.port_22:
+        elif self.system_identity_communication_ok or (
+            self.last_probe is not None and self.last_probe.port_22
+        ):
             self._set_connection_state(SSH_AVAILABLE)
         else:
             self._set_connection_state(DISCONNECTED)
 
     def _render_custom_fpga_payload(self, operation: str, payload: dict[str, Any], stderr: str) -> None:
+        if operation != "probe":
+            self._update_system_identity_from_payload(
+                payload,
+                record_probe=operation == "status",
+            )
+        if operation == "status" and not self.system_identity_communication_ok:
+            self.custom_register_summary.setText("Custom FPGA status read incomplete")
+            self.custom_warning_text.setPlainText("Register read failed: status payload is incomplete.")
+            return
         if operation == "capture":
             self._render_custom_capture_payload(payload)
 
@@ -2981,6 +3222,15 @@ class MainWindow(QMainWindow):
             return
 
         version = str(payload.get("version", "--"))
+        if parse_register_value(version) != EXPECTED_VERSION:
+            self.custom_register_summary.setText(
+                f"FPGA identity mismatch | VERSION {version} | expected 0x{EXPECTED_VERSION:08X}"
+            )
+            self.custom_warning_text.setPlainText(
+                f"VERSION mismatch: expected 0x{EXPECTED_VERSION:08X}, got {version}."
+            )
+            self.operator_alert_label.setText("FPGA identity mismatch")
+            return
         mode = payload.get("mode", "--")
         enable = payload.get("enable", "--")
         status = str(payload.get("status_raw", "--"))
@@ -3196,10 +3446,13 @@ class MainWindow(QMainWindow):
 
     def _on_probe_failed(self, text: str) -> None:
         self._set_connection_state(ERROR)
-        message = f"Probe error: {text}"
-        self.statusBar().showMessage(message)
-        self._append_connection_log(message)
-        print(message)
+        error_category = classify_identity_error(text)
+        self._clear_system_identity("Communication lost", error_category)
+        self.system_identity_error_label.setToolTip(text)
+        self.operator_alert_label.setText(error_category)
+        self.statusBar().showMessage(error_category)
+        self._append_connection_log(f"Probe error: {text}")
+        print(f"Probe error: {text}")
 
     def _on_start_scpi_finished(self, _result: object, port_ok: bool, log: str) -> None:
         self._append_connection_log(log)
@@ -3466,6 +3719,12 @@ class MainWindow(QMainWindow):
                 ERROR: "Communication lost",
             }.get(state, "Disconnected")
             self.operator_connection_status_label.setText(connection_text)
+            if state in {DISCONNECTED, PROBING}:
+                self._clear_system_identity("Disconnected")
+            elif state == ERROR:
+                self._clear_system_identity("Communication lost", "Communication lost")
+            else:
+                self.system_connection_value.setText(connection_text)
         self._apply_button_state(state)
 
     def _on_app_mode_tab_changed(self, index: int) -> None:
@@ -3534,15 +3793,35 @@ class MainWindow(QMainWindow):
             self.scan_stop_safe_button,
         ):
             button.setEnabled(custom_enabled)
+        self.system_identity_refresh_button.setEnabled(custom_enabled)
+        identity_enabled = (
+            custom_enabled
+            and self.system_identity_matched
+            and not self.system_identity_saturated
+        )
+        for button in (
+            self.custom_scan_button,
+            self.custom_hold_button,
+            self.custom_p_lock_button,
+            self.custom_pi_lock_button,
+            self.custom_capture_bias_button,
+            self.custom_arm_auto_lock_button,
+            self.custom_capture_waveform_button,
+            self.custom_capture_once_button,
+            self.custom_start_live_button,
+            self.custom_pick_lock_button,
+            self.basic_lock_button,
+        ):
+            button.setEnabled(identity_enabled)
         self.custom_safe_button.setEnabled(True)
         self.scan_stop_safe_button.setEnabled(True)
         self.custom_confirm_lock_point_button.setEnabled(
-            custom_enabled and self.pending_lock_point is not None
+            identity_enabled and self.pending_lock_point is not None
         )
         self.custom_lock_button.setEnabled(
-            custom_enabled and self.selected_lock_point is not None
+            identity_enabled and self.selected_lock_point is not None
         )
-        self.custom_apply_p_button.setEnabled(custom_enabled and self.p_lock_ready)
+        self.custom_apply_p_button.setEnabled(identity_enabled and self.p_lock_ready)
         self.custom_stop_live_button.setEnabled(self.live_capture_active or custom_busy)
         for widget in (
             self.basic_pzt_min_v,

@@ -130,3 +130,13 @@
 - 未修改 RTL、Vivado、寄存器地址/语义、MAGIC、VERSION、bitstream 或测试；未运行 Vivado、未生成/烧录 bitstream、未执行 SCAN、LOCK HERE 或 P-only。
 - 阶段结论：`CALIBRATION INFRASTRUCTURE CODE PASS / WAITING USER HARDWARE HV-1`。
 - 下一步唯一动作：断开 PZT，使 OUT2 只连接示波器，按 SOP 只执行 count=0 的 HV-1 测量，记录 readback 和示波器真实电压，然后立即 SAFE。
+## 2026-07-16 v3LOCK-P0 System Identity 只读上位机准备
+
+- Git Gate PASS：`main` clean、无进行中的 Git 操作，fetch 后 `HEAD=origin/main=4a0b7b0ecf30a215191f930f491447f7cc17a417`；未 commit/push。
+- Current Stage/Gate 不变：`Stage 3 Hardware Verification / HV-1 OUT2 fixed-count physical voltage calibration`。本轮只增加左侧紧凑 `System Identity`，不改变扫描、人工锁点、LOCK HERE 或 APPLY P。
+- `REFRESH IDENTITY` 复用只读 `status`，显示连接、host、Matched/Mismatch/Unknown、`v3.0.1`、SAFE/SCAN/HOLD/P_LOCK/PI_LOCK、Disabled/Enabled/Saturated 和本机 probe 时间。
+- 当前协议不含 bitstream build date/time、Git SHA、Vivado build ID 或 filename；界面固定显示 build date unavailable，本地 Host code 明确不代表 bitstream。
+- 通信/认证/身份/寄存器读取错误分类显示；失败后清除旧身份缓存。Identity 非 Matched 或 Saturated 时危险操作入口禁用，SAFE 与原有安全守卫保留。
+- 自动化：tabnanny、py_compile 通过；collect `84`；targeted `13 passed, 71 deselected`；当前文件 `84 passed`；完整 software tests `90 passed, 4 subtests passed`。
+- 未修改 backend/worker、RTL、Vivado、寄存器、MAGIC、VERSION、bitstream、Hardware Validation 结果或 SOP；未执行真实 GUI/硬件实验。
+- 结论：`SYSTEM IDENTITY SOFTWARE PASS / WAITING USER HARDWARE HV-1`；下一步仍为 PZT 断开、OUT2 只接示波器，按 SOP 只执行 count=0 HV-1，记录后立即 SAFE。
