@@ -1,37 +1,53 @@
 # CURRENT_REVIEW_MANIFEST
 
-本文件只用于 `Review Mode`，不是 Development Mode 的启动入口。
+本文件只用于 GitHub `Review Mode`，不是 Development Mode 的启动入口，也不授权修改项目文件。
 
-## Review Mode 触发与边界
+## 1. Review Mode 触发与边界
 
-只有用户明确输入 `@GitHub 审计` 或 `审查最新main` 时读取本 Manifest，并允许访问 GitHub remote。
+只有用户明确输入以下任一指令时读取本 Manifest：
 
-- 数据源：GitHub `main`。
-- 目标：检查 commit、push 状态、版本差异和项目证据。
-- 允许：`git fetch`、检查 `origin/main`、读取 GitHub online、比较 commit/diff。
-- 禁止：修改代码、测试、RTL、Vivado 工程、寄存器、bitstream 或项目逻辑。
-- remote 失败：报告本次 Review 不完整；不得把网络检查变成 Development Mode 的默认 Gate。
-
-Development Mode 只使用当前本地 workspace，不要求读取本文件，不 fetch，也不比较 `origin/main`。
-
-## 当前审查范围
+```text
+@GitHub 审计
+审查最新main
+```
 
 ```text
 Repository: 666vitas/FPGA-MTS
 Primary branch: main
-Primary RTL root: v0.94/rtl
-Primary Vivado project: v0.94/project/redpitaya.xpr
-Primary status: version/STATUS.md
-Hardware validation: version/HARDWARE_VALIDATION.md
-Host calibration SOP: software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md
-Strict review template: version/AI_STRICT_REVIEW_ENTRY.md
+Data source: GitHub main
+Goal: inspect current commit, code, tests, evidence, Stage and Gate
+Mutation: audit only
 ```
 
-Review 开始时先读取 GitHub `main` 对应版本的 `STATUS.md` 顶部，再用当前代码验证状态文字。`AI_STRICT_REVIEW_ENTRY.md` 中的旧状态或既有 conflict markers 不得覆盖当前代码和 STATUS。
+允许：
 
-## 当前代码审查文件
+- 读取 GitHub online
+- 检查当前 commit、diff、代码、测试和文档
+- 比较状态记录与实际实现
+- 输出问题和下一步安全动作
 
-RTL / Vivado：
+禁止：
+
+- 修改代码、测试、RTL、Vivado 工程、寄存器、bitstream 或项目逻辑
+- 自动切换到 Development Mode
+- 用远端失败阻塞默认的本地 Development Mode
+
+## 2. 强制入口顺序
+
+```text
+1. AI_REVIEW_README.md
+2. AGENTS.md
+3. version/AI_STRICT_REVIEW_ENTRY.md
+4. version/CURRENT_REVIEW_MANIFEST.md
+5. version/STATUS.md 顶部最新条目
+6. version/rules/20_MULTI_AGENT_MTS_DEVELOPMENT.md
+7. 本 Manifest 指定的当前代码、测试、SOP 和实验记录
+8. 本次最新 commit/diff
+```
+
+## 3. 当前主线文件
+
+### RTL / Vivado
 
 ```text
 v0.94/project/redpitaya.xpr
@@ -44,29 +60,93 @@ v0.94/rtl/lpf_core.sv
 v0.94/rtl/output_protect.sv
 v0.94/rtl/pi_controller_seq.sv
 v0.94/rtl/pi_controller.sv
+v0.94/rtl/error_setpoint_corrector.sv
+v0.94/rtl/custom_debug_capture.sv
 ```
 
-上位机与记录按审查问题选择当前 `software/redpitaya_lock_host/` 代码、测试、`version/STATUS.md`、`version/HARDWARE_VALIDATION.md` 和相关 `DEVELOPMENT_LOG.md`。
+### 上位机
 
-## 当前项目基线
-
-以下是本地 STATUS 记录的审查起点，Review Mode 必须用 GitHub `main` 实际文件复核，不能直接当作远端结论：
+按审查问题读取当前 `software/redpitaya_lock_host/` 下直接相关代码和测试，至少核对：
 
 ```text
-OUT1 = laser_error = mixer + LPF error observation
+software/redpitaya_lock_host/redpitaya_lock_host/main_window.py
+software/redpitaya_lock_host/redpitaya_lock_host/custom_fpga_backend.py
+software/redpitaya_lock_host/redpitaya_lock_host/connection_workers.py
+software/redpitaya_lock_host/scripts/custom_fpga_scan_control.py
+software/redpitaya_lock_host/tests/
+```
+
+### 当前状态与实验记录
+
+```text
+version/STATUS.md
+version/HARDWARE_VALIDATION.md
+software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md
+software/redpitaya_lock_host/docs/DEVELOPMENT_LOG.md
+```
+
+需要时读取用户在当前任务中提供的截图、CSV、寄存器读回和实验记录。
+
+## 4. 当前事实判定
+
+### 4.1 代码实现
+
+```text
+GitHub main 实际代码和最终路由
+> 当前测试
+> STATUS 顶部
+> 其他文档和注释
+```
+
+判断 OUT1/OUT2 时必须追踪 `red_pitaya_top.sv` 的最终 DAC 数据源，不能用候选模块、模块名或旧注释代替。
+
+### 4.2 当前 Stage、Gate 和下一步动作
+
+```text
+version/STATUS.md 顶部最新条目
+> 当前 Gate 对应的最新 SOP/实验记录
+> version/HARDWARE_VALIDATION.md 中同一 Gate 的有效记录
+> README、代码注释和历史日志
+```
+
+本 Manifest 不再硬编码某一天的当前阶段。Review 必须从 `STATUS.md` 顶部读取当前 Stage/Gate，并检查与 SOP、硬件记录和代码是否一致。
+
+如果状态来源之间存在影响接线、输出、Kp、polarity、limits 或推进顺序的冲突：
+
+- 列为 `Blocker`
+- 禁止推进有源输出和闭环动作
+- 要求先修正文档或由用户确认当前 Gate
+
+## 5. 固定架构与安全基线
+
+除非当前 main 明确包含经授权的架构变化，审查基线为：
+
+```text
+IN1 = PD
+IN2 = REF
+OUT1 = laser_error
 OUT2 = selected_out2
 MODE=0 SAFE
 MODE=1 SCAN
 MODE=2 HOLD
 MODE=3 P_LOCK
-MODE=4 PI_LOCK，当前不作为实验主线
+MODE=4 PI_LOCK candidate
 MAGIC = 0x4D545330
-VERSION = 0x00030001
 ```
 
-当前本地状态仍要求区分：代码实现、自动化验证、用户 GUI、用户硬件和闭环证据。不得把 nominal/ideal GUI 电压写成真实物理电压，不得把软件 PASS 写成硬件或闭环 PASS。
+`VERSION` 必须从当前 RTL 和实际实验记录读取。
 
-## 禁止作为当前 main 依据的历史路径
+固定安全结论：
+
+- OUT2 只能连接当前 Gate 明确授权的激光器专用 PZT/Scan 输入和测量设备。
+- 禁止 OUT2 接激光器电流调制、D2-125 `Servo Output`、D2-125 `Aux Output`。
+- 禁止任何两个有源输出并联。
+- 通信失败、身份不匹配、saturation、越界、异常跳变、极性无法解释或反馈方向疑似错误时必须 SAFE。
+- 不得自动提高 Kp、切换 polarity、恢复 Ki、扩大 safe range 或自动重锁。
+- CH4 command/capture 不自动等于 loaded PZT 电压。
+- 软件、GUI、硬件、闭环和长期稳定性必须分开表述。
+
+## 6. 禁止作为当前 main 依据的路径
 
 ```text
 v-weifang/**
@@ -79,23 +159,35 @@ v0.94/redpitaya_laser_lock_project/docs/old/**
 **/*before*
 ```
 
-## 安全结论
+历史路径可以用于解释演进，但不得覆盖当前代码、当前测试、`STATUS.md` 顶部或当前 Gate。
 
-- OUT2 只能连接经确认的目标接口；禁止连接激光器电流调制、D2-125 Servo Output、D2-125 Aux Output，禁止任何有源输出并联。
-- 通信、身份、saturation、输出越界、异常跳变或反馈方向异常时必须 SAFE。
-- 没有明确实验记录时，不得声称已经闭环锁定、替代 D2-125、完成自动重锁或 AI 参数优化。
+## 7. Review 必查差异
 
-## Review 输出
+审查必须主动查找：
+
+- conflict markers
+- README、STATUS、HARDWARE_VALIDATION、SOP 和代码注释之间的冲突
+- host/RTL 寄存器地址、模式、`MAGIC/VERSION` 不一致
+- 实现存在但测试未覆盖
+- 自动化通过但 GUI/硬件/闭环证据缺失
+- selected/captured/readback/current 或 counts/volts/physical voltage 被混写
+- 旧默认值、历史 CSV、硬编码锁点或过期 Stage 污染当前结论
+
+## 8. Review 输出
 
 ```text
 A. 实际读取文件
-B. GitHub main / commit 状态
-C. 当前代码直接证据
-D. 文档与实验记录证据
-E. 未验证事项和风险
-F. 旧版本污染
-G. 禁止动作
-H. 审查结论
+B. GitHub main commit 与 diff 范围
+C. 当前 Stage/Gate 和来源一致性
+D. 当前代码直接证据
+E. 自动化测试证据
+F. 用户 GUI/硬件/实验记录证据
+G. 未验证事项
+H. Blocker/High/Medium/Low 问题
+I. 旧版本、旧注释、冲突标记和文档污染
+J. 禁止推进的动作
+K. 下一步唯一安全动作
+L. PASS / CONDITIONAL PASS / FAIL / LAB VERIFICATION REQUIRED
 ```
 
 Review Mode 只交付报告，不实施修复。
