@@ -1,23 +1,50 @@
 # AI_STRICT_REVIEW_ENTRY
 
-本文件是 `666vitas/FPGA-MTS` 的强约束审查规则。用于防止 AI 审查混用旧版本、历史文档、备份文件和当前 RTL。
+本文件是 `666vitas/FPGA-MTS` 的 GitHub `Review Mode` 强约束入口，用于防止 AI 把历史版本、旧注释、备份文件、过期状态和当前主线混在一起。
+
+本文件只用于只读审计，不授权修复、开发、Vivado、bitstream、烧录或实验。
 
 ## 0. 审查原则
 
 ```text
-只审当前主线，不拼接历史版本。
-先读入口和 manifest，再读 STATUS，再读当前 RTL。
-没有 fetch 到当前文件，就不能下结论。
-没有 RTL 或实验记录证据，就不能声称已经实现或已经通过。
+只审当前 GitHub main，不拼接历史版本。
+先读入口与 manifest，再读 STATUS 顶部，再读当前代码和证据。
+当前实现由实际代码和最终路由决定。
+当前 Stage/Gate 由 STATUS 顶部和对应实验文档决定。
+没有读取当前文件，就不能下结论。
+没有对应证据，就不能抬高验证等级。
 ```
 
-## 1. 数据源优先级
+如果仓库文件中存在 conflict markers、相互矛盾的接线规则、过期硬编码阶段或无法确认的状态，必须列为问题，不能选择对推进更有利的一侧继续。
 
-### Tier 0：当前代码事实
+## 1. Review Mode 触发条件
 
-这些文件是判断“当前代码实际做了什么”的最高优先级：
+只有用户明确输入以下任一指令时启用：
 
 ```text
+@GitHub 审计
+审查最新main
+```
+
+普通 `@GitHub` 开发、修复或修改请求不属于本模式。
+
+## 2. 数据源优先级
+
+### 2.1 当前代码事实
+
+判断模块、信号、寄存器、模式和最终 OUT1/OUT2 路由时，优先级为：
+
+```text
+GitHub main 当前代码
+> GitHub main 当前测试
+> version/STATUS.md 顶部记录
+> 其他说明文档和注释
+```
+
+当前 RTL 主线至少包括：
+
+```text
+v0.94/project/redpitaya.xpr
 v0.94/rtl/red_pitaya_top.sv
 v0.94/rtl/laser_lock_core.sv
 v0.94/rtl/custom_register_bank.sv
@@ -26,24 +53,33 @@ v0.94/rtl/mixer_core.sv
 v0.94/rtl/lpf_core.sv
 v0.94/rtl/output_protect.sv
 v0.94/rtl/pi_controller_seq.sv
+v0.94/rtl/pi_controller.sv
 v0.94/rtl/error_setpoint_corrector.sv
 v0.94/rtl/custom_debug_capture.sv
-v0.94/project/redpitaya.xpr
 ```
 
-### Tier 1：当前状态事实
+判断 OUT2 时必须追踪到 `red_pitaya_top.sv` 的最终 DAC B 数据源。看到 `pi_controller`、`laser_control`、候选模块或旧注释，不足以证明它们正在驱动 OUT2。
+
+### 2.2 当前 Stage、Gate 和下一步动作
+
+优先级为：
 
 ```text
-version/STATUS.md
-version/CURRENT_REVIEW_MANIFEST.md
-AI_REVIEW_README.md
+version/STATUS.md 顶部最新条目
+> 当前 Gate 对应的最新 SOP/实验记录
+> version/HARDWARE_VALIDATION.md 中同一 Gate 的有效记录
+> README、代码注释和历史日志
 ```
 
-### Tier 2：当前阶段辅助文档
+Review 必须指出这些来源是否一致。存在影响接线、PZT、OUT2、Kp、polarity、limits 或推进顺序的冲突时，结论至少为 `CONDITIONAL PASS` 或 `FAIL`，并要求先对齐文档。
 
-只有当用户明确要求时才读取。读取后也不能覆盖 Tier 0 / Tier 1。
+### 2.3 当前审查范围
 
-### Tier 9：历史资料，默认禁止作为当前结论依据
+以 `version/CURRENT_REVIEW_MANIFEST.md` 为准。Manifest 只定义本次应读取的当前文件，不得覆盖实际代码或 `STATUS.md` 顶部。
+
+### 2.4 历史资料
+
+以下路径默认属于历史层：
 
 ```text
 v-weifang/**
@@ -55,156 +91,143 @@ version/v2/**
 **/*before*
 ```
 
-这些文件只允许回答“历史上做过什么”，不能回答“当前 main 分支是什么状态”。
+历史资料只能用于回答“过去做过什么”，不能回答“当前 main 做了什么”或“当前可以执行什么实验”。
 
-## 2. 强制读取顺序
-
-AI 审查必须按下面顺序读取：
+## 3. 强制读取顺序
 
 ```text
 1. AI_REVIEW_README.md
-2. version/AI_STRICT_REVIEW_ENTRY.md
-3. version/CURRENT_REVIEW_MANIFEST.md
-4. version/STATUS.md
-5. v0.94/project/redpitaya.xpr
-6. v0.94/rtl/red_pitaya_top.sv
-7. v0.94/rtl/custom_register_bank.sv
-8. v0.94/rtl/ramp_generator.sv
-9. v0.94/rtl/laser_lock_core.sv
-10. v0.94/rtl/error_setpoint_corrector.sv
-11. v0.94/rtl/custom_debug_capture.sv
-12. 其他 manifest 中列出的当前 RTL、上位机文档和实验日志
+2. AGENTS.md
+3. version/AI_STRICT_REVIEW_ENTRY.md
+4. version/CURRENT_REVIEW_MANIFEST.md
+5. version/STATUS.md 顶部最新条目
+6. version/rules/20_MULTI_AGENT_MTS_DEVELOPMENT.md
+7. Manifest 指定的当前 RTL、上位机、测试、SOP 和实验记录
+8. 本次最新 commit/diff
 ```
 
-如果工具支持精确读取文件，必须使用精确读取。不要先用全仓库搜索来猜当前主线。
+如果工具支持精确读取文件，必须使用精确读取，不要先用全仓库搜索猜测主线。
 
-## 3. 当前主线判定
+## 4. 固定架构与安全检查
 
-<<<<<<< HEAD
-截至 2026-07-11，当前主线为：
-
-```text
-v3REG-0 register-controlled OUT2 SAFE/SCAN 已由用户上板验证；
-GitHub main 已进入 v3LOCK-P0 人工 LOCK HERE 候选；
-HOLD / P_LOCK / PI_LOCK / LOCK HERE 尚未完成最新 Vivado synthesis / implementation / timing / bitstream / 烧录 / 上板示波器验证。
-=======
-截至 2026-07-12，当前主线为：
+除非当前 main 的最终代码和最新状态明确显示经过授权的架构变化，审查基线为：
 
 ```text
-项目最终目标固定为：基于 Red Pitaya 的全自动深度学习参数优化 MTS 激光稳频系统。
-当前只做 PZT 基础稳频最小闭环：SCAN -> 观察 MTS error -> 人工选择色散过零点 -> LOCK HERE -> 同拍捕获 ERROR_SETPOINT 和 LOCK_BIAS -> P-only 小增益反馈 -> SAFE。
-OUT2 的目标执行器是激光器专用 PZT / Scan 输入，SCAN 和 P_LOCK 使用同一个 PZT 接口。
->>>>>>> 0a6928a (Update v94 project code documents and records)
-```
-
-必须使用下面判断：
-
-```text
-OUT1 = laser_error = mixer + LPF error observation
+IN1 = PD
+IN2 = REF
+OUT1 = laser_error
 OUT2 = selected_out2
-MODE=0 SAFE: OUT2 = 0
-MODE=1 SCAN: OUT2 = custom_register_bank + ramp_generator
-MODE=2 HOLD: GitHub main 候选，尚未完成最新 Vivado 和上板验证
-MODE=3 P_LOCK: 下一步验证重点，当前 LOCK 目标缩小为 P-only
-MODE=4 PI_LOCK: 当前暂时退化为 P_LOCK，KI / integral 当前不要恢复
-laser_control / pi_controller_seq = 内部候选或历史路径，不是当前 DAC B / OUT2 最终输出
-```
-
-v3REG-0 已验证基线：
-
-```text
-base address = 0x40600000
+MODE=0 SAFE
+MODE=1 SCAN
+MODE=2 HOLD
+MODE=3 P_LOCK
+MODE=4 PI_LOCK candidate
 MAGIC = 0x4D545330
-已验证 bitstream 的 VERSION = 0x00030000
-GUI / monitor 已可控制 OUT2 三角波并 SAFE 关闭
 ```
 
-2026-07-11 v3LOCK-P0 候选必须这样表述：
+`VERSION` 必须从当前 `custom_register_bank.sv` 和实际实验记录读取，禁止沿用本文件中的旧值。
+
+必须保留的安全结论：
+
+- OUT2 只能连接当前 Gate 明确授权的激光器专用 PZT/Scan 输入和测量设备。
+- 禁止 OUT2 接激光器电流调制输入。
+- 禁止 OUT2 接 D2-125 `Servo Output` 或 `Aux Output`。
+- 禁止任何两个有源输出并联。
+- 必须限制 OUT2 幅度、偏置、PZT safe range、`LOCK_CORRECTION_LIMIT` 和 `LOCK_LIMIT`。
+- 通信失败、身份不匹配、saturation、越界、异常跳变、极性无法解释或反馈方向疑似错误时立即 SAFE。
+- 不得自动提高 Kp、切换 polarity、恢复 Ki、自动重锁或扩大安全范围。
+
+## 5. 证据等级审查
+
+允许的证据等级：
 
 ```text
-当前候选协议 VERSION = 0x00030001，但尚未生成并上板验证对应 bitstream。
-ERROR_SETPOINT / LOCK_ERROR_MONITOR / CAPTURE_LOCK_POINT 已在当前 RTL 中实现。
-LOCK HERE = 人工从当前波形选择目标后的候选流程，不是自动识峰、AI 自动锁定或已完成稳频。
-禁止把 board(1).csv 或历史实验中的 counts、电压、频率、峰值、基线、扫描位置写成生产默认值或固定锁点。
-真实锁点必须来自当前扫描；CAPTURE_LOCK_POINT 在同一 clk_i 域捕获 ERROR_SETPOINT 与 LOCK_BIAS。
-MODE=3 P_LOCK 是 P-only；MODE=4 PI_LOCK 暂时退化为 P_LOCK；KI / integral 当前不要恢复。
-custom_debug_capture 已加入 block RAM 推断候选修复，但尚未由最新 Vivado implementation 验证。
-没有新 bitstream 或 capture 数据时，GUI 必须显示 custom_debug_capture not available，不得画 0 冒充真实波形。
-没有通过最新 synthesis / implementation / timing / bitstream / 烧录 / 上板示波器验证前，不得声称 LOCK HERE、P_LOCK 或 debug_capture 已通过硬件验证。
+[IMPLEMENTED]
+[AUTOMATED VERIFIED]
+[USER GUI VERIFIED]
+[USER HARDWARE VERIFIED]
+[FAILED]
+[NOT VERIFIED]
 ```
 
-如果某个旧文档写着“还没有 register_bank”或“OUT2 仍是 PI shadow control”，只能判定为历史阶段描述，不能覆盖当前主线。
-
-## 4. 当前安全边界
-
-任何审查都必须保留下面结论：
+必须逐层检查，禁止以下替代：
 
 ```text
-OUT2 的目标执行器是激光器专用 PZT / Scan 输入。
-SCAN 和 P_LOCK 使用同一个 PZT 接口。
-必须限制 OUT2 幅度、偏置、LOCK_CORRECTION_LIMIT 和 LOCK_LIMIT。
-异常、反馈方向错误、持续 saturation 或输出接近 limit 时立即 SAFE。
-禁止 OUT2 接激光器电流调制输入。
-禁止 OUT2 接 D2-125 Servo Output。
-禁止 OUT2 接 D2-125 Aux Output。
-禁止 OUT2 与任何 D2-125 输出并联。
-禁止两个设备输出端并联。
-禁止声称已经完成全自动锁定、自动重锁或深度学习参数优化。
-禁止把 Auto Lock candidate 说成已经完成激光稳频。
+代码存在 -> 自动化通过
+自动化通过 -> GUI 通过
+GUI 通过 -> bitstream/上板通过
+CH4 command -> loaded PZT 电压
+示波器波形 -> 闭环锁定
+短时锁定 -> 激光稳频或长期稳定性
 ```
 
-HOLD / P_LOCK / PI_LOCK 只有在最新 Vivado synthesis、implementation、timing、bitstream、烧录、示波器验证都有证据后，才允许进入下一阶段评审。
-禁止声称 FPGA 已经闭环锁定或已经替代 D2-125。
+bitstream 生成、烧录、`MAGIC/VERSION` 读回、真实 OUT1/OUT2、PZT loaded node、谱线位置、P-only、PI 和长期稳定性必须分别有证据。
 
-## 5. 审查输出模板
+## 6. 必查内容
 
-每次审查必须按下面格式输出：
+### 6.1 RTL 与寄存器
+
+- 最终 OUT1/OUT2 路由
+- reset 后 SAFE
+- mode/enable 状态
+- signed/unsigned、位宽、乘法、移位、截位和饱和
+- correction limit 与 absolute limit
+- `CAPTURE_LOCK_POINT` 的实际语义
+- host/RTL 寄存器地址、模式编码和 `VERSION` 一致性
+- testbench 是否覆盖零值、极值、正负 error/Kp、polarity、模式切换和饱和
+
+### 6.2 上位机
+
+- Live/capture 防重入
+- 通信失败、身份错误、窗口关闭和异常时 SAFE
+- selected、captured、readback 和 current 是否分开
+- unavailable 是否被 0、默认值或期望值冒充
+- counts、ideal equivalent、calibrated estimate 和物理测量是否分开
+- GUI、CSV 和实验日志语义是否一致
+
+### 6.3 实验与 Gate
+
+- 当前只允许哪个最小实验动作
+- 接线、负载、耦合和探头倍率是否明确
+- PZT safe range 是否有证据
+- `Kp=0 HOLD`、`Kp=0 LOCK HERE` 和非零 Kp P-only 是否被分开
+- 是否记录 commit、bitstream、`MAGIC/VERSION`、截图、CSV 和 readback
+- 是否存在继续动作前必须解决的 FAIL 或 Blocker
+
+## 7. Review 输出模板
 
 ```text
 A. 本次实际读取的文件
-B. 当前主线结论
-C. 已由 RTL 直接确认的事实
-D. 已由文档记录确认但尚未实验验证的事实
-E. 不能确认 / 仍有风险的事实
-F. 发现的旧注释或旧文档污染
-G. 禁止推进的动作
-H. 下一步最小安全动作
+B. GitHub main commit 与审查范围
+C. 当前 Stage/Gate 和来源一致性
+D. 当前代码直接确认的事实
+E. 自动化测试直接确认的事实
+F. 用户 GUI/硬件/实验记录确认的事实
+G. 未验证事项
+H. Blocker/High/Medium/Low 问题
+I. 旧版本、旧注释、冲突标记和文档污染
+J. 禁止推进的动作
+K. 下一步唯一安全动作
+L. PASS / CONDITIONAL PASS / FAIL / LAB VERIFICATION REQUIRED
 ```
 
-## 6. 典型错误结论纠正
+## 8. 禁止结论
 
-### 错误 1：把 version/v2 当当前主线
+没有对应证据时，禁止声称：
 
-纠正：`version/v2/**` 是历史资料。当前主线看 `version/STATUS.md` 当前主线段落、`v0.94/rtl/**` 和 `redpitaya.xpr`。
+- 已完成 HOLD/P_LOCK/PI_LOCK 硬件验证
+- 已完成 `LOCK HERE` 无跳变
+- 已找到真实 MTS 锁点
+- 已完成 P-only 或 PI 闭环
+- 已替代 D2-125
+- 已实现自动锁定、自动重锁或 AI 参数优化
+- 已完成激光稳频或长期稳定性验证
 
-### 错误 2：把 version-weifang 或 v-weifang 当当前主线
-
-纠正：这些路径不是当前 GitHub main 审查依据。
-
-### 错误 3：看到 `pi_controller_seq` 就说 OUT2 是 PI 输出
-
-纠正：是否作为 OUT2 最终输出，必须看 `red_pitaya_top.sv` 的 DAC B 选择逻辑。当前 OUT2 是 `selected_out2`，不是 `laser_control`。
-
-### 错误 4：把 PZT 基础稳频主线误写成永久示波器-only
-
-纠正：当前 PZT 基础稳频主线的目标执行器就是激光器专用 PZT / Scan 输入。正确边界不是“永久禁止 PZT”，而是“只能接专用 PZT/Scan 输入，必须限幅、限偏置、小 Kp、异常 SAFE；禁止接电流调制输入和任何 D2-125 输出端”。
-
-### 错误 5：看到 LOCK HERE / CAPTURE_LOCK_POINT 就说已经实现自动锁定
-
-纠正：当前 v3LOCK-P0 是人工从当前扫描波形选点后的候选流程，不是自动识峰。没有最新 Vivado 和示波器证据，不能声称已经锁定。
-
-### 错误 6：用历史 CSV 参数作为当前锁点
-
-纠正：历史数据只用于分析问题。ERROR_SETPOINT 和 LOCK_BIAS 必须来自当前扫描与当前 FPGA 同拍捕获，不能硬编码历史 counts、电压或扫描位置。
-
-## 7. 给 AI 的最短调用指令
-
-用户可以直接复制下面这段给任何审查窗口：
+## 9. 最短调用指令
 
 ```text
-请按强约束审查系统审查 666vitas/FPGA-MTS main。
-先读 AI_REVIEW_README.md、version/AI_STRICT_REVIEW_ENTRY.md、version/CURRENT_REVIEW_MANIFEST.md、version/STATUS.md。
-只以 v0.94/rtl 和 v0.94/project/redpitaya.xpr 判断当前代码。
-禁止读取或引用 v-weifang、version-weifang、version/v1、version/v2、old、before 作为当前结论依据。
-请输出：已读文件、当前主线、RTL直接确认、文档确认但未实验验证、风险、下一步安全动作。
+请按强约束 Review Mode 审查 666vitas/FPGA-MTS 最新 main。
+先读 AI_REVIEW_README.md、AGENTS.md、version/AI_STRICT_REVIEW_ENTRY.md、version/CURRENT_REVIEW_MANIFEST.md、version/STATUS.md 顶部和 version/rules/20_MULTI_AGENT_MTS_DEVELOPMENT.md。
+只以当前代码、当前测试和当前实验记录判断；历史目录不得作为当前结论。
+输出已读文件、当前 Stage/Gate、代码事实、测试事实、实验事实、问题分级、禁止动作、下一步唯一安全动作和最终结论。
 ```
