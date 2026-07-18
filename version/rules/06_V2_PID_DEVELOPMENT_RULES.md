@@ -1,5 +1,7 @@
 # 06_V2_PID_DEVELOPMENT_RULES
 
+> 历史 v2 规则：仅用于回顾旧 PI/PID 设计，不是当前 v3LOCK-P0 实验入口。当前 Gate、输出路由和允许动作以当前代码、`version/STATUS.md` 与 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md` 为准。
+
 ## 0.0B v2B1 timing-safe 默认路径规则（2026-06-16）
 
 完整 `pi_controller.sv` 是 v2A 的完整 PI + anti-windup 核心，继续保留，不删除、不弱化。但 v2B1 主工程默认不能再直接使用完整 PI 路径驱动 OUT2，因为手动 implementation 已显示约 `WNS=-10.995 ns` 的 timing failure。

@@ -1,5 +1,7 @@
 # 03_FPGA_CODE_REVIEW_RULES
 
+> 历史审查清单：其中 signed、位宽、时序和饱和检查可作背景，但固定 v2 路径与旧接线不得作为当前结论。当前关键任务复核范围见 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md`。
+
 ## 0.0C v2B3 mode=1 候选路径审查规则（2026-06-23）
 
 当顶层显式选择 `LASER_LOCK_CONTROL_PATH_MODE=1` 时，审查结论必须区分“已选择 sequential PI 候选路径”和“已通过板级验证”。只有独立/集成 XSim、用户手动 Vivado timing、OUT2 示波器观察均通过后，mode=1 才可视为 OUT2 开环验证通过；在此之前，OUT2 仍只能接示波器，不能接激光器、D2-125 Servo Output 或 Scan。timing failed 不得生成或烧录可上板 bitstream。

@@ -5,8 +5,8 @@
 ```text
 Current Stage: v3LOCK-P0 / Stage 3 Hardware Verification
 Current Gate: corrected OUT2 voltage mapping hardware re-validation
-Git baseline: local main clean at task start; no remote refresh by user request
-Latest local commit: 016f8d51b4500ec90f9d8006d138a8504c58b12a
+Git baseline: local main with in-progress rule/status documentation changes; no remote refresh
+Latest local commit: 9f4eb44d4d44f826f131491df2d0482d6a39d554
 Bitstream MAGIC: 0x4D545330
 Bitstream VERSION: 0x00030001
 Board model: Red Pitaya STEM125-14
@@ -16,6 +16,8 @@ Operator: user-reported measurement
 ```
 
 用户已提供修复前 SCAN center/amplitude 的示波器测量。本轮已根据这些数据实现软件预补偿；修复后的模拟输出尚未复测，当前 Gate 仍为 `[NOT VERIFIED]`。
+
+2026-07-18 Gate reconciliation：最新 Operator Lock Diagnostics 和 exact-count HOLD 已提供后续 Gate 所需观测能力，但没有产生新的真实电压证据，不会取代 HV-1B。HV-1B PASS 前保持 PZT 断开，禁止 HOLD SELECTED COUNT、LOCK HERE、APPLY P、非零 Kp/Ki 或 polarity 变更。
 
 ## 证据等级
 

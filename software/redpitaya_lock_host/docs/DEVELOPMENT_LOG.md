@@ -875,3 +875,12 @@ git diff --check
 - 自动验证：tabnanny 通过；本轮 Python 文件和新增测试 py_compile 通过；collect `136`；targeted `4 passed, 90 deselected`；新增诊断测试 `36 passed`；主测试 `94 passed`；完整 tests `136 passed, 4 subtests passed`。
 - 未验证：真实 GUI、loaded PZT 电压校准、exact-count HOLD 谱线位置、Kp=0 LOCK HERE 无跳变、P-only 和激光稳频。未修改 RTL、Vivado、寄存器、MAGIC、VERSION 或 bitstream，未运行 Vivado。
 - 下一步唯一实验动作：最终 loaded PZT + 示波器 Hi-Z 接线，Kp=0，优先 2~5 Hz，依次 `SAFE -> SCAN -> Capture -> Pick -> Confirm -> HOLD SELECTED COUNT -> 记录谱线/OUT2/delta/saturation -> SAFE`；只诊断 scan→hold 差异。
+
+## 2026-07-18 v3LOCK-P0 Gate reconciliation 与工程规则升级
+
+- 工程判断：当前唯一阻塞回到 Gate 2 / HV-1B。OUT2 软件预补偿后的 center/Vpp 尚未由示波器复测；command-side estimate、CH4 raw count 和寄存器 readback 都不能替代真实 OUT2 电压。上一条直接进入 loaded PZT/HOLD 的建议跨过了未闭合的物理校准 Gate，本条将其纠正。
+- 代码审计：host 已具备 HV-1B 所需 SCAN 参数、identity、MODE/ENABLE、OUT2 readback、saturation、SAFE 和记录能力；`selected_out2` 最终驱动 DAC B。当前阻塞只能由用户硬件测量解除，因此未修改 Python、RTL、寄存器或 bitstream。
+- 规则升级：详细入口改为 `version/rules/20_FPGA_MTS_ENGINEERING_WORKFLOW.md`，按当前代码事实、单一 Gate、普通/关键任务分级、一次独立工程复核、P-only Gate 1~6、证据等级和唯一硬件实验格式执行；旧 v1/v2 固定流程降级为历史参考。
+- 本轮验证：tabnanny 与相关 py_compile 通过；collect `136`；calibration/SCAN/LOCK/HOLD 聚焦测试 `11 passed`；诊断测试隔离复跑 `36 passed`；完整 tests `136 passed, 4 subtests passed`。首次批量诊断测试发生一次 PySide6/pyqtgraph native access violation，隔离复跑及完整套件均通过。独立 XSim：register bank `83/83`、OUT2 controller `29/29`，均 0 FAIL；未运行 synthesis/implementation/timing。
+- 当前状态：[AUTOMATED VERIFIED] 软件和 RTL 仿真路径具备 HV-1B 观测条件；[NOT VERIFIED] 修正后真实 OUT2 电压、loaded PZT、Kp=0 切换和 P-only。
+- 下一步唯一动作：PZT 断开、OUT2 只接示波器，执行一次 `0.800 V / 0.100 V / 50 Hz` HV-1B，记录 center、Vpp、frequency、scope load、DC coupling、probe ratio、readback、saturation 和最终 SAFE。PASS 前不进入 loaded PZT、HOLD、LOCK HERE 或非零 Kp。

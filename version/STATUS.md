@@ -1,5 +1,31 @@
 # STATUS
 
+## 2026-07-18 v3LOCK-P0 Gate Reconciliation — OUT2 Physical Mapping Before Loaded PZT
+
+### 当前工程判断
+
+- Current Stage：`v3LOCK-P0 / Stage 3 Hardware Verification`。
+- Current Gate：`Gate 2 / HV-1B corrected OUT2 voltage mapping hardware re-validation`。
+- Current Blocker：软件预补偿后的 OUT2 center/Vpp 尚无真实示波器复测；当前 `calibrated estimate` 仍只是 command-side estimate，不能证明真实 OUT2，更不能证明 loaded PZT 节点电压。
+- 该阻塞属于电压校准和实验证据，不属于待修 Python、RTL、寄存器或 bitstream 缺陷。
+
+### 本轮代码与自动化证据
+
+- [AUTOMATED VERIFIED] 当前 host 使用统一 OUT2 absolute/amplitude 校准路径，SCAN 可设置 HV-1B 所需 `0.800 V / 0.100 V / 50 Hz`，并提供 identity、MODE、ENABLE、OUT2 readback 和 saturation 观测；现有 `HARDWARE_CALIBRATION_SOP.md` 已包含单组操作与 PASS/FAIL。
+- [AUTOMATED VERIFIED] `python -m tabnanny` 和相关 `py_compile` 通过；`136 tests collected`；校准/SCAN/LOCK/HOLD 聚焦测试 `11 passed`；诊断测试隔离复跑 `36 passed`；完整 software tests `136 passed, 4 subtests passed`。首次批量诊断测试曾发生一次 PySide6/pyqtgraph native access violation，隔离复跑及随后完整套件均通过，不把首次崩溃隐藏为 PASS。
+- [AUTOMATED VERIFIED] 本轮独立 XSim：`tb_custom_register_bank_basic tests=83 pass=83 fail=0`；`tb_out2_lock_controller tests=29 pass=29 fail=0`。未运行 synthesis、implementation 或 timing。
+- [IMPLEMENTED] 最新 Operator Lock Diagnostics、exact-count HOLD 和 Kp=0 LOCK HERE 观测能力可用于后续 Gate，但不能替代 Gate 2 的物理电压证据。
+
+### Gate 边界
+
+- [NOT VERIFIED] 修正后真实 OUT2 center `0.800 V`、Vpp `0.200 V` 和 `50 Hz`。
+- [NOT VERIFIED] 真实 Windows GUI、loaded PZT、人工锁点复测、Kp=0 无扰切换和 P-only。
+- HV-1B 通过前禁止连接 PZT、执行 HOLD SELECTED COUNT、LOCK HERE、APPLY P、改变 polarity 或使用非零 Kp/Ki。2026-07-18 上一条记录中的 loaded PZT/HOLD 建议被本条更安全的 Gate 顺序取代。
+
+### 下一步唯一动作
+
+保持 PZT 断开，OUT2 只接示波器，按 `software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md` 执行一次 HV-1B：`SAFE -> Scan center=0.800 V / amplitude=0.100 V / 50 Hz -> 记录 center、Vpp、frequency、load、DC coupling、probe ratio、OUT2 readback 与 saturation -> STOP/SAFE`。只有 center 和 Vpp 均在目标的 +/-5% 内、波形/频率正常、无异常且最终 SAFE，才允许进入 loaded PZT Gate。
+
 ## 2026-07-18 v3LOCK-P0 Operator Voltage View and Loaded PZT Diagnostics
 
 ### Development Mode Baseline

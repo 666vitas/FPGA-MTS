@@ -1,5 +1,7 @@
 # 02_CODEX_WORKFLOW_COMPLETE
 
+> 历史工作流：本文件中的固定多轮协作、旧 v2 子阶段和旧权限路由不再是当前入口。当前只按 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md` 推进一个 Gate，并仅在 FPGA/MTS 关键任务后进行一次独立工程复核。
+
 ## 0.0 当前项目 Vivado 操作边界（2026-06-15）
 
 当前项目中，Codex 默认永远不操作 Vivado。即使独立 XSim 已通过，也不能自动运行：
