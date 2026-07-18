@@ -227,10 +227,8 @@ def interpolate_zero_crossing(
     e1 = raw1 - setpoint
     if not all(np.isfinite(value) for value in (raw0, raw1, pzt0, pzt1, setpoint)):
         raise CustomFpgaBackendError("zero crossing pair contains non-finite data")
-    if e0 == 0.0 and e1 == 0.0:
-        raise CustomFpgaBackendError("zero crossing pair is flat at the setpoint")
-    if e0 * e1 > 0.0:
-        raise CustomFpgaBackendError("zero crossing pair does not change sign")
+    if e0 * e1 >= 0.0:
+        raise CustomFpgaBackendError("zero crossing pair does not strictly change sign")
 
     delta_error = raw1 - raw0
     delta_out2 = pzt1 - pzt0
@@ -309,12 +307,7 @@ def find_zero_crossing_candidates(
     for idx in range(edge, count - edge - 1):
         y0 = float(error[idx])
         y1 = float(error[idx + 1])
-        if y0 == 0.0:
-            continue
-        if y1 == 0.0:
-            if idx + 2 >= count or y0 * float(error[idx + 2]) >= 0.0:
-                continue
-        elif y0 * y1 > 0.0:
+        if y0 * y1 >= 0.0:
             continue
         try:
             crossing = interpolate_zero_crossing(
@@ -358,12 +351,26 @@ def find_zero_crossing_candidates(
         )
 
     unique: dict[float, ZeroCrossingCandidate] = {}
-    for item in sorted(candidates, key=lambda candidate: candidate.score, reverse=True):
+    for item in sorted(
+        candidates,
+        key=lambda candidate: (
+            abs(candidate.error_residual_counts),
+            -abs(candidate.slope),
+            -candidate.score,
+        ),
+    ):
         if all(abs(item.index - kept.index) > window for kept in unique.values()):
             unique[item.index] = item
         if len(unique) >= max_candidates:
             break
-    return sorted(unique.values(), key=lambda candidate: candidate.score, reverse=True)
+    return sorted(
+        unique.values(),
+        key=lambda candidate: (
+            abs(candidate.error_residual_counts),
+            -abs(candidate.slope),
+            -candidate.score,
+        ),
+    )
 
 
 def resolve_target_transition(
@@ -425,7 +432,14 @@ def resolve_target_transition(
         )
     if not adjusted:
         raise CustomFpgaBackendError("target rejected: zero crossing is outside the PZT safe range or capture edge")
-    best = max(adjusted, key=lambda item: (abs(item.slope), -abs(item.index - click)))
+    best = min(
+        adjusted,
+        key=lambda item: (
+            abs(item.error_residual_counts),
+            -abs(item.slope),
+            abs(item.index - click),
+        ),
+    )
     return ResolvedLockPoint(
         clicked_index=click,
         index=float(best.index),
@@ -466,6 +480,13 @@ def build_scan_config(
 
 def build_hold_config(*, hold_v: float) -> HoldConfig:
     return HoldConfig(hold_counts=volts_to_counts(hold_v))
+
+
+def build_hold_config_from_counts(*, hold_counts: int) -> HoldConfig:
+    counts = int(hold_counts)
+    if counts < -8191 or counts > 8191:
+        raise CustomFpgaBackendError("HOLD count must be within signed 14-bit DAC range")
+    return HoldConfig(hold_counts=counts)
 
 
 def build_lock_config(
@@ -683,6 +704,19 @@ class CustomFpgaBackend:
     def set_mode_hold(self, *, hold_v: float) -> CustomFpgaResponse:
         config = build_hold_config(hold_v=hold_v)
         return self._run("hold", config, allow_nonzero=False)
+
+    def set_mode_hold_counts(self, *, hold_counts: int) -> CustomFpgaResponse:
+        """Enter existing HOLD mode with the exact raw selected OUT2 count."""
+        config = build_hold_config_from_counts(hold_counts=hold_counts)
+        response = self._run("hold", config, allow_nonzero=False)
+        return CustomFpgaResponse(
+            operation="hold-selected-count",
+            payload=response.payload,
+            stdout=response.stdout,
+            stderr=response.stderr,
+            exit_code=response.exit_code,
+            remote_command=response.remote_command,
+        )
 
     def set_mode_p_lock(
         self,

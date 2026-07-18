@@ -151,6 +151,10 @@ class CustomFpgaRegisterWorker(QThread):
                 response = backend.set_mode_hold(
                     hold_v=float(self.params["hold_v"]),
                 )
+            elif self.operation == "hold-selected-count":
+                response = backend.set_mode_hold_counts(
+                    hold_counts=int(self.params["hold_counts"]),
+                )
             elif self.operation == "p-lock":
                 response = backend.set_mode_p_lock(
                     kp=int(self.params["kp"]),

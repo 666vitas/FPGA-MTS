@@ -619,6 +619,11 @@ def build_scan_config(args: argparse.Namespace) -> ScanConfig:
 
 
 def build_hold_config(args: argparse.Namespace) -> HoldConfig:
+    if getattr(args, "hold_counts", None) is not None:
+        hold_counts = int(args.hold_counts)
+        if hold_counts < -8191 or hold_counts > 8191:
+            raise ValueError("--hold-counts must be within signed 14-bit DAC range")
+        return HoldConfig(hold_counts=hold_counts)
     return HoldConfig(hold_counts=volts_to_counts(args.hold_v))
 
 
@@ -761,8 +766,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     scan_parser.add_argument("--step-counts", type=int, default=1)
     scan_parser.add_argument("--limit-counts", type=int, default=8191)
 
-    hold_parser = subparsers.add_parser("hold", help="Set fixed OUT2 voltage and enable HOLD mode")
-    hold_parser.add_argument("--hold-v", type=float, default=0.0)
+    hold_parser = subparsers.add_parser("hold", help="Set fixed OUT2 voltage/count and enable HOLD mode")
+    hold_source = hold_parser.add_mutually_exclusive_group()
+    hold_source.add_argument("--hold-v", type=float, default=0.0)
+    hold_source.add_argument("--hold-counts", type=int, default=None)
 
     p_lock_parser = subparsers.add_parser("p-lock", help="Enable proportional lock mode; Kp defaults to zero")
     p_lock_parser.add_argument("--kp", type=int, default=0, help="Fixed-point Kp, 256 = gain 1.0")

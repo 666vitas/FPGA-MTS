@@ -850,3 +850,28 @@ git diff --check
 - 验证：人工数组 `[-10,-5,5,10]` 得到 `zero_index=1.5`、residual `0` 和插值 PZT；单样点反号噪声被拒绝；targeted `24 passed, 68 deselected`，collect `98 tests`，完整 software tests `98 passed`，tabnanny/py_compile/git diff check 通过。
 - 当前状态：[AUTOMATED VERIFIED] 人工锁点校准功能软件实现完成；真实 GUI/硬件 `[NOT VERIFIED]`。
 - 下一步唯一动作：PZT 安全范围确认、`Kp=0`，执行一次目标区域选点、Confirm 和 `LOCK HERE`，核对 LOCK_BIAS/ERROR_SETPOINT readback 与 CH4 无跳变后立即 SAFE；PASS 后再进入小步 P-only。
+
+## 2026-07-16 Lock Point Calibration 坐标与 PZT bias 修复
+
+- 实验输入：[USER HARDWARE VERIFIED] CH3 MTS ERROR 正常；[FAILED] PICK LOCK POINT 不能稳定落在真实 ERROR zero crossing，Confirm 保存的 PZT bias 不能稳定对应 CH1 目标位置；尚未进入 P-lock。
+- 点击映射：ViewBox 内 scene pixel 经 `mapSceneToView()` 得到 time(ms)，再由同一 capture 的 `time_s/sample_index` 映射到 buffer/raw index；候选 debug 显示 `display_x/time_ms/raw_index`。
+- 过零与排序：只接受严格 `y1*y2<0`，线性插值得到 float index、residual、time 和 CH4 raw；排序改为最小 `|error residual|`，再比较最大 `|d(error)/dx|` 和点击距离。
+- 数据一致性：一次遍历 payload `points` 构造一个二维 capture buffer，CH1/CH3/CH4 是同一 buffer 的对齐列；没有按 channel 分别读取。
+- Confirm：显式保存 `lock_index/error_setpoint/pzt_bias`；未 trim 时 pzt_bias 来自插值 CH4 raw count。默认参数为 `0.770 V / 0.080 V / 50 Hz / 0.600~0.900 V / Kp=0 / Normal`。
+- 验证：当前文件 `94 passed`；collect `100`；完整 tests `100 passed`；tabnanny、三文件 py_compile、git diff check 通过。
+- 边界：未修改 `waveform_plot.py`、RTL、Vivado、寄存器、FPGA 接口、PID/P-only 或 bitstream；未进入 P-lock、自动锁定或 PID。
+- 当前状态：MTS error OK；Lock Point Calibration 软件修复已实现但真实 GUI/硬件仍未完成；下一步只做 Kp=0 PICK/Confirm 参数核对，不执行 LOCK HERE。
+
+## 2026-07-18 v3LOCK-P0 Operator Voltage View and Loaded PZT Diagnostics
+
+- 修改文件：`main_window.py`、`custom_fpga_backend.py`、`connection_workers.py`、`scripts/custom_fpga_scan_control.py`、`tests/test_custom_fpga_backend.py`、新增 `tests/test_operator_voltage_diagnostics.py`，并更新当前 STATUS 与两份既有开发日志。
+- 修改原因：CH4 是 FPGA 内部 pre-DAC `selected_out2` raw command，不是 loaded PZT 节点回采；旧界面以 counts 为主且没有透明比较 host-selected 与 FPGA-captured 值，无法区分选点误差、捕获误差和真实动态切换误差。
+- 主要数据流：锁点、寄存器、CSV 和日志保持 raw counts；CH4 absolute 仅显示 `out2_counts_to_voltage()` 校准估算，CH4 delta 仅显示 `out2_delta_counts_to_voltage()`，CH3 使用 `counts/8191` ideal equivalent。显示转换不回写锁点。
+- UI：新增 `Operator Lock Diagnostics`，显示目标/捕获 OUT2 指令估算、selected→captured delta、ERROR target/captured/delta、当前 LOCK_ERROR/OUT2、方向、target wait、MODE、Kp 和 saturation；固定说明 loaded PZT 校准未完成。`Engineer Details` 显示完整 raw selected/captured/current/delta 和校准系数。
+- selected/captured 诊断：纯 helper 缺字段时返回 unavailable，不用 selected 值填充 captured；真正 scan→lock jump 固定为 `Unavailable with current FPGA interface`。LOCK HERE 保存 `last_lock_transition_diagnostics`，SAFE 保留但标记 not live，断线/身份错误标 stale，新 capture/目标解除旧绑定。
+- exact-count HOLD：新增 `set_mode_hold_counts()` 与 worker `hold-selected-count`，复用现有 remote `--hold-counts -> HOLD_VALUE -> MODE=2`；confirmed raw count 原样传递，不做电压往返，不调用 `CAPTURE_LOCK_POINT`，不写 Kp/Ki/polarity。
+- HOLD 安全规则：要求 confirmed/current target、Kp=0、无 capture/worker conflict、count 在 PZT safe raw range、MAGIC/VERSION matched、无 saturation；自动停止 Live，用户明确确认后才执行。MODE/ENABLE/count/range/saturation readback 异常在通信可用时请求 SAFE；正常状态也明确为 `HOLD DIAGNOSTIC / Kp=0 / NOT LOCKED`。
+- 导出：波形 CSV 保留四路 raw counts并附加 CH3 ideal equivalent/CH4 calibrated estimate 列；实验 Markdown 保存每次选点、HOLD 和 LOCK HERE 的 raw counts、电压估算、readback、delta、状态和 unavailable 字段。
+- 自动验证：tabnanny 通过；本轮 Python 文件和新增测试 py_compile 通过；collect `136`；targeted `4 passed, 90 deselected`；新增诊断测试 `36 passed`；主测试 `94 passed`；完整 tests `136 passed, 4 subtests passed`。
+- 未验证：真实 GUI、loaded PZT 电压校准、exact-count HOLD 谱线位置、Kp=0 LOCK HERE 无跳变、P-only 和激光稳频。未修改 RTL、Vivado、寄存器、MAGIC、VERSION 或 bitstream，未运行 Vivado。
+- 下一步唯一实验动作：最终 loaded PZT + 示波器 Hi-Z 接线，Kp=0，优先 2~5 Hz，依次 `SAFE -> SCAN -> Capture -> Pick -> Confirm -> HOLD SELECTED COUNT -> 记录谱线/OUT2/delta/saturation -> SAFE`；只诊断 scan→hold 差异。

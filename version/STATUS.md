@@ -1,5 +1,83 @@
 # STATUS
 
+## 2026-07-18 v3LOCK-P0 Operator Voltage View and Loaded PZT Diagnostics
+
+### Development Mode Baseline
+
+- Current Stage：`v3LOCK-P0 / Stage 3 Hardware Verification`。
+- 仅使用本地 workspace `E:\new\fpga_lock\v94`；branch `main`，initial HEAD `fa80acff89383b106412d582300105283dd53d04`。未访问 GitHub，未执行 fetch/pull/reset/rebase/merge/commit/push。
+- 开始时已有 6 个已知且与本任务连续的上一轮 Lock Point Calibration 修改；本轮保护并继续这些修改，没有覆盖或撤销。
+
+### 实现与数据边界
+
+- [IMPLEMENTED] `Operator Lock Diagnostics` 主要以 mV/V 显示目标 OUT2/PZT 指令、FPGA 捕获 `LOCK_BIAS`、selected→captured 偏差、ERROR target/captured/delta、当前 `LOCK_ERROR`/OUT2、方向、target wait、MODE、Kp 和 saturation。
+- [IMPLEMENTED] CH4 明确标为 `OUT2/PZT command voltage (calibrated estimate)`；CH3 明确标为 `ERROR ideal equivalent`。CH4 是 pre-DAC `selected_out2` command counts，不是三通后 PZT 节点回采电压。
+- [IMPLEMENTED] `Raw Lock Transition Details` 保留 selected/captured/current/delta raw counts、方向、斜率、MODE/Kp/polarity、saturation 和校准系数；raw counts 继续用于锁点算法、FPGA 参数、CSV、工程详情和实验事件记录。
+- [IMPLEMENTED] selected/captured 纯诊断对缺失字段返回 unavailable，不用 GUI 期望值或 0 冒充 FPGA readback。selected→captured delta 只是 host diagnostic，不是真正 FPGA clock-level transition jump；当前接口没有 pre-trigger/post-trigger/trigger-direction 事件字段。
+- [IMPLEMENTED] `HOLD SELECTED COUNT` 将 confirmed `selected_lock_point["lock_bias_counts"]` 原样传给既有 MODE=2/HOLD_VALUE 路径，不执行 counts→volts→counts，不触发 `CAPTURE_LOCK_POINT`，不写非零 Kp/Ki，不改 polarity，也不声称锁定。
+- [IMPLEMENTED] HOLD 前检查 Confirm、Kp=0、capture/worker 空闲、capture generation、PZT raw safe range、MAGIC/VERSION 和 saturation；停止 Live 后要求人工确认。异常 MODE/ENABLE/readback/range/saturation 在通信可用时请求 SAFE。
+- [IMPLEMENTED] SAFE 保留最近诊断并标记 `Last transition / not live`；新 capture/新目标解除旧 captured 绑定；断线或身份错误标记 stale。选点、HOLD 和 LOCK HERE 事件写入实验导出，缺失字段保留 unavailable。
+
+### 自动化验证
+
+- [AUTOMATED VERIFIED] `python -m tabnanny redpitaya_lock_host tests scripts`：通过，无输出。
+- [AUTOMATED VERIFIED] 本轮 5 个代码文件和新增测试文件 `py_compile`：通过。
+- [AUTOMATED VERIFIED] `python -m pytest --collect-only -q tests`：`136 tests collected`。
+- [AUTOMATED VERIFIED] 主文件 targeted：`4 passed, 90 deselected`；新增诊断测试：`36 passed`。
+- [AUTOMATED VERIFIED] `tests/test_custom_fpga_backend.py`：`94 passed`；完整 software tests：`136 passed, 4 subtests passed`。
+- 本轮没有修改 RTL、Vivado、寄存器地址/语义、`MAGIC`、`VERSION` 或 bitstream，也没有运行 Vivado。
+
+### 尚未验证
+
+- [NOT VERIFIED] 真实 Windows GUI 显示与交互。
+- [NOT VERIFIED] PZT + Scope loaded voltage calibration；当前 OUT2 校准仍只是 command-side estimate，不能称为 loaded PZT 校准完成。
+- [NOT VERIFIED] exact-count HOLD 后真实吸收谱位置。
+- [NOT VERIFIED] Kp=0 LOCK HERE 无跳变。
+- [NOT VERIFIED] P-only、激光锁定与激光稳频。
+
+### 下一步唯一硬件动作
+
+在最终接线 `OUT2 -> 激光器 PZT/Scan + 示波器 1 MΩ/Hi-Z` 下，确认 PZT safe min/max，保持 `Kp=0`、不进入 PI、不自动改 polarity，优先用 `2~5 Hz`：`SAFE -> START SCAN -> Capture Waveform -> PICK LOCK POINT -> 选择 CH3 ERROR 零点 -> CONFIRM -> 记录目标 PZT 指令估算 -> HOLD SELECTED COUNT -> 观察谱线位置、示波器 OUT2、selected→readback delta 和 saturation -> 记录结果 -> 立即 SAFE`。该动作只诊断 loaded scan→hold 差异，不执行非零 Kp、自动锁定或自动重锁。
+
+## 2026-07-16 v3LOCK-P0 Lock Point Calibration 坐标与 PZT bias 修复
+
+### GitHub / 本地基线
+
+- GitHub `666vitas/FPGA-MTS` `main` 与本地状态入口一致；本地 branch `main`，initial `HEAD=origin/main=fa80acff89383b106412d582300105283dd53d04`，开始时 working tree clean。
+- 本轮只修改上位机点击映射、zero crossing 候选排序、Confirm 保存字段、实验默认值、聚焦测试和状态/开发记录；未修改 RTL、Vivado、寄存器地址/语义、FPGA 接口、PID/P-only 控制逻辑或 bitstream。
+
+### 问题与根因
+
+- [USER HARDWARE VERIFIED] CH3 MTS ERROR 已正常输出并存在色散型结构。
+- [FAILED] 真实 GUI 中 `PICK LOCK POINT` 不能稳定选择真实 ERROR zero crossing；Confirm 后保存的 PZT bias 不能稳定对应 CH1 目标位置。
+- 点击路径原先用整个 `PlotItem.sceneBoundingRect()` 判断区域，没有显式记录 `pixel -> ViewBox display_x(time) -> capture sample` 的转换结果；Confirm 也没有显式保存 `lock_index/error_setpoint/pzt_bias`。
+- 原候选排序为最大斜率优先；本轮改为插值 `|error residual|` 最小优先，再以最大 `|d(error)/dx|` 和距点击位置排序。
+
+### 软件实现
+
+- [AUTOMATED VERIFIED] 点击只接受实际 ViewBox 内事件，`mapSceneToView()` 得到 `display_x`，再使用同一 capture 的 `time_s` 映射到 buffer/raw sample index；GUI/status debug 输出 `display_x`、`time_ms`、`raw_index`。
+- [AUTOMATED VERIFIED] zero crossing 搜索只接受严格相邻异号 `y1*y2<0`，按 `x0=x1+(0-y1)/(y2-y1)` 得到 float index；CH3 residual、nominal time 和 CH4 raw/PZT 使用相同 fraction 插值。
+- [AUTOMATED VERIFIED] Confirm 显式保存 `lock_index`、`error_setpoint` 和 `pzt_bias`；无人工 trim 时 `pzt_bias` 直接来自同一 capture buffer 的插值 CH4 raw count。
+- [AUTOMATED VERIFIED] `custom_debug_capture` 的每个 point 在一次循环中形成单一二维 capture buffer；`sample_index/time_s/CH1/CH2/CH3/CH4` 均为该 buffer 的对齐列，没有分别读取 CH1、CH3、CH4。
+- [AUTOMATED VERIFIED] 实验默认值固化为 Scan center `0.770 V`、amplitude `0.080 V`、frequency `50 Hz`、PZT safe `0.600~0.900 V`、`Kp=0`、Polarity `Normal`。
+- `waveform_plot.py` 已审计但未修改：当前 Custom FPGA Scope 使用 `main_window.py` 内的同一个 `pyqtgraph.PlotWidget`，不经过通用 `WaveformPlot` 单曲线组件。
+
+### 自动化验证
+
+- `python -m tabnanny redpitaya_lock_host tests`：通过。
+- `python -m py_compile redpitaya_lock_host\main_window.py redpitaya_lock_host\custom_fpga_backend.py redpitaya_lock_host\waveform_plot.py`：通过。
+- `python -m pytest -q tests/test_custom_fpga_backend.py`：`94 passed`。
+- `python -m pytest --collect-only -q tests`：`100 tests collected`。
+- `python -m pytest -q tests`：`100 passed`。
+- `git diff --check`：通过。
+
+### 当前实验状态
+
+- [USER HARDWARE VERIFIED] MTS error OK。
+- [IMPLEMENTED] Lock Point Calibration 软件修复已实现；真实 GUI/硬件复测尚未完成，因此整体仍为“Lock Point Calibration 未完成”。
+- [NOT VERIFIED] 未进入 P-lock；未执行 Kp 非零、PID、PI、自动锁定、自动重锁或参数自动优化。
+- 下一步唯一动作：保持 `Kp=0`，只在当前真实 capture 上执行 `PICK LOCK POINT -> 检查 display_x/time_ms/raw_index 与 CH3 插值 marker -> CONFIRM`，核对保存的 `lock_index/error_setpoint/pzt_bias` 与 CH1/CH3/CH4 同一位置；本 Gate 不执行 `LOCK HERE` 或 P-lock。
+
 ## 2026-07-16 v3LOCK-P0 MTS zero crossing 插值与人工锁点校准
 
 ### 本地基线与范围

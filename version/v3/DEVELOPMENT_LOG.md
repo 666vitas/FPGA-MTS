@@ -159,3 +159,22 @@
 - 验证：`[-10,-5,5,10] -> zero_index=1.5`、residual `0`、PZT 线性插值通过；噪声拒绝、最大斜率、浮点 marker、Confirm 和无反馈微调均有回归测试。targeted `24 passed`；collect `98`；完整 tests `98 passed`；tabnanny、py_compile、git diff check 通过。
 - 边界：未修改 RTL、Vivado、寄存器地址/语义、FPGA 接口、PID/P-only 或 bitstream，未运行 Vivado，未执行真实 `LOCK HERE`。
 - 当前状态：[AUTOMATED VERIFIED] 人工锁点校准功能软件实现完成；下一步唯一动作是在 `Kp=0` 下完成一次真实选点/Confirm/LOCK HERE readback 与 CH4 无跳变验证，随后 SAFE；PASS 后再做小步 P-only。
+
+## 2026-07-16 v3LOCK-P0 Lock Point Calibration 坐标与 bias 修复
+
+- 实验状态：MTS error 已由用户确认正常；PICK LOCK POINT/Confirm 对真实 zero crossing 与 CH1 目标的映射失败；未进入 P-lock。
+- 修复 `scene pixel -> ViewBox time(ms) -> capture buffer/raw index`，并显示 `display_x/time_ms/raw_index`；zero crossing 只接受 `y1*y2<0`，线性插值 float index、residual、time 与 CH4 raw。
+- 候选优先级改为最小 residual，再取最大斜率与最近目标；Confirm 显式保存 `lock_index/error_setpoint/pzt_bias`。
+- CH1/CH3/CH4 从一次遍历形成的同一二维 capture buffer 取对齐列；实验默认值改为 center `0.770 V`、amplitude `0.080 V`、frequency `50 Hz`、safe `0.600~0.900 V`、`Kp=0`、Normal。
+- 自动验证：当前文件 `94 passed`，collect `100`，完整 tests `100 passed`，tabnanny/py_compile/git diff check 通过。
+- 未修改 waveform_plot、RTL、Vivado、寄存器、FPGA 接口、PID/P-only 或 bitstream；Lock Point Calibration 仍等待真实 GUI/硬件复测，未进入 P-lock。
+
+## 2026-07-18 v3LOCK-P0 Operator Voltage View and Loaded PZT Diagnostics
+
+- 当前阶段保持 `v3LOCK-P0 / Stage 3 Hardware Verification`。CH4 明确为 pre-DAC `selected_out2` command counts，不是 PZT 节点回采；普通界面显示 command-side calibrated estimate，CH3 显示 ideal equivalent，raw counts 保留在算法、寄存器、CSV、事件日志和 Engineer Details。
+- 新增 selected/captured 纯诊断：透明显示目标与 FPGA `captured_lock_bias_counts/captured_error_setpoint_counts`、delta、target wait、MODE/ENABLE/Kp/saturation；缺失字段为 unavailable。当前 FPGA 不提供事件级 pre/post/trigger direction，因此 selected→captured delta 不称为 scan→lock jump。
+- 新增 `HOLD SELECTED COUNT`：confirmed `lock_bias_counts` 原样经过 backend/worker/既有 `--hold-counts` 写入 HOLD_VALUE；不做 counts→volts→counts，不触发 CAPTURE_LOCK_POINT，不写 Kp/Ki/polarity。执行前验证身份、Kp=0、当前 capture generation、safe range、空闲与无 saturation；回读异常请求 SAFE。
+- 状态管理：HOLD 成功显示 `HOLD DIAGNOSTIC / Kp=0 / NOT LOCKED`；SAFE 保留 last/not live，新 capture/目标清除旧 captured 绑定，断线/身份错误标 stale。选点、HOLD、LOCK HERE 扩展进入实验导出。
+- 自动验证：tabnanny/py_compile 通过；收集 `136`；targeted `4 passed, 90 deselected`；新增诊断文件 `36 passed`；主测试 `94 passed`；完整软件测试 `136 passed, 4 subtests passed`。
+- [NOT VERIFIED] 真实 GUI、PZT + Scope loaded calibration、exact-count HOLD 谱线位置、Kp=0 LOCK HERE 无跳变、P-only、激光锁定和稳频。未修改 RTL、Vivado、寄存器、MAGIC、VERSION 或 bitstream，未运行 Vivado。
+- 下一步唯一动作：最终 loaded PZT + scope Hi-Z 接线，Kp=0、优先 2~5 Hz，执行一次 `SAFE -> SCAN -> Capture -> Pick -> Confirm -> HOLD SELECTED COUNT -> 记录 -> SAFE`，只诊断 scan→hold 差异。

@@ -34,11 +34,13 @@ from redpitaya_lock_host.out2_calibration import (
 )
 from redpitaya_lock_host.main_window import (
     LockPointSelectionError,
+    build_custom_scope_capture_data,
     classify_identity_error,
     choose_scope_volts_per_div,
     format_fpga_version,
     format_scope_voltage,
     identity_payload_matches,
+    map_display_time_to_capture_sample,
     resolve_direct_error_zero_crossing,
     resolve_lock_point_selection,
 )
@@ -476,6 +478,31 @@ def test_zero_crossing_interpolation_returns_float_index_residual_and_pzt() -> N
     assert crossing.slope == 0.05
 
 
+def test_scope_time_mapping_and_channels_use_one_aligned_capture_buffer() -> None:
+    points = [
+        {"index": 10, "ch1_counts": 101, "ch2_counts": 201, "ch3_counts": -5, "ch4_counts": 601},
+        {"index": 11, "ch1_counts": 102, "ch2_counts": 202, "ch3_counts": 5, "ch4_counts": 602},
+        {"index": 12, "ch1_counts": 103, "ch2_counts": 203, "ch3_counts": 8, "ch4_counts": 603},
+    ]
+    capture_buffer, data = build_custom_scope_capture_data(points, capture_decimation=8)
+
+    assert capture_buffer.shape == (3, 5)
+    for channel in ("sample_index", "ch1", "ch2", "ch3", "ch4"):
+        assert np.shares_memory(data[channel], capture_buffer)
+    np.testing.assert_array_equal(data["ch1"], [101.0, 102.0, 103.0])
+    np.testing.assert_array_equal(data["ch3"], [-5.0, 5.0, 8.0])
+    np.testing.assert_array_equal(data["ch4"], [601.0, 602.0, 603.0])
+
+    click = map_display_time_to_capture_sample(
+        time_s=data["time_s"],
+        raw_indices=data["sample_index"],
+        display_x_ms=float(data["time_s"][1] * 1000.0),
+    )
+    assert click["buffer_index"] == 1
+    assert click["raw_index"] == 11
+    assert click["time_ms"] == float(data["time_s"][1] * 1000.0)
+
+
 def test_pd_click_resolves_nearby_ch3_error_zero_crossing() -> None:
     count = 512
     x = np.linspace(-1.0, 1.0, count)
@@ -735,6 +762,9 @@ def test_resolve_lock_point_result_contains_all_required_fields() -> None:
     assert isinstance(result["target_out2_counts"], int)
     assert isinstance(result["target_out2_volts"], float)
     assert isinstance(result["error_setpoint_counts"], int)
+    assert isinstance(result["lock_index"], float)
+    assert isinstance(result["error_setpoint"], float)
+    assert isinstance(result["pzt_bias"], float)
     assert isinstance(result["slope"], float)
     assert result["ramp_direction"] in ("rising", "falling")
     assert isinstance(result["target_window_counts"], int)
@@ -1323,6 +1353,10 @@ def test_confirm_lock_point_promotes_pending_zero_crossing_only() -> None:
         assert "target_out2_counts" in window.selected_lock_point
         assert "target_out2_volts" in window.selected_lock_point
         assert "error_setpoint_counts" in window.selected_lock_point
+        assert "lock_index" in window.selected_lock_point
+        assert "error_setpoint" in window.selected_lock_point
+        assert "pzt_bias" in window.selected_lock_point
+        assert window.selected_lock_point["pzt_bias"] == pending["zero_crossing_out2_counts"]
         assert "ramp_direction" in window.selected_lock_point
         assert "slope" in window.selected_lock_point
     finally:
@@ -1386,7 +1420,7 @@ def test_lock_point_calibration_adjusts_bias_without_enabling_feedback() -> None
         assert window.selected_lock_point["error_setpoint_counts"] == 0
         assert operations == []
         candidate_text = window.operator_candidate_label.text()
-        for field in ("Index:", "Time:", "Error:", "Slope:", "PZT:"):
+        for field in ("Index:", "Time:", "Error:", "Slope:", "OUT2/PZT command estimate:"):
             assert field in candidate_text
     finally:
         window.close()
@@ -2152,6 +2186,7 @@ def test_project_scope_defaults_hide_counts_and_engineer_details() -> None:
             "System Identity",
             "Three-Channel Waveform",
             "Manual Lock Point and P Lock",
+            "Operator Lock Diagnostics",
         }
 
         for key in ("ch4", "ch3", "ch1"):
@@ -2193,7 +2228,7 @@ def test_scope_channel_cards_show_only_vpp_in_voltage() -> None:
 
         expected_vpp = out2_delta_counts_to_voltage(float(np.ptp(values)))
         assert f"Vpp {format_scope_voltage(expected_vpp)}" in text
-        assert text.startswith("CH4 SCAN | Vpp ")
+        assert text.startswith("CH4 OUT2/PZT command voltage (calibrated estimate) | Vpp ")
         assert "Min" not in text
         assert "Max" not in text
         assert "Mean" not in text
@@ -2318,6 +2353,15 @@ def test_target_region_click_finds_error_zero_crossing_and_only_creates_pending(
 
         assert window.pending_lock_point is not None
         assert window.selected_lock_point is None
+        assert np.isclose(float(window.pending_lock_point["click_display_x"]), x_value)
+        assert np.isclose(float(window.pending_lock_point["click_time_ms"]), x_value)
+        assert int(window.pending_lock_point["click_raw_index"]) == candidate_index
+        assert float(window.pending_lock_point["lock_index"]) == float(
+            window.pending_lock_point["zero_crossing_index"]
+        )
+        assert float(window.pending_lock_point["pzt_bias"]) == float(
+            window.pending_lock_point["zero_crossing_out2_counts"]
+        )
         assert window.operator_state_label.text() == "WAITING FOR CONFIRMATION"
         assert "Status: Waiting for confirmation" in window.operator_candidate_label.text()
         assert "counts" not in window.operator_candidate_label.text()
@@ -2338,7 +2382,7 @@ def test_target_region_click_finds_error_zero_crossing_and_only_creates_pending(
 def test_direct_error_zero_crossing_resolver_returns_interpolated_crossing() -> None:
     count = 256
     out2 = np.linspace(6500.0, 7300.0, count)
-    error = np.arange(count, dtype=float) - 130.0
+    error = np.arange(count, dtype=float) - 130.25
 
     result = resolve_direct_error_zero_crossing(
         error_counts=error,
@@ -2348,11 +2392,22 @@ def test_direct_error_zero_crossing_resolver_returns_interpolated_crossing() -> 
         safe_max_counts=7400,
     )
 
-    assert result["zero_crossing_index"] == 130
+    assert result["zero_crossing_index"] == 130.25
     assert isinstance(result["zero_crossing_index"], float)
     assert result["selected_peak_index"] == 128
     assert result["ramp_direction"] == "rising"
     assert abs(float(result["slope"])) > 0.0
+
+
+def test_direct_error_zero_crossing_requires_strict_sign_change() -> None:
+    with np.testing.assert_raises(LockPointSelectionError):
+        resolve_direct_error_zero_crossing(
+            error_counts=np.arange(256, dtype=float) - 130.0,
+            out2_counts=np.linspace(6500.0, 7300.0, 256),
+            clicked_index=130,
+            safe_min_counts=6400,
+            safe_max_counts=7400,
+        )
 
 
 def test_direct_zero_crossing_prefers_steepest_persistent_sign_change() -> None:
@@ -2463,9 +2518,14 @@ def test_scan_range_is_blocked_outside_visible_pzt_safe_limits() -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow({}, start_mock=True)
     try:
-        assert np.isclose(window.custom_offset_v.value(), 0.85)
-        assert np.isclose(window.custom_amp_v.value(), 0.05)
-        window.custom_amp_v.setValue(0.10)
+        assert np.isclose(window.custom_offset_v.value(), 0.770)
+        assert np.isclose(window.custom_amp_v.value(), 0.080)
+        assert np.isclose(window.custom_freq_hz.value(), 50.0)
+        assert np.isclose(window.basic_pzt_min_v.value(), 0.600)
+        assert np.isclose(window.basic_pzt_max_v.value(), 0.900)
+        assert window.custom_kp.currentText() == "0"
+        assert window.custom_polarity.currentText() == "Normal"
+        window.custom_amp_v.setValue(0.20)
 
         window._start_custom_fpga_operation("scan")
 

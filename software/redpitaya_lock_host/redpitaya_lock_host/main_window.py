@@ -69,6 +69,9 @@ from .custom_fpga_workflow import CustomFpgaMeasurements, analyze_custom_fpga_me
 from .data_logger import save_plot_png, save_waveforms_csv, timestamped_name
 from .mock_client import MockRedPitayaClient
 from .out2_calibration import (
+    OUT2_AMPLITUDE_GAIN,
+    OUT2_CENTER_GAIN,
+    OUT2_CENTER_OFFSET,
     out2_counts_to_voltage,
     out2_delta_counts_to_voltage,
     out2_voltage_to_counts,
@@ -125,6 +128,12 @@ SCOPE_CHANNELS = {
     "ch2": ("CH2 REF / IN2", "#f2994a", -6.0),
 }
 
+DEFAULT_SCAN_CENTER_V = 0.770
+DEFAULT_SCAN_AMPLITUDE_V = 0.080
+DEFAULT_SCAN_FREQUENCY_HZ = 50.0
+DEFAULT_PZT_SAFE_MIN_V = 0.600
+DEFAULT_PZT_SAFE_MAX_V = 0.900
+
 FPGA_MODE_NAMES = {
     0: "SAFE",
     1: "SCAN",
@@ -133,13 +142,26 @@ FPGA_MODE_NAMES = {
     4: "PI_LOCK",
 }
 
+# UI diagnostic defaults only. These are not hardware lock acceptance limits.
+SELECTION_DELTA_WARNING_MV = 2.0
+SELECTION_DELTA_ERROR_MV = 10.0
+ERROR_RESIDUAL_WARNING_MV = 0.5
+ERROR_RESIDUAL_ERROR_MV = 2.0
+
+CALIBRATION_LABEL = "OUT2 command voltage (calibrated estimate)"
+LOADED_PZT_CALIBRATION_WARNING = (
+    "Current OUT2 voltage is a command-side calibrated estimate; "
+    "the node voltage with the PZT + oscilloscope load has not been independently calibrated."
+)
+TRANSITION_JUMP_UNAVAILABLE = "Unavailable with current FPGA interface"
+
 
 def parse_register_value(value: object) -> int | None:
     try:
         if isinstance(value, str):
             return int(value.strip(), 0)
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -195,6 +217,188 @@ def format_scope_voltage(value: float, *, signed: bool = False) -> str:
     if abs(numeric) < 1.0:
         return f"{prefix}{numeric * 1000.0:.1f} mV"
     return f"{prefix}{numeric:.3f} V"
+
+
+def _format_voltage_value(value: float | None, *, signed: bool) -> str:
+    if value is None:
+        return "--"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "Invalid"
+    if not np.isfinite(numeric):
+        return "Invalid"
+    prefix = "+" if signed and numeric >= 0.0 else ""
+    if abs(numeric) < 1.0:
+        millivolts = f"{numeric * 1000.0:.3f}".rstrip("0").rstrip(".")
+        return f"{prefix}{millivolts} mV"
+    return f"{prefix}{numeric:.3f} V"
+
+
+def format_operator_voltage(value: float | None) -> str:
+    """Format an operator-facing absolute voltage estimate."""
+    return _format_voltage_value(value, signed=False)
+
+
+def format_operator_delta_voltage(value: float | None) -> str:
+    """Format an operator-facing signed voltage difference."""
+    return _format_voltage_value(value, signed=True)
+
+
+def format_error_equivalent_voltage(counts: int | float | None, *, signed: bool = False) -> str:
+    """Format CH3/error counts using only the ideal signed-14 conversion."""
+    if counts is None:
+        return "--"
+    try:
+        voltage = float(counts) / COUNTS_PER_VOLT
+    except (TypeError, ValueError):
+        return "Invalid"
+    return _format_voltage_value(voltage, signed=signed)
+
+
+def format_out2_command_counts(counts: int | float | None) -> str:
+    """Format an absolute OUT2 command count with the measured calibration."""
+    if counts is None:
+        return "--"
+    try:
+        voltage = out2_counts_to_voltage(float(counts))
+    except (TypeError, ValueError):
+        return "Invalid"
+    return format_operator_voltage(voltage)
+
+
+def format_out2_delta_counts(counts: int | float | None) -> str:
+    """Format an OUT2 count delta without applying the absolute offset."""
+    if counts is None:
+        return "--"
+    try:
+        voltage = out2_delta_counts_to_voltage(float(counts))
+    except (TypeError, ValueError):
+        return "Invalid"
+    return format_operator_delta_voltage(voltage)
+
+
+def _optional_int(mapping: dict[str, Any], key: str) -> int | None:
+    value = mapping.get(key)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _optional_float(mapping: dict[str, Any], key: str) -> float | None:
+    value = mapping.get(key)
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if np.isfinite(numeric) else None
+
+
+def build_lock_transition_diagnostics(
+    selected_lock_point: dict[str, Any] | None,
+    lock_result_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build host-side selected/captured diagnostics without inventing FPGA events."""
+    selected = selected_lock_point or {}
+    payload = lock_result_payload or {}
+    selected_target = _optional_int(selected, "target_out2_counts")
+    selected_lock_bias = _optional_int(selected, "lock_bias_counts")
+    selected_error = _optional_int(selected, "error_setpoint_counts")
+    captured_bias = _optional_int(payload, "captured_lock_bias_counts")
+    captured_error = _optional_int(payload, "captured_error_setpoint_counts")
+    delta_bias = None if selected_target is None or captured_bias is None else captured_bias - selected_target
+    delta_error = None if selected_error is None or captured_error is None else captured_error - selected_error
+    mode_raw = _optional_int(payload, "mode")
+    kp_raw = _optional_int(payload, "current_kp")
+    if kp_raw is None:
+        kp_raw = _optional_int(payload, "kp")
+    saturated = None if "saturated" not in payload else bool(payload.get("saturated"))
+    target_wait = None if "target_wait_matched" not in payload else bool(payload.get("target_wait_matched"))
+
+    unavailable_reasons: list[str] = []
+    for value, description in (
+        (selected_target, "selected target unavailable"),
+        (selected_error, "selected ERROR_SETPOINT unavailable"),
+        (captured_bias, "captured LOCK_BIAS unavailable"),
+        (captured_error, "captured ERROR_SETPOINT unavailable"),
+    ):
+        if value is None:
+            unavailable_reasons.append(description)
+
+    return {
+        "selected_target_counts": selected_target,
+        "selected_lock_bias_counts": selected_lock_bias,
+        "selected_target_voltage_estimate": None if selected_target is None else out2_counts_to_voltage(selected_target),
+        "selected_error_setpoint_counts": selected_error,
+        "selected_error_setpoint_ideal_voltage": None if selected_error is None else selected_error / COUNTS_PER_VOLT,
+        "selected_error_residual_counts": _optional_float(selected, "error_residual_counts"),
+        "selected_direction": selected.get("ramp_direction") or "Unknown",
+        "selected_slope": _optional_float(selected, "slope"),
+        "selected_target_window_counts": _optional_int(selected, "target_window_counts"),
+        "captured_lock_bias_counts": captured_bias,
+        "captured_lock_bias_voltage_estimate": None if captured_bias is None else out2_counts_to_voltage(captured_bias),
+        "captured_error_setpoint_counts": captured_error,
+        "captured_error_setpoint_ideal_voltage": None if captured_error is None else captured_error / COUNTS_PER_VOLT,
+        "captured_error_counts": _optional_int(payload, "error_counts"),
+        "current_out2_counts": _optional_int(payload, "out2_counts"),
+        "current_lock_error_counts": _optional_int(payload, "lock_error_counts"),
+        "delta_bias_counts": delta_bias,
+        "delta_bias_voltage_estimate": None if delta_bias is None else out2_delta_counts_to_voltage(delta_bias),
+        "delta_error_setpoint_counts": delta_error,
+        "delta_error_setpoint_ideal_voltage": None if delta_error is None else delta_error / COUNTS_PER_VOLT,
+        "target_wait_matched": target_wait,
+        "enabled": None if "enable" not in payload else bool(payload.get("enable")),
+        "saturated": saturated,
+        "mode": None if mode_raw is None else FPGA_MODE_NAMES.get(mode_raw, "UNKNOWN"),
+        "current_mode_raw": mode_raw,
+        "kp": kp_raw,
+        "current_kp_raw": kp_raw,
+        "current_polarity_raw": _optional_int(payload, "polarity"),
+        "validity": "available" if not unavailable_reasons else "unavailable",
+        "unavailable_reasons": unavailable_reasons,
+        "true_scan_to_lock_jump": TRANSITION_JUMP_UNAVAILABLE,
+        "calibration_label": CALIBRATION_LABEL,
+        "calibration_verified_for_loaded_pzt": False,
+        "calibration_center_gain": OUT2_CENTER_GAIN,
+        "calibration_center_offset": OUT2_CENTER_OFFSET,
+        "calibration_amplitude_gain": OUT2_AMPLITUDE_GAIN,
+        "live": bool(payload),
+        "stale": False,
+        "state_label": "Live" if payload else "Selected / no captured result",
+    }
+
+
+def build_hold_selected_diagnostics(
+    selected_lock_point: dict[str, Any] | None,
+    hold_result_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build exact-count HOLD readback diagnostics from raw selected counts."""
+    selected = selected_lock_point or {}
+    payload = hold_result_payload or {}
+    hold_counts = _optional_int(selected, "lock_bias_counts")
+    readback_counts = _optional_int(payload, "out2_counts")
+    delta_counts = None if hold_counts is None or readback_counts is None else readback_counts - hold_counts
+    return {
+        "hold_selected_counts": hold_counts,
+        "hold_selected_voltage_estimate": None if hold_counts is None else out2_counts_to_voltage(hold_counts),
+        "hold_readback_counts": readback_counts,
+        "hold_readback_voltage_estimate": None if readback_counts is None else out2_counts_to_voltage(readback_counts),
+        "hold_delta_counts": delta_counts,
+        "hold_delta_voltage_estimate": None if delta_counts is None else out2_delta_counts_to_voltage(delta_counts),
+        "mode": _optional_int(payload, "mode"),
+        "enable": _optional_int(payload, "enable"),
+        "kp": _optional_int(payload, "kp"),
+        "saturated": None if "saturated" not in payload else bool(payload.get("saturated")),
+        "calibration_label": CALIBRATION_LABEL,
+        "calibration_verified_for_loaded_pzt": False,
+        "live": bool(payload),
+        "stale": False,
+    }
 
 
 def format_volts_per_div(value: float) -> str:
@@ -254,6 +458,62 @@ def _interpolate_capture_value(values: np.ndarray | list[float], index: float) -
     return float(samples[left] + fraction * (samples[right] - samples[left]))
 
 
+def map_display_time_to_capture_sample(
+    *,
+    time_s: np.ndarray | list[float],
+    raw_indices: np.ndarray | list[float],
+    display_x_ms: float,
+) -> dict[str, int | float]:
+    """Map a ViewBox time coordinate to one raw capture sample."""
+    times_ms = np.asarray(time_s, dtype=float) * 1000.0
+    indices = np.asarray(raw_indices, dtype=float)
+    count = min(times_ms.size, indices.size)
+    if count == 0 or not np.isfinite(display_x_ms):
+        raise LockPointSelectionError("Clicked scope coordinate is not valid capture time")
+    finite_positions = np.flatnonzero(np.isfinite(times_ms[:count]) & np.isfinite(indices[:count]))
+    if finite_positions.size == 0:
+        raise LockPointSelectionError("Capture has no finite time/index mapping")
+    nearest_offset = int(np.argmin(np.abs(times_ms[finite_positions] - float(display_x_ms))))
+    buffer_index = int(finite_positions[nearest_offset])
+    return {
+        "display_x": float(display_x_ms),
+        "time_ms": float(times_ms[buffer_index]),
+        "buffer_index": buffer_index,
+        "raw_index": int(round(float(indices[buffer_index]))),
+    }
+
+
+def build_custom_scope_capture_data(
+    points: list[dict[str, Any]], capture_decimation: int
+) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """Build all scope channels from one aligned raw capture buffer."""
+    capture_buffer = np.asarray(
+        [
+            (
+                int(item.get("index", position)),
+                int(item.get("ch1_counts", 0)),
+                int(item.get("ch2_counts", 0)),
+                int(item.get("ch3_counts", 0)),
+                int(item.get("ch4_counts", 0)),
+            )
+            for position, item in enumerate(points)
+        ],
+        dtype=float,
+    )
+    if capture_buffer.size == 0:
+        capture_buffer = np.empty((0, 5), dtype=float)
+    decimation = max(1, int(capture_decimation))
+    data = {
+        "sample_index": capture_buffer[:, 0],
+        "time_s": capture_buffer[:, 0] * decimation / 125_000_000.0,
+        "ch1": capture_buffer[:, 1],
+        "ch2": capture_buffer[:, 2],
+        "ch3": capture_buffer[:, 3],
+        "ch4": capture_buffer[:, 4],
+    }
+    return capture_buffer, data
+
+
 def resolve_direct_error_zero_crossing(
     *,
     error_counts: np.ndarray | list[float],
@@ -283,19 +543,14 @@ def resolve_direct_error_zero_crossing(
     right = min(count - edge - 1, click + max(4, int(search_radius)))
     local_noise = max(robust_noise_counts(np.diff(error[left:right + 2])) * 0.25, 1.0)
     min_local_vpp = max(local_noise * 6.0, 3.0)
-    candidates: list[tuple[float, float, Any, str]] = []
+    candidates: list[tuple[float, float, float, Any, str]] = []
     for index in range(left, right + 1):
         next_index = min(index + 1, count - 1)
         e0 = float(error[index])
         e1 = float(error[next_index])
         if not np.isfinite(e0) or not np.isfinite(e1):
             continue
-        if e0 == 0.0:
-            continue
-        if e1 == 0.0:
-            if index + 2 >= count or e0 * float(error[index + 2]) >= 0.0:
-                continue
-        elif e0 * e1 > 0.0:
+        if e0 * e1 >= 0.0:
             continue
 
         try:
@@ -338,12 +593,20 @@ def resolve_direct_error_zero_crossing(
         if target_out2 < int(safe_min_counts) or target_out2 > int(safe_max_counts):
             continue
         direction = "rising" if median_ramp > 0.0 else "falling"
-        candidates.append((abs(slope), -abs(crossing.index - click), crossing, direction))
+        candidates.append(
+            (
+                abs(float(crossing.error_residual_counts)),
+                -abs(slope),
+                abs(crossing.index - click),
+                crossing,
+                direction,
+            )
+        )
 
     if not candidates:
         raise LockPointSelectionError("No valid ERROR zero crossing in the selected region")
 
-    _, _, crossing, direction = max(candidates, key=lambda item: (item[0], item[1]))
+    _, _, _, crossing, direction = min(candidates, key=lambda item: (item[0], item[1], item[2]))
     zero_index = float(crossing.index)
     target_out2_float = float(crossing.out2_counts)
     target_out2_counts = int(round(target_out2_float))
@@ -354,12 +617,17 @@ def resolve_direct_error_zero_crossing(
     )
     return {
         "selected_peak_index": int(click),
+        "lock_index": zero_index,
         "zero_crossing_index": zero_index,
         "zero_crossing_time_s": crossing_time_s,
         "zero_crossing_out2_counts": target_out2_float,
         "zero_crossing_pzt_volts": out2_counts_to_voltage(target_out2_float),
         "target_out2_counts": target_out2_counts,
         "target_out2_volts": out2_counts_to_voltage(target_out2_float),
+        "pzt_bias": target_out2_float,
+        "pzt_bias_counts": target_out2_counts,
+        "pzt_bias_volts": out2_counts_to_voltage(target_out2_float),
+        "error_setpoint": float(crossing.error_counts),
         "error_setpoint_counts": int(round(float(crossing.error_counts))),
         "error_residual_counts": float(crossing.error_residual_counts),
         "slope": float(crossing.slope),
@@ -451,18 +719,13 @@ def resolve_lock_point_selection(
     setpoint = float(error_setpoint_counts)
     local_noise = max(robust_noise_counts(np.diff(error[left:right + 2])) * 0.25, 1.0)
     min_local_vpp = max(local_noise * 6.0, 3.0)
-    candidates: list[tuple[float, float, Any, str]] = []
+    candidates: list[tuple[float, float, float, Any, str]] = []
     for index in range(left, right):
         e0 = float(error[index] - setpoint)
         e1 = float(error[index + 1] - setpoint)
         if not np.isfinite(e0) or not np.isfinite(e1):
             continue
-        if e0 == 0.0:
-            continue
-        if e1 == 0.0:
-            if index + 2 >= count or e0 * float(error[index + 2] - setpoint) >= 0.0:
-                continue
-        elif e0 * e1 > 0.0:
+        if e0 * e1 >= 0.0:
             continue
         try:
             crossing = interpolate_zero_crossing(
@@ -504,7 +767,15 @@ def resolve_lock_point_selection(
         if target_out2 < int(safe_min_counts) or target_out2 > int(safe_max_counts):
             continue
         direction = "rising" if median_ramp > 0.0 else "falling"
-        candidates.append((abs(slope), -abs(crossing.index - peak), crossing, direction))
+        candidates.append(
+            (
+                abs(float(crossing.error_residual_counts)),
+                -abs(slope),
+                abs(crossing.index - peak),
+                crossing,
+                direction,
+            )
+        )
 
     if not candidates:
         # Distinguish an undetermined ramp from an ordinary missing crossing.
@@ -514,8 +785,8 @@ def resolve_lock_point_selection(
             raise LockPointSelectionError("Ramp direction unavailable; cannot confirm lock point.")
         raise LockPointSelectionError("No valid zero crossing near selected transition; adjust scan offset/amp or target window.")
 
-    # Maximum |dError/dOut2| is primary; distance to the selected CH1 peak breaks ties.
-    _, _, crossing, direction = max(candidates, key=lambda item: (item[0], item[1]))
+    # Interpolated residual is primary; maximum |dError/dOut2| and distance break ties.
+    _, _, _, crossing, direction = min(candidates, key=lambda item: (item[0], item[1], item[2]))
     zero_index = float(crossing.index)
     target_out2 = float(crossing.out2_counts)
     crossing_time_s = (
@@ -525,12 +796,17 @@ def resolve_lock_point_selection(
     )
     return {
         "selected_peak_index": int(peak),
+        "lock_index": zero_index,
         "zero_crossing_index": zero_index,
         "zero_crossing_time_s": crossing_time_s,
         "zero_crossing_out2_counts": target_out2,
         "zero_crossing_pzt_volts": out2_counts_to_voltage(target_out2),
         "target_out2_counts": int(round(target_out2)),
         "target_out2_volts": out2_counts_to_voltage(target_out2),
+        "pzt_bias": target_out2,
+        "pzt_bias_counts": int(round(target_out2)),
+        "pzt_bias_volts": out2_counts_to_voltage(target_out2),
+        "error_setpoint": float(crossing.error_counts),
         "error_setpoint_counts": int(round(float(crossing.error_counts))),
         "error_residual_counts": float(crossing.error_residual_counts),
         "slope": float(crossing.slope),
@@ -665,13 +941,18 @@ class MainWindow(QMainWindow):
         self.last_probe: ProbeResult | None = None
         self.last_waveforms = self._empty_waveforms()
         self.custom_scope_data: dict[str, np.ndarray] | None = None
+        self.custom_scope_capture_buffer = np.empty((0, 5), dtype=float)
         self.custom_scope_display_data: dict[str, np.ndarray] = {}
         self.custom_scope_display_state: dict[str, dict[str, float]] = {}
         self._updating_scope_display_controls = False
         self.custom_last_capture_payload: dict[str, Any] = {}
+        self.custom_capture_generation = 0
         self.selected_lock_point: dict[str, int | float] | None = None
         self.pending_lock_point: dict[str, int | float] | None = None
         self.pending_target_peak: dict[str, int | float] | None = None
+        self.last_lock_transition_diagnostics: dict[str, Any] | None = None
+        self.last_hold_selected_diagnostics: dict[str, Any] | None = None
+        self.operator_diagnostic_events: list[dict[str, Any]] = []
         self.custom_scope_valid_for_selection = False
         self.live_capture_active = False
         self.capture_in_flight = False
@@ -777,6 +1058,7 @@ class MainWindow(QMainWindow):
         waveform_layout.addWidget(plots, stretch=1)
         right_layout.addWidget(self.operator_waveform_group, stretch=1)
         right_layout.addWidget(self._build_experiment_toolbar())
+        right_layout.addWidget(self._build_operator_lock_diagnostics_group())
 
         main_layout.addWidget(left_column)
         main_layout.addWidget(right_column, stretch=1)
@@ -887,6 +1169,11 @@ class MainWindow(QMainWindow):
         self._start_custom_fpga_operation("status", preserve_basic=True)
 
     def _clear_system_identity(self, connection: str, error: str = "") -> None:
+        if connection in {"Disconnected", "Communication lost"} or error:
+            self._mark_diagnostics_not_live(
+                stale=True,
+                reason=error or connection,
+            )
         self.system_identity_matched = False
         self.system_identity_communication_ok = False
         self.system_identity_saturated = False
@@ -975,6 +1262,7 @@ class MainWindow(QMainWindow):
         if saturated:
             self._stop_live_capture("Saturation detected; Live stopped")
         elif not self.system_identity_matched:
+            self._mark_diagnostics_not_live(stale=True, reason="FPGA identity mismatch")
             self._stop_live_capture("FPGA identity mismatch; Live stopped")
         self._apply_button_state(self.connection_state)
 
@@ -985,13 +1273,16 @@ class MainWindow(QMainWindow):
         layout.setSpacing(8)
         self.channel_card_groups: dict[str, QGroupBox] = {}
         self.channel_card_labels: dict[str, QLabel] = {}
-        calibration_tip = (
-            "Ideal voltage conversion from FPGA counts; hardware calibration not yet verified"
-        )
-        titles = {"ch4": "CH4 SCAN", "ch3": "CH3 ERROR", "ch1": "CH1 PD"}
+        calibration_tip = "Ideal equivalent voltage from FPGA counts; hardware calibration not yet verified"
+        titles = {
+            "ch4": "CH4 OUT2/PZT command voltage (calibrated estimate)",
+            "ch3": "CH3 ERROR (ideal equivalent)",
+            "ch1": "CH1 PD",
+        }
         for key in ("ch4", "ch3", "ch1"):
             _title, color, _position = SCOPE_CHANNELS[key]
             summary = QLabel(f"{titles[key]} | Vpp --")
+            summary.setWordWrap(True)
             summary.setToolTip(calibration_tip)
             summary.setStyleSheet(
                 f"color: {color}; font-weight: 700; border: 1px solid {color}; padding: 6px;"
@@ -1060,7 +1351,7 @@ class MainWindow(QMainWindow):
         self.operator_state_label = QLabel("SAFE")
         self.operator_state_label.setStyleSheet("font-weight: 700; color: #72d6ff;")
         self.operator_candidate_label = QLabel(
-            "Candidate lock point | PZT: -- | Direction: -- | Status: Not selected"
+            "Candidate lock point | OUT2/PZT command estimate: -- | Direction: -- | Status: Not selected"
         )
         self.operator_candidate_label.setWordWrap(True)
         self.operator_alert_label = QLabel("")
@@ -1092,6 +1383,337 @@ class MainWindow(QMainWindow):
         self.lock_point_selection_mode.addItem("Direct ERROR Zero Crossing")
         self.lock_point_selection_mode.setVisible(False)
         return panel
+
+    def _build_operator_lock_diagnostics_group(self) -> QGroupBox:
+        self.operator_lock_diagnostics_group = QGroupBox("Operator Lock Diagnostics")
+        layout = QVBoxLayout(self.operator_lock_diagnostics_group)
+        layout.setContentsMargins(8, 16, 8, 8)
+        layout.setSpacing(5)
+
+        self.operator_lock_diagnostic_state_label = QLabel("No confirmed target")
+        self.operator_lock_diagnostic_state_label.setStyleSheet("font-weight: 700; color: #7a7a7a;")
+        layout.addWidget(self.operator_lock_diagnostic_state_label)
+
+        fields = (
+            ("target", "Target OUT2/PZT command (calibrated estimate)"),
+            ("captured_bias", "Captured LOCK_BIAS (calibrated estimate)"),
+            ("bias_delta", "Selected -> captured delta"),
+            ("error_target", "ERROR target (ideal equivalent)"),
+            ("captured_error", "FPGA ERROR_SETPOINT (ideal equivalent)"),
+            ("error_delta", "ERROR_SETPOINT delta (ideal equivalent)"),
+            ("lock_error", "Current LOCK_ERROR (ideal equivalent)"),
+            ("current_out2", "Current OUT2 command (calibrated estimate)"),
+            ("direction", "Scan direction"),
+            ("target_wait", "Target wait"),
+            ("mode", "Mode"),
+            ("kp", "Kp"),
+            ("saturation", "Saturation"),
+            ("hold_delta", "Selected -> HOLD readback delta"),
+        )
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(3)
+        self.operator_lock_diagnostic_labels: dict[str, QLabel] = {}
+        for index, (key, title) in enumerate(fields):
+            row = index % 7
+            column = (index // 7) * 2
+            title_label = QLabel(title)
+            value_label = QLabel("--")
+            value_label.setStyleSheet("color: #7a7a7a;")
+            grid.addWidget(title_label, row, column)
+            grid.addWidget(value_label, row, column + 1)
+            self.operator_lock_diagnostic_labels[key] = value_label
+        layout.addLayout(grid)
+
+        hold_row = QHBoxLayout()
+        self.hold_selected_count_button = QPushButton("HOLD SELECTED COUNT")
+        self._style_button(self.hold_selected_count_button)
+        hold_subtitle = QLabel("Hold selected raw count (diagnostic only)")
+        hold_subtitle.setStyleSheet("color: #6d6d6d;")
+        hold_row.addWidget(self.hold_selected_count_button)
+        hold_row.addWidget(hold_subtitle)
+        hold_row.addStretch(1)
+        layout.addLayout(hold_row)
+
+        self.operator_calibration_warning = QLabel(LOADED_PZT_CALIBRATION_WARNING)
+        self.operator_calibration_warning.setWordWrap(True)
+        self.operator_calibration_warning.setStyleSheet("color: #9a6700; font-weight: 600;")
+        layout.addWidget(self.operator_calibration_warning)
+
+        self.engineer_details_toggle = QCheckBox("Engineer Details")
+        self.raw_lock_transition_details = QTextEdit()
+        self.raw_lock_transition_details.setReadOnly(True)
+        self.raw_lock_transition_details.setMaximumHeight(145)
+        self.raw_lock_transition_details.setVisible(False)
+        self.engineer_details_toggle.toggled.connect(self.raw_lock_transition_details.setVisible)
+        layout.addWidget(self.engineer_details_toggle)
+        layout.addWidget(self.raw_lock_transition_details)
+        self._refresh_operator_lock_diagnostics()
+        return self.operator_lock_diagnostics_group
+
+    @staticmethod
+    def _diagnostic_color(level: str) -> str:
+        return {
+            "normal": "#2e7d32",
+            "warning": "#9a6700",
+            "error": "#b00020",
+            "missing": "#7a7a7a",
+        }.get(level, "#333333")
+
+    @staticmethod
+    def _delta_diagnostic_level(delta_mv: float | None, warning_mv: float, error_mv: float) -> str:
+        if delta_mv is None or not np.isfinite(delta_mv):
+            return "missing"
+        magnitude = abs(float(delta_mv))
+        if magnitude >= float(error_mv):
+            return "error"
+        if magnitude >= float(warning_mv):
+            return "warning"
+        return "normal"
+
+    def _set_operator_diagnostic_value(self, key: str, text: str, level: str) -> None:
+        label = self.operator_lock_diagnostic_labels[key]
+        label.setText(text)
+        label.setStyleSheet(f"color: {self._diagnostic_color(level)}; font-weight: 600;")
+
+    @staticmethod
+    def _raw_diagnostic_value(value: object) -> str:
+        return "unavailable" if value is None else str(value)
+
+    def _refresh_operator_lock_diagnostics(self, diagnostics: dict[str, Any] | None = None) -> None:
+        if not hasattr(self, "operator_lock_diagnostic_labels"):
+            return
+        diag = diagnostics
+        if diag is None:
+            diag = self.last_lock_transition_diagnostics
+        if diag is None and self.selected_lock_point is not None:
+            diag = build_lock_transition_diagnostics(self.selected_lock_point, None)
+        diag = diag or {}
+        hold = self.last_hold_selected_diagnostics or {}
+
+        selected_v = diag.get("selected_target_voltage_estimate")
+        captured_v = diag.get("captured_lock_bias_voltage_estimate")
+        bias_delta_v = diag.get("delta_bias_voltage_estimate")
+        error_delta_v = diag.get("delta_error_setpoint_ideal_voltage")
+        hold_delta_v = hold.get("hold_delta_voltage_estimate")
+        self._set_operator_diagnostic_value(
+            "target",
+            format_operator_voltage(selected_v),
+            "missing" if selected_v is None else "normal",
+        )
+        self._set_operator_diagnostic_value(
+            "captured_bias",
+            format_operator_voltage(captured_v),
+            "missing" if captured_v is None else "normal",
+        )
+        self._set_operator_diagnostic_value(
+            "bias_delta",
+            format_operator_delta_voltage(bias_delta_v),
+            self._delta_diagnostic_level(
+                None if bias_delta_v is None else float(bias_delta_v) * 1000.0,
+                SELECTION_DELTA_WARNING_MV,
+                SELECTION_DELTA_ERROR_MV,
+            ),
+        )
+        selected_error = diag.get("selected_error_setpoint_counts")
+        captured_error = diag.get("captured_error_setpoint_counts")
+        lock_error = diag.get("current_lock_error_counts")
+        self._set_operator_diagnostic_value(
+            "error_target",
+            format_error_equivalent_voltage(selected_error),
+            "missing" if selected_error is None else "normal",
+        )
+        self._set_operator_diagnostic_value(
+            "captured_error",
+            format_error_equivalent_voltage(captured_error),
+            "missing" if captured_error is None else "normal",
+        )
+        self._set_operator_diagnostic_value(
+            "error_delta",
+            format_operator_delta_voltage(error_delta_v),
+            self._delta_diagnostic_level(
+                None if error_delta_v is None else float(error_delta_v) * 1000.0,
+                ERROR_RESIDUAL_WARNING_MV,
+                ERROR_RESIDUAL_ERROR_MV,
+            ),
+        )
+        self._set_operator_diagnostic_value(
+            "lock_error",
+            format_error_equivalent_voltage(lock_error, signed=True),
+            "missing" if lock_error is None else "normal",
+        )
+        current_out2 = diag.get("current_out2_counts")
+        if current_out2 is None:
+            current_out2 = hold.get("hold_readback_counts")
+        self._set_operator_diagnostic_value(
+            "current_out2",
+            format_out2_command_counts(current_out2),
+            "missing" if current_out2 is None else "normal",
+        )
+        direction = str(diag.get("selected_direction") or "Unknown").capitalize()
+        self._set_operator_diagnostic_value(
+            "direction",
+            direction,
+            "missing" if direction == "Unknown" else "normal",
+        )
+        target_wait = diag.get("target_wait_matched")
+        target_wait_text = "Unavailable" if target_wait is None else ("Matched" if target_wait else "Not matched")
+        self._set_operator_diagnostic_value(
+            "target_wait",
+            target_wait_text,
+            "missing" if target_wait is None else ("normal" if target_wait else "warning"),
+        )
+        mode = diag.get("mode")
+        if mode is None and hold.get("mode") is not None:
+            mode = FPGA_MODE_NAMES.get(int(hold["mode"]), "UNKNOWN")
+        self._set_operator_diagnostic_value(
+            "mode",
+            "--" if mode is None else str(mode),
+            "missing" if mode is None else "normal",
+        )
+        kp = diag.get("kp")
+        if kp is None:
+            kp = hold.get("kp")
+        self._set_operator_diagnostic_value(
+            "kp",
+            "--" if kp is None else str(kp),
+            "missing" if kp is None else "normal",
+        )
+        saturated = diag.get("saturated")
+        if saturated is None:
+            saturated = hold.get("saturated")
+        saturation_text = "--" if saturated is None else ("Saturated" if saturated else "Normal")
+        self._set_operator_diagnostic_value(
+            "saturation",
+            saturation_text,
+            "missing" if saturated is None else ("error" if saturated else "normal"),
+        )
+        self._set_operator_diagnostic_value(
+            "hold_delta",
+            format_operator_delta_voltage(hold_delta_v),
+            self._delta_diagnostic_level(
+                None if hold_delta_v is None else float(hold_delta_v) * 1000.0,
+                SELECTION_DELTA_WARNING_MV,
+                SELECTION_DELTA_ERROR_MV,
+            ),
+        )
+
+        if hold:
+            state = "HOLD DIAGNOSTIC / Kp=0 / NOT LOCKED"
+            if not hold.get("live", False):
+                state = "Last HOLD diagnostic / not live"
+        elif diag:
+            state = str(diag.get("state_label") or "Selected / no captured result")
+            if diag.get("stale"):
+                state = "Last transition / stale"
+            elif not diag.get("live", False) and self.last_lock_transition_diagnostics is diag:
+                state = "Last transition / not live"
+        else:
+            state = "No confirmed target"
+        state_level = "error" if bool(saturated) else ("missing" if not diag and not hold else "normal")
+        self.operator_lock_diagnostic_state_label.setText(state)
+        self.operator_lock_diagnostic_state_label.setStyleSheet(
+            f"font-weight: 700; color: {self._diagnostic_color(state_level)};"
+        )
+
+        raw_lines = [
+            "Raw Lock Transition Details",
+            f"selected_target_counts: {self._raw_diagnostic_value(diag.get('selected_target_counts'))}",
+            f"selected_lock_bias_counts: {self._raw_diagnostic_value(diag.get('selected_lock_bias_counts'))}",
+            f"selected_error_setpoint_counts: {self._raw_diagnostic_value(diag.get('selected_error_setpoint_counts'))}",
+            f"selected_error_residual_counts: {self._raw_diagnostic_value(diag.get('selected_error_residual_counts'))}",
+            f"selected_slope: {self._raw_diagnostic_value(diag.get('selected_slope'))}",
+            f"selected_ramp_direction: {self._raw_diagnostic_value(diag.get('selected_direction'))}",
+            f"selected_target_window_counts: {self._raw_diagnostic_value(diag.get('selected_target_window_counts'))}",
+            f"captured_lock_bias_counts: {self._raw_diagnostic_value(diag.get('captured_lock_bias_counts'))}",
+            f"captured_error_setpoint_counts: {self._raw_diagnostic_value(diag.get('captured_error_setpoint_counts'))}",
+            f"captured_error_counts: {self._raw_diagnostic_value(diag.get('captured_error_counts'))}",
+            f"current_out2_counts: {self._raw_diagnostic_value(current_out2)}",
+            f"current_lock_error_counts: {self._raw_diagnostic_value(diag.get('current_lock_error_counts'))}",
+            f"delta_bias_counts: {self._raw_diagnostic_value(diag.get('delta_bias_counts'))}",
+            f"delta_error_setpoint_counts: {self._raw_diagnostic_value(diag.get('delta_error_setpoint_counts'))}",
+            f"target_wait_matched: {self._raw_diagnostic_value(diag.get('target_wait_matched'))}",
+            f"current_mode_raw: {self._raw_diagnostic_value(diag.get('current_mode_raw', hold.get('mode')))}",
+            f"current_kp_raw: {self._raw_diagnostic_value(diag.get('current_kp_raw', hold.get('kp')))}",
+            f"current_polarity_raw: {self._raw_diagnostic_value(diag.get('current_polarity_raw'))}",
+            f"saturation: {self._raw_diagnostic_value(saturated)}",
+            f"hold_selected_counts: {self._raw_diagnostic_value(hold.get('hold_selected_counts'))}",
+            f"hold_readback_counts: {self._raw_diagnostic_value(hold.get('hold_readback_counts'))}",
+            f"hold_delta_counts: {self._raw_diagnostic_value(hold.get('hold_delta_counts'))}",
+            f"calibration_center_gain: {OUT2_CENTER_GAIN}",
+            f"calibration_center_offset: {OUT2_CENTER_OFFSET}",
+            f"calibration_amplitude_gain: {OUT2_AMPLITUDE_GAIN}",
+            f"true_scan_to_lock_jump: {TRANSITION_JUMP_UNAVAILABLE}",
+        ]
+        self.raw_lock_transition_details.setPlainText("\n".join(raw_lines))
+
+    def _mark_diagnostics_not_live(self, *, stale: bool, reason: str) -> None:
+        for attr in ("last_lock_transition_diagnostics", "last_hold_selected_diagnostics"):
+            current = getattr(self, attr, None)
+            if current is None:
+                continue
+            updated = dict(current)
+            updated["live"] = False
+            updated["stale"] = bool(stale)
+            updated["state_label"] = "Last transition / stale" if stale else "Last transition / not live"
+            updated["state_reason"] = reason
+            setattr(self, attr, updated)
+        self._refresh_operator_lock_diagnostics()
+
+    def _clear_captured_diagnostic_binding(self) -> None:
+        self.last_lock_transition_diagnostics = None
+        self.last_hold_selected_diagnostics = None
+        self._refresh_operator_lock_diagnostics()
+
+    def _record_operator_diagnostic_event(
+        self,
+        operation: str,
+        *,
+        selected: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
+        lock_diagnostics: dict[str, Any] | None = None,
+        hold_diagnostics: dict[str, Any] | None = None,
+    ) -> None:
+        selected_data = selected or {}
+        payload_data = payload or {}
+        lock_data = lock_diagnostics or build_lock_transition_diagnostics(selected, payload)
+        hold_data = hold_diagnostics or {}
+        self.operator_diagnostic_events.append(
+            {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "operation": operation,
+                "host": self._target_host(),
+                "mode": payload_data.get("mode"),
+                "enable": payload_data.get("enable"),
+                "saturation": payload_data.get("saturated"),
+                "calibration_label": CALIBRATION_LABEL,
+                "calibration_verified_for_loaded_pzt": False,
+                "selected_target_counts": lock_data.get("selected_target_counts"),
+                "selected_target_voltage_estimate_v": lock_data.get("selected_target_voltage_estimate"),
+                "selected_error_setpoint_counts": lock_data.get("selected_error_setpoint_counts"),
+                "selected_error_setpoint_ideal_v": lock_data.get("selected_error_setpoint_ideal_voltage"),
+                "selected_error_residual_counts": lock_data.get("selected_error_residual_counts"),
+                "selected_slope": lock_data.get("selected_slope"),
+                "selected_ramp_direction": lock_data.get("selected_direction"),
+                "target_window_counts": selected_data.get("target_window_counts"),
+                "hold_selected_counts": hold_data.get("hold_selected_counts"),
+                "hold_selected_voltage_estimate_v": hold_data.get("hold_selected_voltage_estimate"),
+                "hold_readback_counts": hold_data.get("hold_readback_counts"),
+                "hold_readback_voltage_estimate_v": hold_data.get("hold_readback_voltage_estimate"),
+                "hold_delta_counts": hold_data.get("hold_delta_counts"),
+                "hold_delta_voltage_estimate_v": hold_data.get("hold_delta_voltage_estimate"),
+                "captured_lock_bias_counts": lock_data.get("captured_lock_bias_counts"),
+                "captured_lock_bias_voltage_estimate_v": lock_data.get("captured_lock_bias_voltage_estimate"),
+                "captured_error_setpoint_counts": lock_data.get("captured_error_setpoint_counts"),
+                "captured_error_setpoint_ideal_v": lock_data.get("captured_error_setpoint_ideal_voltage"),
+                "delta_bias_counts": lock_data.get("delta_bias_counts"),
+                "delta_bias_voltage_estimate_v": lock_data.get("delta_bias_voltage_estimate"),
+                "delta_error_setpoint_counts": lock_data.get("delta_error_setpoint_counts"),
+                "delta_error_setpoint_ideal_v": lock_data.get("delta_error_setpoint_ideal_voltage"),
+                "target_wait_matched": lock_data.get("target_wait_matched"),
+                "true_scan_to_lock_jump": TRANSITION_JUMP_UNAVAILABLE,
+            }
+        )
 
     def _build_controls(self) -> QWidget:
         content = QWidget()
@@ -1254,8 +1876,8 @@ class MainWindow(QMainWindow):
         basic_layout.setSpacing(8)
         basic_form = QFormLayout()
         self._configure_form(basic_form)
-        self.basic_pzt_min_v = self._custom_double_spin(0.80, -1.0, 1.0, 4, " V")
-        self.basic_pzt_max_v = self._custom_double_spin(0.90, -1.0, 1.0, 4, " V")
+        self.basic_pzt_min_v = self._custom_double_spin(DEFAULT_PZT_SAFE_MIN_V, -1.0, 1.0, 4, " V")
+        self.basic_pzt_max_v = self._custom_double_spin(DEFAULT_PZT_SAFE_MAX_V, -1.0, 1.0, 4, " V")
         self.basic_lock_button = QPushButton("BASIC LOCK")
         self.basic_safe_button = QPushButton("SAFE")
         self._style_button(self.basic_lock_button)
@@ -1291,9 +1913,9 @@ class MainWindow(QMainWindow):
         form = QFormLayout()
         self._configure_form(form)
         self.custom_base_addr_edit = QLineEdit("0x40600000")
-        self.custom_offset_v = self._custom_double_spin(0.85, -1.0, 1.0, 4, " V")
-        self.custom_amp_v = self._custom_double_spin(0.05, 0.0, 1.0, 4, " V")
-        self.custom_freq_hz = self._custom_double_spin(10.0, 0.001, 100000.0, 3, " Hz")
+        self.custom_offset_v = self._custom_double_spin(DEFAULT_SCAN_CENTER_V, -1.0, 1.0, 4, " V")
+        self.custom_amp_v = self._custom_double_spin(DEFAULT_SCAN_AMPLITUDE_V, 0.0, 1.0, 4, " V")
+        self.custom_freq_hz = self._custom_double_spin(DEFAULT_SCAN_FREQUENCY_HZ, 0.001, 100000.0, 3, " Hz")
         self.custom_step_counts = QSpinBox()
         self.custom_step_counts.setRange(1, 8191)
         self.custom_step_counts.setValue(1)
@@ -1303,6 +1925,7 @@ class MainWindow(QMainWindow):
         self.custom_hold_v = self._custom_double_spin(0.0, -1.0, 1.0, 4, " V")
         self.custom_kp = QComboBox()
         self.custom_kp.addItems(["0", "4", "8", "16", "32"])
+        self.custom_kp.setCurrentText("0")
         self.custom_ki = QSpinBox()
         self.custom_ki.setRange(0, 8191)
         self.custom_ki.setValue(0)
@@ -1310,6 +1933,7 @@ class MainWindow(QMainWindow):
         self.custom_ki.setEnabled(False)
         self.custom_polarity = QComboBox()
         self.custom_polarity.addItems(["normal", "invert"])
+        self.custom_polarity.setCurrentText("normal")
         self.custom_lock_bias_v = self._custom_double_spin(0.0, -1.0, 1.0, 4, " V")
         self.custom_lock_bias_v.setToolTip("LOCK does not use this voltage estimate; it captures OUT2_MONITOR counts.")
         self.custom_lock_limit_counts = QSpinBox()
@@ -1985,6 +2609,7 @@ class MainWindow(QMainWindow):
         self.custom_start_live_button.clicked.connect(self._start_live_capture)
         self.custom_stop_live_button.clicked.connect(self._stop_live_capture)
         self.custom_confirm_lock_point_button.clicked.connect(self._confirm_pending_lock_point)
+        self.hold_selected_count_button.clicked.connect(self._hold_selected_count)
         self.lock_bias_minus_5mv_button.clicked.connect(lambda: self._adjust_lock_bias_mv(-5.0))
         self.lock_bias_minus_1mv_button.clicked.connect(lambda: self._adjust_lock_bias_mv(-1.0))
         self.lock_bias_plus_1mv_button.clicked.connect(lambda: self._adjust_lock_bias_mv(1.0))
@@ -2032,6 +2657,97 @@ class MainWindow(QMainWindow):
     def _sync_legacy_lock_point_selector(self, active: bool) -> None:
         if self.custom_pick_lock_button.isChecked() != bool(active):
             self.custom_pick_lock_button.setChecked(bool(active))
+
+    def _hold_selected_count_block_reason(self) -> str | None:
+        if self.selected_lock_point is None:
+            if self.pending_lock_point is not None:
+                return "HOLD SELECTED COUNT requires Confirm first"
+            return "HOLD SELECTED COUNT requires a confirmed lock point"
+        if int(self.custom_kp.currentText()) != 0 or int(self.applied_kp) != 0:
+            return "HOLD SELECTED COUNT requires Kp=0"
+        if self.capture_in_flight:
+            return "HOLD SELECTED COUNT blocked: capture is in flight"
+        if self.current_custom_operation is not None:
+            return "HOLD SELECTED COUNT blocked: another FPGA operation is active"
+        if self.worker is not None and self.worker.isRunning():
+            return "HOLD SELECTED COUNT blocked: worker is busy"
+        if not self.system_identity_communication_ok or not self.system_identity_matched:
+            return "HOLD SELECTED COUNT blocked: FPGA MAGIC / VERSION is not confirmed"
+        if self.system_identity_saturated:
+            return "HOLD SELECTED COUNT blocked: saturation is reported"
+        selected_generation = self.selected_lock_point.get("capture_generation")
+        if selected_generation is None or int(selected_generation) != int(self.custom_capture_generation):
+            return "HOLD SELECTED COUNT blocked: selected target is stale for the current capture"
+        try:
+            config = build_basic_lock_config(
+                safe_min_v=self.basic_pzt_min_v.value(),
+                safe_max_v=self.basic_pzt_max_v.value(),
+            )
+            hold_counts = int(self.selected_lock_point["lock_bias_counts"])
+        except (CustomFpgaBackendError, KeyError, TypeError, ValueError) as exc:
+            return f"HOLD SELECTED COUNT blocked: invalid selected target ({exc})"
+        if hold_counts < config.safe_min_counts or hold_counts > config.safe_max_counts:
+            return "HOLD SELECTED COUNT blocked: selected raw count is outside the PZT safe range"
+        return None
+
+    def _hold_selected_count(self) -> None:
+        reason = self._hold_selected_count_block_reason()
+        if reason is not None:
+            self.operator_lock_diagnostic_state_label.setText("HOLD DIAGNOSTIC BLOCKED / SAFE REQUIRED")
+            self.operator_lock_diagnostic_state_label.setStyleSheet(
+                f"font-weight: 700; color: {self._diagnostic_color('error')};"
+            )
+            self.operator_alert_label.setText(reason)
+            self.custom_warning_text.setPlainText(reason)
+            self.statusBar().showMessage(reason)
+            return
+
+        self._stop_live_capture("HOLD SELECTED COUNT requested; Live stopped")
+        confirmation = (
+            "This diagnostic stops the scan and holds the selected raw OUT2 count.\n"
+            "Kp remains 0. This is not laser locking.\n"
+            "Keep the oscilloscope in Hi-Z and press SAFE immediately if the output\n"
+            "or spectrum behaves unexpectedly."
+        )
+        reply = QMessageBox.question(
+            self,
+            "Confirm exact-count HOLD diagnostic",
+            confirmation,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            self.statusBar().showMessage("HOLD SELECTED COUNT cancelled; no register operation sent")
+            return
+        self._start_custom_fpga_operation("hold-selected-count")
+
+    def _hold_selected_readback_failure(self, payload: dict[str, Any]) -> str | None:
+        if self.selected_lock_point is None:
+            return "HOLD readback cannot be matched to a confirmed selected target"
+        if not identity_payload_matches(payload):
+            return "HOLD readback FPGA identity mismatch"
+        if _optional_int(payload, "mode") != 2:
+            return "HOLD readback MODE is not HOLD"
+        if _optional_int(payload, "enable") != 1:
+            return "HOLD readback ENABLE is not 1"
+        if bool(payload.get("saturated", False)):
+            return "HOLD readback reports saturation"
+        readback_counts = _optional_int(payload, "out2_counts")
+        if readback_counts is None:
+            return "HOLD readback OUT2 count is unavailable"
+        try:
+            selected_counts = int(self.selected_lock_point["lock_bias_counts"])
+            config = build_basic_lock_config(
+                safe_min_v=self.basic_pzt_min_v.value(),
+                safe_max_v=self.basic_pzt_max_v.value(),
+            )
+        except (CustomFpgaBackendError, KeyError, TypeError, ValueError) as exc:
+            return f"HOLD diagnostic target is invalid ({exc})"
+        if readback_counts < config.safe_min_counts or readback_counts > config.safe_max_counts:
+            return "HOLD readback OUT2 is outside the PZT safe range"
+        if readback_counts != selected_counts:
+            return "HOLD readback does not equal the selected exact raw count"
+        return None
 
     def _polarity_inverted(self) -> bool:
         value = self.custom_polarity.currentData()
@@ -2232,6 +2948,7 @@ class MainWindow(QMainWindow):
             return
         if operation == "safe" and not preserve_basic:
             self._stop_live_capture("SAFE requested; Live stopped")
+            self._mark_diagnostics_not_live(stale=False, reason="SAFE requested")
         if operation == "safe" and not preserve_basic:
             self.basic_lock_active = False
             self.basic_lock_queue = []
@@ -2285,6 +3002,15 @@ class MainWindow(QMainWindow):
         elif operation == "hold":
             params = {
                 "hold_v": self.custom_hold_v.value(),
+            }
+        elif operation == "hold-selected-count":
+            if self.selected_lock_point is None:
+                message = "HOLD SELECTED COUNT blocked: no confirmed target"
+                self.operator_alert_label.setText(message)
+                self.statusBar().showMessage(message)
+                return
+            params = {
+                "hold_counts": int(self.selected_lock_point["lock_bias_counts"]),
             }
         elif operation in {"p-lock", "pi-lock"}:
             params = {
@@ -2345,6 +3071,7 @@ class MainWindow(QMainWindow):
             "scan": "PZT scan requested",
             "capture": "Capture requested",
             "lock": "LOCK HERE requested",
+            "hold-selected-count": "Exact-count HOLD diagnostic requested",
             "update-p-lock": "P gain update requested",
         }.get(operation, f"{operation} requested")
         self.current_custom_operation = operation
@@ -2647,7 +3374,11 @@ class MainWindow(QMainWindow):
     def _update_channel_cards(self) -> None:
         if not hasattr(self, "channel_card_labels"):
             return
-        titles = {"ch4": "CH4 SCAN", "ch3": "CH3 ERROR", "ch1": "CH1 PD"}
+        titles = {
+            "ch4": "CH4 OUT2/PZT command voltage (calibrated estimate)",
+            "ch3": "CH3 ERROR (ideal equivalent)",
+            "ch1": "CH1 PD",
+        }
         for key, label in self.channel_card_labels.items():
             if self.custom_scope_data is None or key not in self.custom_scope_data:
                 label.setText(f"{titles[key]} | Vpp --")
@@ -2660,10 +3391,16 @@ class MainWindow(QMainWindow):
             vpp_counts = float(np.nanmax(finite) - np.nanmin(finite))
             if key == "ch4":
                 vpp = out2_delta_counts_to_voltage(vpp_counts)
-                calibration_tip = "OUT2 Vpp uses measured gain 1.18; waiting hardware re-validation"
+                calibration_tip = (
+                    "OUT2/PZT command voltage is a calibrated estimate using measured gain 1.18; "
+                    "loaded PZT node calibration is not verified"
+                )
+            elif key == "ch3":
+                vpp = vpp_counts / COUNTS_PER_VOLT
+                calibration_tip = "ERROR ideal equivalent from FPGA counts; hardware voltage is not measured here"
             else:
                 vpp = vpp_counts / COUNTS_PER_VOLT
-                calibration_tip = "Ideal voltage conversion from FPGA counts; hardware calibration not yet verified"
+                calibration_tip = "Ideal equivalent from FPGA counts; hardware input calibration is not verified"
             label.setText(f"{titles[key]} | Vpp {format_scope_voltage(vpp)}")
             label.setToolTip(calibration_tip)
 
@@ -2779,17 +3516,27 @@ class MainWindow(QMainWindow):
             return
         scene_pos = event.scenePos()
         plot_item = self.custom_scope_plot.getPlotItem()
-        if not plot_item.sceneBoundingRect().contains(scene_pos):
+        view_box = plot_item.vb
+        if not view_box.sceneBoundingRect().contains(scene_pos):
             return
-        view_pos = plot_item.vb.mapSceneToView(scene_pos)
+        view_pos = view_box.mapSceneToView(scene_pos)
         t = self.custom_scope_data.get("time_s")
+        raw_indices = self.custom_scope_data.get("sample_index")
         out2 = self.custom_scope_data.get("ch4")
         ch1 = self.custom_scope_data.get("ch1")
         error = self.custom_scope_data.get("ch3")
-        x_values = self._scope_x_values()
-        if t is None or out2 is None or ch1 is None or error is None or x_values.size == 0:
+        if t is None or raw_indices is None or out2 is None or ch1 is None or error is None:
             return
-        clicked_index = int(np.argmin(np.abs(x_values - float(view_pos.x()))))
+        try:
+            click_debug = map_display_time_to_capture_sample(
+                time_s=t,
+                raw_indices=raw_indices,
+                display_x_ms=float(view_pos.x()),
+            )
+        except LockPointSelectionError as exc:
+            self.operator_alert_label.setText(str(exc))
+            return
+        clicked_index = int(click_debug["buffer_index"])
         error_display = np.asarray(self.custom_scope_display_data.get("ch3", []), dtype=float)
         ch1_display = np.asarray(self.custom_scope_display_data.get("ch1", []), dtype=float)
         if clicked_index >= min(error_display.size, ch1_display.size):
@@ -2830,17 +3577,31 @@ class MainWindow(QMainWindow):
         peak_index = int(selected["selected_peak_index"])
         zero_index = float(selected["zero_crossing_index"])
         selected["clicked_index"] = clicked_index
+        selected["click_display_x"] = float(click_debug["display_x"])
+        selected["click_time_ms"] = float(click_debug["time_ms"])
+        selected["click_raw_index"] = int(click_debug["raw_index"])
+        selected["click_buffer_index"] = clicked_index
+        selected["lock_index"] = _interpolate_capture_value(raw_indices, zero_index)
         selected["time_s"] = float(selected["zero_crossing_time_s"])
         selected["out2_counts"] = int(selected["target_out2_counts"])
         selected["lock_bias_counts"] = int(selected["target_out2_counts"])
         selected["lock_bias_volts"] = float(selected["target_out2_volts"])
         selected["error_counts"] = int(selected["error_setpoint_counts"])
+        selected["error_setpoint"] = float(selected["error_setpoint"])
+        selected["pzt_bias"] = float(selected["zero_crossing_out2_counts"])
+        selected["pzt_bias_counts"] = int(selected["target_out2_counts"])
+        selected["pzt_bias_volts"] = float(selected["target_out2_volts"])
+        selected["capture_generation"] = int(self.custom_capture_generation)
+        self.selected_lock_point = None
+        self.p_lock_ready = False
+        self._clear_captured_diagnostic_binding()
         self.pending_lock_point = {
             **selected,
             "index": zero_index,
         }
         self.pending_target_peak = {
             "index": peak_index,
+            "raw_index": int(click_debug["raw_index"]),
             "time_s": float(t[peak_index]),
             "out2_counts": int(round(float(out2[peak_index]))),
         }
@@ -2849,10 +3610,22 @@ class MainWindow(QMainWindow):
         self.operator_state_label.setText("WAITING FOR CONFIRMATION")
         self.operator_alert_label.setText("")
         self.operator_candidate_label.setText(self._lock_point_candidate_text(selected, "Waiting for confirmation"))
+        pending_diagnostics = build_lock_transition_diagnostics(self.pending_lock_point, None)
+        self._refresh_operator_lock_diagnostics(pending_diagnostics)
+        self._record_operator_diagnostic_event(
+            "select-lock-point",
+            selected=self.pending_lock_point,
+            payload=self.custom_last_capture_payload,
+            lock_diagnostics=pending_diagnostics,
+        )
+        self.statusBar().showMessage(
+            f"display_x={float(click_debug['display_x']):.6g} ms | "
+            f"time_ms={float(click_debug['time_ms']):.6g} | raw_index={int(click_debug['raw_index'])}"
+        )
         self.selected_lock_label.setText(
             "pending lock point: "
             f"click {peak_index}, zero {zero_index:.3f}, time {float(selected['zero_crossing_time_s']) * 1000.0:.6g} ms, "
-            f"PZT {float(selected['target_out2_volts']) * 1000.0:.3f} mV, "
+            f"OUT2/PZT command estimate {float(selected['target_out2_volts']) * 1000.0:.3f} mV, "
             f"ERROR residual {float(selected['error_residual_counts']) / COUNTS_PER_VOLT * 1000.0:.6g} mV, "
             f"slope {selected['slope']:.6g}, ramp {selected['ramp_direction']}. "
             "Press Confirm Lock Point before LOCK HERE."
@@ -2865,9 +3638,12 @@ class MainWindow(QMainWindow):
         trim_mv = float(lock_point.get("bias_trim_volts", 0.0)) * 1000.0
         return (
             "Lock point candidate: "
+            f"display_x: {float(lock_point.get('click_display_x', float('nan'))):.6g} ms | "
+            f"time_ms: {float(lock_point.get('click_time_ms', float('nan'))):.6g} | "
+            f"raw_index: {int(lock_point.get('click_raw_index', -1))} | "
             f"Index: {float(lock_point['zero_crossing_index']):.3f} | "
             f"Time: {time_ms:.6g} ms | Error: {error_mv:.6g} mV | "
-            f"Slope: {float(lock_point['slope']):.6g} | PZT: {pzt_mv:.3f} mV | "
+            f"Slope: {float(lock_point['slope']):.6g} | OUT2/PZT command estimate: {pzt_mv:.3f} mV | "
             f"Bias trim: {trim_mv:+.1f} mV | Status: {status}"
         )
 
@@ -2894,6 +3670,10 @@ class MainWindow(QMainWindow):
         updated["lock_bias_counts"] = bias_counts
         updated["target_out2_volts"] = out2_counts_to_voltage(bias_counts)
         updated["lock_bias_volts"] = float(updated["target_out2_volts"])
+        updated["pzt_bias"] = float(bias_counts)
+        updated["pzt_bias_counts"] = bias_counts
+        updated["pzt_bias_volts"] = float(updated["target_out2_volts"])
+        self._clear_captured_diagnostic_binding()
         if self.pending_lock_point is not None:
             self.pending_lock_point = updated
             status = "Waiting for confirmation"
@@ -2903,10 +3683,11 @@ class MainWindow(QMainWindow):
         self.operator_alert_label.setText("")
         self.operator_candidate_label.setText(self._lock_point_candidate_text(updated, status))
         self.selected_lock_label.setText(
-            f"LOCK_BIAS calibrated to {float(updated['target_out2_volts']) * 1000.0:.3f} mV; "
+            f"LOCK_BIAS command estimate set to {float(updated['target_out2_volts']) * 1000.0:.3f} mV; "
             f"ERROR_SETPOINT remains {int(updated['error_setpoint_counts'])} counts. "
             "No feedback has been enabled."
         )
+        self._refresh_operator_lock_diagnostics(build_lock_transition_diagnostics(updated, None))
         self._apply_button_state(self.connection_state)
 
     def _confirm_pending_lock_point(self) -> None:
@@ -2915,6 +3696,21 @@ class MainWindow(QMainWindow):
             self.operator_alert_label.setText("Lock point not confirmed")
             return
         self.selected_lock_point = dict(self.pending_lock_point)
+        self.selected_lock_point["lock_index"] = float(
+            self.selected_lock_point.get("lock_index", self.selected_lock_point["zero_crossing_index"])
+        )
+        self.selected_lock_point["error_setpoint"] = float(
+            self.selected_lock_point.get("error_setpoint", self.selected_lock_point["error_setpoint_counts"])
+        )
+        self.selected_lock_point["pzt_bias"] = float(
+            self.selected_lock_point.get(
+                "pzt_bias",
+                self.selected_lock_point.get(
+                    "zero_crossing_out2_counts",
+                    self.selected_lock_point["target_out2_counts"],
+                ),
+            )
+        )
         self.pending_lock_point = None
         self._update_lock_point_markers(self.selected_lock_point)
         self.custom_pick_lock_button.setChecked(False)
@@ -2933,9 +3729,13 @@ class MainWindow(QMainWindow):
             f"slope {float(self.selected_lock_point['slope']):.6g}, "
             f"ramp {self.selected_lock_point['ramp_direction']}"
         )
+        selected_diagnostics = build_lock_transition_diagnostics(self.selected_lock_point, None)
+        self._refresh_operator_lock_diagnostics(selected_diagnostics)
         self._apply_button_state(self.connection_state)
 
     def _render_custom_capture_payload(self, payload: dict[str, Any]) -> None:
+        self.custom_capture_generation += 1
+        self._clear_captured_diagnostic_binding()
         self.custom_last_capture_payload = dict(payload)
         points = payload.get("points", [])
         if not points:
@@ -2979,16 +3779,10 @@ class MainWindow(QMainWindow):
             "ch3": "OUT1 / laser_error",
             "ch4": "OUT2 / selected_out2",
         }
-        indices = np.asarray([int(item.get("index", idx)) for idx, item in enumerate(points)], dtype=float)
-        decimation = max(1, int(payload.get("capture_decimation", 1)))
-        t = indices * decimation / 125_000_000.0
-        data = {
-            "time_s": t,
-            "ch1": np.asarray([int(item.get("ch1_counts", 0)) for item in points], dtype=float),
-            "ch2": np.asarray([int(item.get("ch2_counts", 0)) for item in points], dtype=float),
-            "ch3": np.asarray([int(item.get("ch3_counts", 0)) for item in points], dtype=float),
-            "ch4": np.asarray([int(item.get("ch4_counts", 0)) for item in points], dtype=float),
-        }
+        self.custom_scope_capture_buffer, data = build_custom_scope_capture_data(
+            points,
+            int(payload.get("capture_decimation", 1)),
+        )
         self.custom_scope_data = data
         self.selected_lock_point = None
         self.pending_lock_point = None
@@ -2999,7 +3793,7 @@ class MainWindow(QMainWindow):
         self.custom_apply_p_button.setEnabled(False)
         self.operator_state_label.setText("CAPTURE READY")
         self.operator_candidate_label.setText(
-            "Candidate lock point | PZT: -- | Direction: -- | Status: Not selected"
+            "Candidate lock point | OUT2/PZT command estimate: -- | Direction: -- | Status: Not selected"
         )
         self.operator_alert_label.setText("")
         self.custom_pick_lock_button.setChecked(False)
@@ -3252,6 +4046,7 @@ class MainWindow(QMainWindow):
         operation_verified = identity_payload_matches(payload) and not bool(
             payload.get("saturated", False)
         )
+        request_safe_after = False
         self._render_custom_fpga_payload(operation, payload, str(data.get("stderr", "")))
         if operation == "status" and not self.system_identity_matched:
             message = self.system_identity_error_label.text() or "FPGA identity mismatch"
@@ -3271,12 +4066,76 @@ class MainWindow(QMainWindow):
                     self.operator_alert_label.setText("FPGA identity mismatch")
                 elif "OUT2" in hazard:
                     self.operator_alert_label.setText("OUT2 outside safe PZT range")
-        if operation == "lock" and operation_verified:
-            self.p_lock_ready = True
+        if operation == "hold-selected-count":
+            hold_diagnostics = build_hold_selected_diagnostics(self.selected_lock_point, payload)
+            self.last_hold_selected_diagnostics = hold_diagnostics
+            failure = self._hold_selected_readback_failure(payload)
+            self._record_operator_diagnostic_event(
+                "hold-selected-count",
+                selected=self.selected_lock_point,
+                payload=payload,
+                hold_diagnostics=hold_diagnostics,
+            )
+            self._refresh_operator_lock_diagnostics()
+            self.p_lock_ready = False
+            self.applied_kp = 0
+            if failure is None:
+                self.operator_state_label.setText("HOLD DIAGNOSTIC / Kp=0 / NOT LOCKED")
+                self.operator_alert_label.setText("")
+                self.statusBar().showMessage("HOLD SELECTED COUNT readback verified; this is not laser locking")
+            else:
+                failed_diagnostics = dict(hold_diagnostics)
+                failed_diagnostics["live"] = False
+                failed_diagnostics["failure"] = failure
+                self.last_hold_selected_diagnostics = failed_diagnostics
+                self.operator_state_label.setText("HOLD DIAGNOSTIC FAILED / SAFE REQUIRED")
+                self.operator_alert_label.setText(failure)
+                self.custom_warning_text.setPlainText(f"{failure}\nSAFE will be requested if communication remains available.")
+                request_safe_after = bool(self.system_identity_communication_ok)
+                self._refresh_operator_lock_diagnostics()
+        elif operation == "lock":
+            lock_diagnostics = build_lock_transition_diagnostics(self.selected_lock_point, payload)
+            lock_diagnostics["state_label"] = "LOCK HERE result / Kp=0"
+            self.last_lock_transition_diagnostics = lock_diagnostics
+            self.last_hold_selected_diagnostics = None
+            self._record_operator_diagnostic_event(
+                "lock-here",
+                selected=self.selected_lock_point,
+                payload=payload,
+                lock_diagnostics=lock_diagnostics,
+            )
+            self._refresh_operator_lock_diagnostics(lock_diagnostics)
+            captured_available = (
+                lock_diagnostics.get("captured_lock_bias_counts") is not None
+                and lock_diagnostics.get("captured_error_setpoint_counts") is not None
+            )
+            lock_readback_ok = (
+                operation_verified
+                and _optional_int(payload, "mode") == 3
+                and _optional_int(payload, "enable") == 1
+                and _optional_int(payload, "current_kp") == 0
+                and captured_available
+                and lock_diagnostics.get("target_wait_matched") is True
+            )
+            self.p_lock_ready = bool(lock_readback_ok)
             self.applied_kp = 0
             self.applied_polarity_index = self.custom_polarity.currentIndex()
-            self.operator_state_label.setText("P_LOCK Kp=0")
-            self.operator_alert_label.setText("")
+            self.operator_state_label.setText("P_LOCK Kp=0" if lock_readback_ok else "LOCK HERE DIAGNOSTIC WARNING")
+            error_delta_v = lock_diagnostics.get("delta_error_setpoint_ideal_voltage")
+            error_delta_mv = None if error_delta_v is None else abs(float(error_delta_v) * 1000.0)
+            warning = ""
+            if not captured_available:
+                warning = "LOCK HERE captured values are unavailable; lock-point accuracy is not established"
+            elif error_delta_mv is not None and error_delta_mv >= ERROR_RESIDUAL_WARNING_MV:
+                warning = "Selected and FPGA-captured ERROR_SETPOINT differ; lock-point accuracy is not established"
+            elif not lock_readback_ok:
+                warning = "LOCK HERE readback did not satisfy MODE/ENABLE/Kp/target-wait diagnostics"
+            self.operator_alert_label.setText(warning)
+            self.custom_warning_text.append(
+                "Selected -> captured delta is a host diagnostic; it is not the true FPGA clock-level transition jump."
+            )
+            if _optional_int(payload, "mode") != 3 or _optional_int(payload, "enable") != 1 or bool(payload.get("saturated", False)):
+                request_safe_after = bool(self.system_identity_communication_ok)
         elif operation == "update-p-lock" and operation_verified:
             kp = int(self.custom_kp.currentText())
             self.applied_kp = kp
@@ -3297,6 +4156,8 @@ class MainWindow(QMainWindow):
             self._schedule_next_live_capture()
         if not self.basic_lock_active:
             self.current_custom_operation = None
+        if request_safe_after:
+            QTimer.singleShot(0, lambda: self._start_custom_fpga_operation("safe"))
 
     def _on_custom_fpga_failed(self, text: str) -> None:
         operation = self.current_custom_operation or "custom"
@@ -3334,6 +4195,7 @@ class MainWindow(QMainWindow):
             self.system_identity_value.setText("Mismatch")
         self.system_identity_error_label.setToolTip(text)
         self.operator_alert_label.setText(error_category)
+        self.operator_state_label.setText("SAFE REQUIRED")
         self.operator_connection_status_label.setText("Communication lost")
         self.statusBar().showMessage(error_category)
         self._append_connection_log(f"Custom FPGA error: {text}")
@@ -3701,10 +4563,26 @@ class MainWindow(QMainWindow):
             if self.custom_scope_data is not None:
                 with open(path, "w", newline="", encoding="utf-8") as handle:
                     writer = csv.writer(handle)
-                    writer.writerow(["time_s", "in1_pd_counts", "in2_ref_counts", "out1_laser_error_counts", "out2_selected_out2_counts"])
+                    writer.writerow(
+                        [
+                            "time_s",
+                            "in1_pd_counts",
+                            "in2_ref_counts",
+                            "out1_laser_error_counts",
+                            "out2_selected_out2_counts",
+                            "out1_error_ideal_equivalent_v",
+                            "out2_command_calibrated_estimate_v",
+                        ]
+                    )
                     data = self.custom_scope_data
                     for row in zip(data["time_s"], data["ch1"], data["ch2"], data["ch3"], data["ch4"]):
-                        writer.writerow(row)
+                        writer.writerow(
+                            [
+                                *row,
+                                float(row[3]) / COUNTS_PER_VOLT,
+                                out2_counts_to_voltage(float(row[4])),
+                            ]
+                        )
             else:
                 save_waveforms_csv(path, self.last_waveforms, self.notes_edit.toPlainText(), self._csv_metadata())
             self.statusBar().showMessage(f"Saved CSV: {path}")
@@ -3751,6 +4629,20 @@ class MainWindow(QMainWindow):
                 handle.write(f"- safety_level: {analysis.level}\n")
                 handle.write(f"- safety_judgment: {'; '.join(analysis.messages)}\n")
                 handle.write(f"- next_step: {analysis.next_step}\n\n")
+                handle.write("## Operator Lock Diagnostics\n\n")
+                handle.write(f"- calibration_label: {CALIBRATION_LABEL}\n")
+                handle.write("- calibration_verified_for_loaded_pzt: false\n")
+                handle.write(f"- calibration_warning: {LOADED_PZT_CALIBRATION_WARNING}\n")
+                handle.write(f"- true_scan_to_lock_jump: {TRANSITION_JUMP_UNAVAILABLE}\n\n")
+                if self.operator_diagnostic_events:
+                    for index, event in enumerate(self.operator_diagnostic_events, start=1):
+                        handle.write(f"### Event {index}\n\n")
+                        for key, value in event.items():
+                            rendered = "unavailable" if value is None else str(value)
+                            handle.write(f"- {key}: {rendered}\n")
+                        handle.write("\n")
+                else:
+                    handle.write("No operator diagnostic events recorded.\n\n")
                 handle.write("## Notes\n\n")
                 handle.write(self.experiment_log_notes.toPlainText().strip() or self.obs_notes.toPlainText().strip() or "No notes.")
                 handle.write("\n")
@@ -3968,6 +4860,7 @@ class MainWindow(QMainWindow):
             self.custom_capture_once_button,
             self.custom_start_live_button,
             self.custom_confirm_lock_point_button,
+            self.hold_selected_count_button,
             self.basic_lock_button,
             self.basic_safe_button,
             self.scan_stop_safe_button,
@@ -4002,6 +4895,19 @@ class MainWindow(QMainWindow):
             button.setEnabled(self.pending_lock_point is not None or self.selected_lock_point is not None)
         self.custom_lock_button.setEnabled(
             identity_enabled and self.selected_lock_point is not None
+        )
+        selected_is_current = (
+            self.selected_lock_point is not None
+            and self.selected_lock_point.get("capture_generation") == self.custom_capture_generation
+        )
+        self.hold_selected_count_button.setEnabled(
+            identity_enabled
+            and selected_is_current
+            and self.pending_lock_point is None
+            and int(self.custom_kp.currentText()) == 0
+            and int(self.applied_kp) == 0
+            and not self.capture_in_flight
+            and self.current_custom_operation is None
         )
         self.custom_apply_p_button.setEnabled(identity_enabled and self.p_lock_ready)
         self.custom_stop_live_button.setEnabled(self.live_capture_active or custom_busy)
