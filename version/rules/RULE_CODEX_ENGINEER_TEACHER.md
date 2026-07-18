@@ -1,6 +1,6 @@
-# RULE_CODEX_ENGINEER_TEACHER
+# RULE_CODEX_ENGINEER_TEACHER — HISTORICAL / NOT ACTIVE
 
-> 教学风格参考：本文件不再定义当前阶段、接线或固定角色流程。当前工程决策和实验 Gate 以 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md` 为准。
+> **HISTORICAL / NOT ACTIVE**：教学说明只作背景，不再定义当前阶段、接线、角色或审查流程。当前工程决策和实验 Gate 以 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md` 为准。
 
 ## 0.0C 实验可见现象说明规则（2026-06-23）
 

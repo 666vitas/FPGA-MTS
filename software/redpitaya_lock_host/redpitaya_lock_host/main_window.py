@@ -2619,6 +2619,8 @@ class MainWindow(QMainWindow):
         self.custom_polarity.currentIndexChanged.connect(self._on_polarity_selection_changed)
         self.custom_capture_view_mode.currentTextChanged.connect(self._apply_capture_view_mode)
         self.custom_ref_debug_decimation.currentTextChanged.connect(self._apply_capture_view_mode)
+        self.custom_freq_hz.valueChanged.connect(self._sync_lock_view_capture_window)
+        self.custom_capture_length.valueChanged.connect(self._sync_lock_view_capture_window)
         self.basic_lock_button.clicked.connect(self._start_basic_lock)
         self.basic_safe_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
         self.obs_analyze_button.clicked.connect(self._analyze_observe_readings)
@@ -2913,6 +2915,12 @@ class MainWindow(QMainWindow):
         length = max(1, int(self.custom_capture_length.value()))
         freq_hz = max(0.001, float(self.custom_freq_hz.value()))
         return max(1, int(round(125_000_000.0 / (freq_hz * length))))
+
+    def _sync_lock_view_capture_window(self, _value: float | int | None = None) -> None:
+        """Keep Lock View capture wide enough for one complete scan period."""
+        if self.custom_capture_view_mode.currentText() == "Lock View":
+            self.custom_capture_decimation.setValue(self._capture_decimation_for_view())
+        self._update_capture_time_window_label()
 
     def _update_capture_time_window_label(self) -> None:
         length = int(self.custom_capture_length.value())

@@ -1,6 +1,6 @@
-# 03_FPGA_CODE_REVIEW_RULES
+# 03_FPGA_CODE_REVIEW_RULES — HISTORICAL / NOT ACTIVE
 
-> 历史审查清单：其中 signed、位宽、时序和饱和检查可作背景，但固定 v2 路径与旧接线不得作为当前结论。当前关键任务复核范围见 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md`。
+> **HISTORICAL / NOT ACTIVE**：其中 signed、位宽、时序和饱和检查可作背景，但固定 v2 路径、旧接线和强制审查流程不得作为当前结论。当前高风险自检边界见 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md`。
 
 ## 0.0C v2B3 mode=1 候选路径审查规则（2026-06-23）
 

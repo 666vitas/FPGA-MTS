@@ -884,3 +884,14 @@ git diff --check
 - 本轮验证：tabnanny 与相关 py_compile 通过；collect `136`；calibration/SCAN/LOCK/HOLD 聚焦测试 `11 passed`；诊断测试隔离复跑 `36 passed`；完整 tests `136 passed, 4 subtests passed`。首次批量诊断测试发生一次 PySide6/pyqtgraph native access violation，隔离复跑及完整套件均通过。独立 XSim：register bank `83/83`、OUT2 controller `29/29`，均 0 FAIL；未运行 synthesis/implementation/timing。
 - 当前状态：[AUTOMATED VERIFIED] 软件和 RTL 仿真路径具备 HV-1B 观测条件；[NOT VERIFIED] 修正后真实 OUT2 电压、loaded PZT、Kp=0 切换和 P-only。
 - 下一步唯一动作：PZT 断开、OUT2 只接示波器，执行一次 `0.800 V / 0.100 V / 50 Hz` HV-1B，记录 center、Vpp、frequency、scope load、DC coupling、probe ratio、readback、saturation 和最终 SAFE。PASS 前不进入 loaded PZT、HOLD、LOCK HERE 或非零 Kp。
+
+## 2026-07-18 v3LOCK-P0 HV-1B User Verification -> HV-2 Loaded PZT Scan
+
+- [USER HARDWARE VERIFIED] 用户明确确认：当前软件预补偿下，PZT 断开时上位机设定的 OUT2 电压与板上真实输出一致。HV-1B 标记为通过，不再重复空载 SCAN 复测。
+- 本轮未收到独立的 center/Vpp/frequency 和 scope 配置数值，记录为用户硬件通过声明，不虚构原始测量数据。
+- 当前 host 已具备下一 Gate 的 identity、SAFE、SCAN safe-range、MODE/ENABLE、OUT2 readback、saturation 和 CH1/CH3/CH4 capture。
+- 本轮唯一独立工程复核发现 1 个 High：设为 2 Hz 后 Lock View capture decimation 未自动跟随，2048 点可能仍只覆盖约 20 ms。已修改 `main_window.py`：scan frequency 或 capture length 改变时自动重算 decimation；`2 Hz / 2048 points` 为 `30518`，窗口约 `0.5 s`。复核无其他 Blocker/High。
+- 验证：`tabnanny` 和修改文件 `py_compile` 通过；聚焦 `8 passed, 87 deselected`；`137 tests collected`；完整 software tests `137 passed`。
+- 新增 `docs/LOADED_PZT_SCAN_SOP.md`；当前 Gate 为 `Gate 2 / HV-2 loaded PZT SCAN voltage and spectral-response verification`。只允许 `0.770 V / 0.080 V / 2 Hz / Kp=Ki=0` 的 loaded PZT SCAN-only 观测。
+- 只修改上位机 capture-window 同步与回归测试；未修改 RTL、Vivado、寄存器、`MAGIC`、`VERSION` 或 bitstream，未运行 Vivado。
+- HV-2 PASS 前不执行 HOLD SELECTED COUNT、LOCK HERE、APPLY P、polarity 变更或非零 Kp/Ki。

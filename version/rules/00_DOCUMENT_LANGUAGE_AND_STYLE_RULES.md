@@ -1,5 +1,7 @@
 # 文档语言与风格规则
 
+> **HISTORICAL / NOT ACTIVE**：中文记录原则已并入 `AGENTS.md` 和 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md`。本文件仅作旧文档风格参考，不控制当前 Gate。
+
 ## 1. 默认语言
 
 后续 Codex、Claude、GPT 或人工维护的项目说明、开发日志、实验记录、SOP、AI 审查记录、任务说明，默认使用中文书写。

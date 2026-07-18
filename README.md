@@ -1,6 +1,6 @@
 # FPGA-MTS
 
-Red Pitaya FPGA 激光频率锁定项目。长期目标是构建基于 Red Pitaya 的全自动深度学习参数优化 MTS 激光稳频系统；当前实现与实验进度必须以动态状态记录为准，不在本文件写死。
+Red Pitaya FPGA 激光频率锁定项目。当前唯一目标是在现有 SystemVerilog MTS 信号链上实现 Linien-style minimal manual lock：人工选择目标谱线和方向，FPGA 原子执行 scan-to-Kp=0 transition，再验证最小 P-only。基础 P-only 硬件通过前不开展 PI、自动锁定、自动重锁或 AI 优化。
 
 ## 当前事实入口
 
@@ -13,12 +13,15 @@ Red Pitaya FPGA 激光频率锁定项目。长期目标是构建基于 Red Pitay
 
 软件存在、自动化测试、GUI 操作、真实硬件和闭环效果是不同证据，不得互相替代。
 
-## AI 工作入口
+## 当前活跃入口
 
-- `AGENTS.md`：Codex 与 Claude Code 的最短入口和模式边界。
-- `version/rules/20_FPGA_MTS_ENGINEERING_WORKFLOW.md`：Gate、任务分级、验证、证据和硬件安全的详细工程规则。
-- `AI_REVIEW_README.md`：Development Mode 与 GitHub Review Mode 入口。
-- `version/CURRENT_REVIEW_MANIFEST.md`：仅供明确触发的 GitHub Review Mode 使用。
+- `AGENTS.md`：单开发者角色、模式和安全边界。
+- `version/STATUS.md`：当前 Stage、唯一 Gate、blocker、证据和唯一实验。
+- `version/rules/20_FPGA_MTS_ENGINEERING_WORKFLOW.md`：Linien-style Gate 工作流和完成标准。
+- `version/CURRENT_REVIEW_MANIFEST.md`：当前有效代码、测试、文档根目录及历史排除。
+- `software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md`：OUT2、loaded PZT 和锁点实验的操作与证据要求。
+
+其他旧 review、strict review、多角色和阶段规则均为 `HISTORICAL / NOT ACTIVE`，不控制当前开发。
 
 ## 文档语言
 
@@ -35,7 +38,7 @@ MODE=0 SAFE
 MODE=1 SCAN
 MODE=2 HOLD
 MODE=3 P_LOCK
-MODE=4 PI_LOCK candidate
+MODE=4 PI_LOCK candidate（基础 P-only 通过前禁止开展）
 MAGIC = 0x4D545330
 ```
 

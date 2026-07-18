@@ -2535,3 +2535,39 @@ def test_scan_range_is_blocked_outside_visible_pzt_safe_limits() -> None:
     finally:
         window.close()
         app.processEvents()
+
+
+def test_lock_view_capture_window_tracks_scan_frequency_and_length() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window.custom_capture_view_mode.setCurrentText("Lock View")
+        window.custom_capture_length.setValue(2048)
+        window.custom_freq_hz.setValue(2.0)
+        app.processEvents()
+
+        expected_decimation = round(125_000_000 / (2.0 * 2048))
+        assert window.custom_capture_decimation.value() == expected_decimation == 30518
+        window_s = 2048 * expected_decimation / 125_000_000.0
+        assert abs(window_s - 0.5) < 0.001
+        assert "scan period approx 0.5 s" in window.capture_time_window_label.text()
+
+        window.custom_capture_length.setValue(4096)
+        app.processEvents()
+        assert window.custom_capture_decimation.value() == round(125_000_000 / (2.0 * 4096))
+
+        window.custom_capture_view_mode.setCurrentText("REF Debug")
+        window.custom_ref_debug_decimation.setCurrentText("4")
+        window.custom_freq_hz.setValue(5.0)
+        app.processEvents()
+        assert window.custom_capture_decimation.value() == 4
+    finally:
+        window.close()
+        app.processEvents()

@@ -1,6 +1,6 @@
-# 06_V2_PID_DEVELOPMENT_RULES
+# 06_V2_PID_DEVELOPMENT_RULES — HISTORICAL / NOT ACTIVE
 
-> 历史 v2 规则：仅用于回顾旧 PI/PID 设计，不是当前 v3LOCK-P0 实验入口。当前 Gate、输出路由和允许动作以当前代码、`version/STATUS.md` 与 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md` 为准。
+> **HISTORICAL / NOT ACTIVE**：仅用于回顾旧 PI/PID 设计，不是当前实验入口。基础 P-only 硬件通过前禁止 PI；当前 Gate、输出路由和允许动作以当前代码、`version/STATUS.md` 与 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md` 为准。
 
 ## 0.0B v2B1 timing-safe 默认路径规则（2026-06-16）
 

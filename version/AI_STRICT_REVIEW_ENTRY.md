@@ -1,52 +1,11 @@
-# AI_STRICT_REVIEW_ENTRY
+# AI_STRICT_REVIEW_ENTRY — HISTORICAL / NOT ACTIVE
 
-本文件只约束明确触发的 GitHub `Review Mode`。Development Mode 不读取远端，也不使用本文件作为本地开发 Gate。
+本文件只为旧链接兼容而保留，不再是 Development Mode 或 Review Mode 的活动入口，不要求独立 Agent、strict review rounds、mandatory audit 或多角色审查。
 
-## 审查原则
+当前规则：
 
-```text
-只审 GitHub main 的当前文件，不拼接历史版本。
-先读 STATUS，再用当前代码和有效记录核实。
-没有取得当前文件，就明确写“无法确认”。
-没有对应证据，就不得提升验证等级。
-只读审查，不实施修复。
-```
+- 日常开发读取 `AGENTS.md`、`version/STATUS.md` 顶部和 `version/rules/20_FPGA_MTS_ENGINEERING_WORKFLOW.md`。
+- 用户明确触发 GitHub Review Mode 时读取 `version/CURRENT_REVIEW_MANIFEST.md`。
+- 普通任务只做一次同线程自检；只有规定的硬件高风险改动才允许一次额外工程审查。
 
-## 证据优先级
-
-1. GitHub `main` 的当前代码和工程文件，用于确认实际实现与最终路由。
-2. 本轮实际测试/仿真结果，用于确认自动化证据。
-3. `version/STATUS.md` 顶部、同一 Gate 的有效 SOP、实验记录和 `version/HARDWARE_VALIDATION.md`，用于确认 GUI/硬件证据。
-4. 当前阶段的辅助文档。
-5. README、历史日志、旧注释和历史目录；这些只能解释历史，不能覆盖前四项。
-
-若文档彼此冲突，报告冲突并以更高优先级证据为准。`VERSION`、Stage、Gate、参数和硬件结论必须现场读取，不得从本规则推断。
-
-## 审查范围
-
-按 `version/CURRENT_REVIEW_MANIFEST.md` 选择与问题直接相关的文件，检查：
-
-1. GitHub `main`、commit 和 push 状态是否可确认。
-2. 需求、状态文字、代码、测试和实验记录是否一致。
-3. signed/unsigned、位宽、乘法、移位、截位、饱和、时钟、复位和 CDC 是否存在明确风险。
-4. host/RTL 的寄存器地址、位域、模式和单位定义是否一致。
-5. SAFE、限幅、模式切换、OUT2/PZT 接线和异常停止条件是否保持。
-6. 声称通过的测试或实验是否有实际证据，是否误把软件或仿真结果写成硬件或闭环结果。
-7. 当前结论是否被历史目录、备份文件、旧注释或冲突标记污染。
-
-不得为扩大覆盖面而无边界读取历史资料，也不得因发现问题自动切换为 Development Mode。
-
-## 输出
-
-报告保持简短：
-
-```text
-A. 实际读取的文件与 GitHub main 状态
-B. 当前代码和状态结论
-C. 已确认的证据
-D. 未确认、冲突和风险
-E. 安全边界与禁止推进项
-F. 下一步最小动作
-```
-
-具体问题只写严重级别、文件与位置、问题和最小修复方法。无法访问远端或缺少证据时，如实标记审查不完整。
+历史正文不再控制当前 Gate、接线、测试或完成标准。

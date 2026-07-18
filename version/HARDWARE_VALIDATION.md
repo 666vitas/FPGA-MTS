@@ -3,10 +3,10 @@
 ## 当前 Gate
 
 ```text
-Current Stage: v3LOCK-P0 / Stage 3 Hardware Verification
-Current Gate: corrected OUT2 voltage mapping hardware re-validation
-Git baseline: local main with in-progress rule/status documentation changes; no remote refresh
-Latest local commit: 9f4eb44d4d44f826f131491df2d0482d6a39d554
+Current Stage: v3LOCK-P0 / Linien-style Manual Lock Foundation
+Current Gate: Gate L0 / Diagnose scan-to-lock offset
+Git baseline: local main with pre-existing uncommitted host/test/HV-2 documentation changes; no remote refresh
+Latest local commit: 14dba075fe3a533956f3857d00a1bb8a5214e45a
 Bitstream MAGIC: 0x4D545330
 Bitstream VERSION: 0x00030001
 Board model: Red Pitaya STEM125-14
@@ -15,9 +15,9 @@ Experiment date: NOT RECORDED
 Operator: user-reported measurement
 ```
 
-用户已提供修复前 SCAN center/amplitude 的示波器测量。本轮已根据这些数据实现软件预补偿；修复后的模拟输出尚未复测，当前 Gate 仍为 `[NOT VERIFIED]`。
+用户已提供修复前 SCAN center/amplitude 的示波器测量，并在 2026-07-18 明确确认：使用当前软件预补偿、PZT 断开时，上位机设定电压与板上真实 OUT2 输出一致。HV-1B 据此标记为 `[USER HARDWARE VERIFIED]`；用户未在本轮重新提供精确 center/Vpp/frequency 和 scope 配置数值，本记录不虚构这些数据。
 
-2026-07-18 Gate reconciliation：最新 Operator Lock Diagnostics 和 exact-count HOLD 已提供后续 Gate 所需观测能力，但没有产生新的真实电压证据，不会取代 HV-1B。HV-1B PASS 前保持 PZT 断开，禁止 HOLD SELECTED COUNT、LOCK HERE、APPLY P、非零 Kp/Ki 或 polarity 变更。
+用户在本次任务中明确报告：loaded PZT 实验已能观察 PZT 扫描、PD、MTS error 和 OUT2，也能选择目标 error zero crossing，但执行 `LOCK HERE` 后目标饱和吸收峰与示波器 cursor 明显偏离。Current Gate 因此收敛为 Gate L0：在同一目标和方向下对比 `HOLD SELECTED COUNT` 与 `LOCK HERE, Kp=0`，只定位偏移来源；不授权 `APPLY P`、非零 Kp/Ki、polarity 变更或下一 Gate。
 
 ## 证据等级
 
@@ -34,7 +34,10 @@ Operator: user-reported measurement
 CODE/REGISTER TRACE PASS
 PRE-CORRECTION GUI ABSOLUTE VOLTAGE FAIL
 OUT2 VOLTAGE MAPPING SOFTWARE CORRECTION AUTOMATED VERIFIED
-POST-CORRECTION OUT2 HARDWARE RE-VALIDATION NOT VERIFIED
+POST-CORRECTION OUT2 HARDWARE RE-VALIDATION USER HARDWARE VERIFIED
+LOADED PZT SCAN NODE VOLTAGE NOT VERIFIED
+LOCK HERE PEAK/CURSOR OFFSET USER HARDWARE VERIFIED
+HOLD VS LOCK HERE ROOT CAUSE NOT VERIFIED
 OUT1 LOCK MEANING NOT VERIFIED
 P-ONLY CLOSED LOOP NOT VERIFIED
 ```
@@ -77,20 +80,21 @@ delta count    = round((V_delta / 1.18) * 8191)
 - P correction 仍由 RTL 以 raw count 计算；未修改 Kp、correction limit 或锁定逻辑。修复后 P-only 物理增量为 `[NOT VERIFIED]`。
 - 未修改 RTL、Vivado、register address/semantics 或 bitstream。
 
-## Hardware Verification Gates
+## Hardware Evidence Track And Current Gate
 
 | Gate | 目标 | 准备状态 | 实验状态 |
 |---|---|---|---|
 | HV-1A | 修复前 GUI SCAN -> scope voltage mapping | `[IMPLEMENTED]` | `[USER HARDWARE VERIFIED]` |
-| HV-1B | 修复后 center=0.8 V / amplitude=0.1 V 复测 | `[AUTOMATED VERIFIED]` | `[NOT VERIFIED]` |
-| HV-2 | OUT2 SCAN CH4 -> scope OUT2 扩展验证 | `[NOT VERIFIED]` | `[NOT VERIFIED]` |
+| HV-1B | 修复后 center=0.8 V / amplitude=0.1 V 复测 | `[AUTOMATED VERIFIED]` | `[USER HARDWARE VERIFIED]` |
+| HV-2 | loaded PZT SCAN 节点电压 + CH1/CH3 光谱响应 | `[AUTOMATED VERIFIED]` | `[NOT VERIFIED]` |
 | HV-3 | CH3 -> physical OUT1 | `[NOT VERIFIED]` | `[NOT VERIFIED]` |
 | HV-4 | IN1/IN2 physical voltage -> ADC counts | `[NOT VERIFIED]` | `[NOT VERIFIED]` |
 | HV-5 | error zero crossing physical meaning | `[NOT VERIFIED]` | `[NOT VERIFIED]` |
 | HV-6 | LOCK HERE Kp=0 bumpless transfer | `[NOT VERIFIED]` | `[NOT VERIFIED]` |
 | HV-7 | minimal nonzero Kp P-only | `[NOT VERIFIED]` | `[NOT VERIFIED]` |
+| Gate L0 | 同一目标/方向的 HOLD 与 LOCK HERE Kp=0 对比 | `[AUTOMATED VERIFIED]` | `[NOT VERIFIED]` |
 
-当前只允许执行 HV-1B 的单组修复后复测；HV-1B 未通过前不得进入 HV-2 至 HV-7。
+HV-* 行保留校准和硬件证据历史，不再作为当前开发流程控制器。当前只允许执行 Gate L0 的单次 A/B 对比；用户未确认 Gate L0 前不得进入原子 scan-to-lock 实现、非零 Kp 或 P-only。
 
 ## 上位机能力审计
 
@@ -99,10 +103,11 @@ delta count    = round((V_delta / 1.18) * 8191)
 - `[AUTOMATED VERIFIED]` SCAN single-sided amplitude 经 `round((V_delta / 1.18) * 8191)` 转换；`0.100 V` 为 `694 counts`。
 - `[IMPLEMENTED]` HOLD 写入顺序为 `ENABLE=0 -> HOLD_VALUE -> MODE=2 -> ENABLE=1`，随后返回状态 readback。
 - `[IMPLEMENTED]` `Capture Waveform` 可记录 CH4=`selected_out2` raw count。
+- `[AUTOMATED VERIFIED]` Lock View 在 scan frequency 或 capture length 变化时自动重算 capture decimation；`2 Hz / 2048 points` 为约 `30518`，capture window 约 `0.5 s`，覆盖一个完整扫描周期。
 - 风险：校准后 `hold-v=0.0000 V` 预补偿为 `-65 counts`，不再是 exact count=0；旧 count=0 SOP 已暂停。
 - 风险：软件电压是基于本次实测系数的估算；示波器仍是硬件 Gate 的物理真值。
 
-结论：现有上位机已实现 HV-1B 所需的软件预补偿。只授权 PZT 断开时执行 center `0.800 V`、amplitude `0.100 V`、50 Hz 的示波器复测；不授权 LOCK HERE 或 P-only。
+结论：现有上位机已实现 Gate L0 所需的 identity、SAFE、SCAN safe-range、MODE/ENABLE、selected-count HOLD、Kp=0 LOCK HERE、OUT2 readback、saturation 和 capture 观测。只授权按 `HARDWARE_CALIBRATION_SOP.md` 执行一次 HOLD/LOCK HERE A/B 对比；不授权 Apply Kp、polarity 变更、PI 或 P-only 完成声明。
 
 ## Earlier exact-count calibration record
 
@@ -133,9 +138,9 @@ fit_result: NOT VERIFIED
 
 一个 count=0 点不能拟合 gain；它只建立零点读回和测量流程。任何 50 ohm 下得到的系数都不能自动用于 Hi-Z 或 PZT 负载，反之亦然。
 
-## 立即停止条件
+## 当前 Gate L0 立即停止条件
 
-出现以下任一情况，立即请求 SAFE 并停止 HV-1：
+出现以下任一情况，立即请求 SAFE 并停止 Gate L0：
 
 - `MAGIC` / `VERSION` 身份不匹配。
 - 通信失败，或不能确认 SAFE 已执行。
@@ -143,9 +148,9 @@ fit_result: NOT VERIFIED
 - OUT2 异常跳变、过压、削顶或 saturation。
 - 极性现象无法解释。
 - 接线、scope load、coupling 或 probe ratio 不明确。
-- PZT 仍连接。
+- 无法确认当前端口是激光器专用 PZT/Scan 输入，或无法确认该输入允许 `0.600~0.900 V`。
 - OUT2 与任何其他有源输出并联。
 
 ## 下一步唯一动作
 
-保持 PZT 断开且 OUT2 只接示波器，按 `software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md` 复测 `Scan center=0.800 V`、`Scan amplitude=0.100 V`、`50 Hz`；中心约 `0.800 V`、Vpp 约 `0.200 V` 且误差均小于 5% 才 PASS，记录后立即 SAFE。
+按 `software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md` 执行一次 Gate L0 A/B 对比：保持 `center=0.770 V / amplitude=0.080 V / 2 Hz / Kp=0 / Ki=0`，对同一谱线、zero crossing 和 rising/falling 方向分别记录 `HOLD SELECTED COUNT` 与 `LOCK HERE` 的 selected/readback counts、真实 loaded-node 电压和谱峰/cursor 偏移；两次动作之间及结束后均 SAFE。

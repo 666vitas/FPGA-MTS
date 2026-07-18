@@ -1,5 +1,7 @@
 # Custom FPGA 锁定工作流
 
+> **SUPPORTING / NOT A RULE ENTRY**：本文件只描述现有接口。当前 Gate L0 仅比较 `HOLD SELECTED COUNT` 与 `LOCK HERE, Kp=0`；不得据此自动进入 Apply Kp。当前约束以 `version/STATUS.md` 顶部和主工程规则为准。
+
 Custom FPGA Observe Mode 面向当前真实接线：
 
 ```text
@@ -32,6 +34,6 @@ GUI 会计算 OUT2/OUT1 Vpp 比值，并标记危险情况：
 
 `custom_fpga_backend.py` 已实现 SSH + `/dev/mem` 寄存器路径，可用于 `SAFE`、`SCAN`、`HOLD`、`P_LOCK`、`PI_LOCK` 候选模式。
 
-当前最小闭环路径：`SCAN -> Capture Waveform -> 点击当前 error 过零点 -> LOCK HERE -> FPGA 同拍捕获 ERROR_SETPOINT / LOCK_BIAS -> Apply Kp 小步增加 -> UNLOCK / SAFE`。
+接口候选闭环路径为：`SCAN -> Capture Waveform -> 点击当前 error 过零点 -> LOCK HERE -> FPGA 捕获 ERROR_SETPOINT / LOCK_BIAS -> Apply Kp -> UNLOCK / SAFE`。当前 Gate L0 尚未批准 Apply Kp，只允许 Kp=0 的 HOLD/LOCK HERE 对比。
 
 `LOCK HERE` 只捕获锁点并以 Kp=0 进入 `MODE=3 P_LOCK`；`Apply Kp` 只修改 Kp、polarity 和 limit，不重新捕获 `LOCK_BIAS` 或 `ERROR_SETPOINT`。禁止接 laser current modulation、D2-125 Servo Output 或 D2-125 Aux Output。

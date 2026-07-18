@@ -1,6 +1,6 @@
-# 项目根目录与角色分工
+# 项目根目录与角色分工 — HISTORICAL / NOT ACTIVE
 
-> 历史角色说明：目录边界仍可参考，固定 GPT/Codex/Claude 分工不再作为当前工作流。当前职责和独立复核规则见 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md`。
+> **HISTORICAL / NOT ACTIVE**：目录边界仍可参考，固定 GPT/Codex/Claude 分工和独立复核要求不再作为当前工作流。当前单开发者职责见 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md`。
 
 ## 1. 当前项目根目录
 

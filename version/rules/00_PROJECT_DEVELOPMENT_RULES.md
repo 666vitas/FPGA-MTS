@@ -1,6 +1,6 @@
- 00_PROJECT_DEVELOPMENT_RULES
+ 00_PROJECT_DEVELOPMENT_RULES — HISTORICAL / NOT ACTIVE
 
-> 历史阶段规则：本文件保留旧 v1/v2 背景，不再是当前开发总入口。当前工程流程以 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md`、当前代码和 `version/STATUS.md` 为准；不得执行本文件中的固定旧阶段或强制全量读取要求。
+> **HISTORICAL / NOT ACTIVE**：本文件保留旧 v1/v2 背景，不再是当前开发总入口。当前工程流程以 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md`、当前代码和 `version/STATUS.md` 为准；不得执行本文件中的固定旧阶段或强制全量读取要求。
 
 ## 0. 本文件作用
 
