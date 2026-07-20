@@ -13,15 +13,24 @@ Red Pitaya FPGA 激光频率锁定项目。当前唯一目标是在现有 System
 
 软件存在、自动化测试、GUI 操作、真实硬件和闭环效果是不同证据，不得互相替代。
 
-## 当前活跃入口
+## 当前规则入口
 
 - `AGENTS.md`：单开发者角色、模式和安全边界。
 - `version/STATUS.md`：当前 Stage、唯一 Gate、blocker、证据和唯一实验。
 - `version/rules/20_FPGA_MTS_ENGINEERING_WORKFLOW.md`：Linien-style Gate 工作流和完成标准。
 - `version/CURRENT_REVIEW_MANIFEST.md`：当前有效代码、测试、文档根目录及历史排除。
-- `software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md`：OUT2、loaded PZT 和锁点实验的操作与证据要求。
 
-其他旧 review、strict review、多角色和阶段规则均为 `HISTORICAL / NOT ACTIVE`，不控制当前开发。
+`software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md`、`version/HARDWARE_VALIDATION.md` 和开发日志是 supporting evidence，不是规则 source of truth。其他旧 review、strict review、多角色和阶段规则均为 `HISTORICAL / NOT ACTIVE`。
+
+## 一键验证
+
+在仓库根目录运行：
+
+```powershell
+.\scripts\verify.ps1
+```
+
+默认检查活动规则并运行 host targeted verification。`-Scope Rules` 只查规则，`-Scope Host` 只查 host，`-FullHost` 追加完整 software tests。任一关键检查失败或超时都会返回非零退出码。
 
 ## 文档语言
 

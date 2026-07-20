@@ -1,6 +1,6 @@
 # CURRENT_REVIEW_MANIFEST
 
-本文件列出当前有效代码、测试和文档边界。Development Mode 可用它避免误读历史；只有用户明确输入 `@GitHub 审计` 或 `审查最新main` 时才允许访问 GitHub `main`，且只读不修改。
+本文件列出当前有效代码、测试和文档边界。它是四个活动规则入口之一，但不保存动态 Gate 结论。Development Mode 用它避免误读历史；只有用户明确输入 `@GitHub 审计` 或 `审查最新main` 时才允许访问 GitHub `main`，且只读不修改。
 
 ## 当前有效根目录
 
@@ -17,19 +17,25 @@ Host tests: software/redpitaya_lock_host/tests/**
 
 只读取与当前 Gate 或问题直接相关的文件，不默认全仓审查。
 
-## 当前有效文档
+## 活动规则 source of truth
 
 ```text
 AGENTS.md
 version/STATUS.md
 version/rules/20_FPGA_MTS_ENGINEERING_WORKFLOW.md
 version/CURRENT_REVIEW_MANIFEST.md
+```
+
+## Supporting evidence and tools
+
+```text
 version/HARDWARE_VALIDATION.md
 software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md
 software/redpitaya_lock_host/docs/DEVELOPMENT_LOG.md
+scripts/verify.ps1
 ```
 
-其他 SOP 或实现说明只有在 `version/STATUS.md` 顶部明确指向或与当前问题直接相关时才读取。`AI_REVIEW_README.md` 和 `version/AI_STRICT_REVIEW_ENTRY.md` 是历史兼容入口，不是当前规则源。
+其他 SOP 或实现说明只有在 `version/STATUS.md` 明确指向或与当前问题直接相关时才读取。Supporting evidence 不能覆盖当前代码、最终信号路由或 `version/STATUS.md`。
 
 ## 历史排除
 
@@ -41,6 +47,7 @@ version-weifang/**
 version/v1/**
 version/v2/**
 version/v3/**
+version/history/**
 **/old/**
 **/*.before_*
 **/*before*

@@ -6,7 +6,16 @@
 
 - 用户是唯一真实硬件实验操作者，也是唯一有权确认硬件 Gate 通过的人；负责接线、示波器、PZT、谱线位置和真实锁定结果。
 - Codex 是唯一主要开发者，负责实现、测试、文档和提交前自检；默认不启动 subagent，不创建 Builder/Critic/Evaluator/Supervisor，不以多 Agent 结论作为完成证据。
-- 日常开发只需读取本文件、`version/STATUS.md` 顶部、`version/rules/20_FPGA_MTS_ENGINEERING_WORKFLOW.md`、`version/CURRENT_REVIEW_MANIFEST.md` 和当前 Gate 的 `software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md`。
+- 当前规则 source of truth 只有本文件、`version/STATUS.md`、`version/CURRENT_REVIEW_MANIFEST.md` 和 `version/rules/20_FPGA_MTS_ENGINEERING_WORKFLOW.md`。当前 Gate 的 SOP、验证记录和开发日志是 supporting evidence，不是规则入口。
+
+## 任务模式
+
+- `ANALYZE`：只读分析、诊断、审查或计划；不修改项目文件。
+- `IMPLEMENT`：只在用户授权范围内实施最小修改，并运行风险相称的验证。
+- `VERIFY`：只运行验证、读取结果和报告证据；不改变产品代码或硬件状态。
+- `HARDWARE-GATE`：Codex 每轮只给一个硬件实验；用户是唯一操作者和 Gate 批准者。没有用户真实结果，不更新为硬件通过。
+
+一次任务只采用一个主模式。请求不清楚时先按 `ANALYZE`，不得借模式名称扩大授权范围。
 
 ## Development Mode（默认）
 
@@ -15,6 +24,12 @@
 3. 禁止主动执行 `git fetch`、`git pull`、`git ls-remote`，禁止访问 GitHub online、比较 `origin/main` 或等待网络。
 4. 只修改用户授权范围，运行与风险相称的本地验证并检查 diff。不自动执行 commit、push、reset、clean、rebase 或 amend。
 5. 一次只推进一个当前 Gate。普通任务完成后只做一次同线程自检；只有 OUT2/PZT、模式切换、寄存器 signed/位宽、限幅/saturation 或 FPGA 原子切换等高风险改动才允许一次额外工程审查，不形成多轮或强制多 Agent 循环。
+
+## Git 权限
+
+- 自动允许的本地只读操作：`git status`、`git diff`、`git diff --check`、`git log`、`git show`、`git branch --show-current`、`git ls-files`。
+- 必须得到当前任务明确授权：任何网络访问、`fetch`、`ls-remote`、GitHub online，以及 `add`、commit、push、branch/switch、merge、pull、rebase、amend、tag。
+- 永久禁止自动执行的破坏性操作：`reset --hard`、`clean -fd/-fdx`、会覆盖已有修改的 checkout/restore、force push、删除 branch/tag，以及面向仓库或宽目录的递归删除。
 
 ## 状态、证据与记录
 
