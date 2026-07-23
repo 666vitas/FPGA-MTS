@@ -205,39 +205,21 @@ module custom_register_bank (
         .fault_detail_o(fault_detail_w)
     );
 
+    // Acquisition fast-control registers are the only register group whose
+    // clock enables depend on the real-time acquisition decisions.
     always_ff @(posedge clk_i) begin
         if (!rstn_i) begin
-            mode_o            <= MODE_SAFE;
-            enable_o          <= 1'b0;
-            scan_offset_o     <= 14'sd6962;
-            scan_amp_o        <= 14'sd410;
-            scan_step_o       <= 14'sd1;
-            scan_update_div_o <= 32'd1524;
-            out2_limit_o      <= 14'sd8191;
-            hold_value_o      <= 14'sd0;
-            kp_o              <= 14'sd0;
-            polarity_o        <= 1'b0;
-            lock_bias_o       <= 14'sd0;
-            lock_limit_o      <= 14'sd8191;
-            lock_correction_limit_o <= 14'sd128;
-            error_setpoint_o  <= 14'sd0;
-            ki_o              <= 14'sd0;
-            integral_reset_o  <= 1'b0;
-            capture_start_o   <= 1'b0;
-            capture_decimation_o <= 32'd1024;
-            capture_length_o   <= 32'd2048;
-            capture_read_index_o <= 32'd0;
-            target_out2_shadow_q <= 32'd0;
-            target_error_setpoint_shadow_q <= 32'd0;
-            target_window_shadow_q <= 32'd0;
-            target_requirements_shadow_q <= 32'd0;
-            correction_limit_shadow_q <= 32'd0;
-            absolute_limit_shadow_q <= 32'd0;
-            config_generation_shadow_q <= 32'd0;
-            shadow_written_mask_q <= 7'd0;
+            mode_o                      <= MODE_SAFE;
+            enable_o                    <= 1'b0;
+            kp_o                        <= 14'sd0;
+            ki_o                        <= 14'sd0;
+            integral_reset_o            <= 1'b0;
+            lock_bias_o                 <= 14'sd0;
+            error_setpoint_o            <= 14'sd0;
+            lock_limit_o                <= 14'sd8191;
+            lock_correction_limit_o     <= 14'sd128;
         end else begin
             integral_reset_o <= 1'b0;
-            capture_start_o <= 1'b0;
 
             if (acq_abort_o || acq_fault_o) begin
                 mode_o           <= MODE_SAFE;
@@ -271,20 +253,7 @@ module custom_register_bank (
                         endcase
                     end
                     REG_ENABLE: enable_o <= bus.wdata[0];
-                    REG_SCAN_OFFSET: scan_offset_o <= bus.wdata[13:0];
-                    REG_SCAN_AMP: scan_amp_o <= bus.wdata[13:0];
-                    REG_SCAN_STEP: scan_step_o <= bus.wdata[13:0];
-                    REG_SCAN_UPDATE_DIV:
-                        scan_update_div_o <= (bus.wdata == 32'd0) ? 32'd1 : bus.wdata;
-                    REG_OUT2_LIMIT: begin
-                        if ($signed({1'b0, bus.wdata[13:0]}) > 15'sd8191)
-                            out2_limit_o <= 14'sd8191;
-                        else
-                            out2_limit_o <= bus.wdata[13:0];
-                    end
-                    REG_HOLD_VALUE: hold_value_o <= bus.wdata[13:0];
                     REG_KP: kp_o <= bus.wdata[13:0];
-                    REG_POLARITY: polarity_o <= bus.wdata[0];
                     REG_LOCK_BIAS: lock_bias_o <= bus.wdata[13:0];
                     REG_LOCK_LIMIT: begin
                         if ($signed({1'b0, bus.wdata[13:0]}) > 15'sd8191)
@@ -312,34 +281,105 @@ module custom_register_bank (
                     end
                     REG_KI: ki_o <= bus.wdata[13:0];
                     REG_INTEGRAL_RESET: integral_reset_o <= bus.wdata[0];
-                    REG_TARGET_OUT2_SHADOW: begin
-                        target_out2_shadow_q <= bus.wdata;
-                        shadow_written_mask_q[0] <= 1'b1;
+                    default: begin
                     end
-                    REG_TARGET_ERROR_SETPOINT_SHADOW: begin
-                        target_error_setpoint_shadow_q <= bus.wdata;
-                        shadow_written_mask_q[1] <= 1'b1;
-                    end
-                    REG_TARGET_WINDOW_SHADOW: begin
-                        target_window_shadow_q <= bus.wdata;
-                        shadow_written_mask_q[2] <= 1'b1;
-                    end
-                    REG_TARGET_REQUIREMENTS_SHADOW: begin
-                        target_requirements_shadow_q <= bus.wdata;
-                        shadow_written_mask_q[3] <= 1'b1;
-                    end
-                    REG_CORRECTION_LIMIT_SHADOW: begin
-                        correction_limit_shadow_q <= bus.wdata;
-                        shadow_written_mask_q[4] <= 1'b1;
-                    end
-                    REG_ABSOLUTE_LIMIT_SHADOW: begin
-                        absolute_limit_shadow_q <= bus.wdata;
-                        shadow_written_mask_q[5] <= 1'b1;
-                    end
-                    REG_CONFIG_GENERATION_SHADOW: begin
-                        config_generation_shadow_q <= bus.wdata;
-                        shadow_written_mask_q[6] <= 1'b1;
-                    end
+                endcase
+            end
+        end
+    end
+
+    // Shadow configuration is bus-owned. Acquisition activity must not enter
+    // these registers' clock-enable or reset cones.
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
+            target_out2_shadow_q           <= 32'd0;
+            target_error_setpoint_shadow_q <= 32'd0;
+            target_window_shadow_q         <= 32'd0;
+            target_requirements_shadow_q   <= 32'd0;
+            correction_limit_shadow_q      <= 32'd0;
+            absolute_limit_shadow_q        <= 32'd0;
+            config_generation_shadow_q     <= 32'd0;
+            shadow_written_mask_q          <= 7'd0;
+        end else if (bus.wen) begin
+            unique case (reg_addr_w)
+                REG_TARGET_OUT2_SHADOW: begin
+                    target_out2_shadow_q <= bus.wdata;
+                    shadow_written_mask_q[0] <= 1'b1;
+                end
+                REG_TARGET_ERROR_SETPOINT_SHADOW: begin
+                    target_error_setpoint_shadow_q <= bus.wdata;
+                    shadow_written_mask_q[1] <= 1'b1;
+                end
+                REG_TARGET_WINDOW_SHADOW: begin
+                    target_window_shadow_q <= bus.wdata;
+                    shadow_written_mask_q[2] <= 1'b1;
+                end
+                REG_TARGET_REQUIREMENTS_SHADOW: begin
+                    target_requirements_shadow_q <= bus.wdata;
+                    shadow_written_mask_q[3] <= 1'b1;
+                end
+                REG_CORRECTION_LIMIT_SHADOW: begin
+                    correction_limit_shadow_q <= bus.wdata;
+                    shadow_written_mask_q[4] <= 1'b1;
+                end
+                REG_ABSOLUTE_LIMIT_SHADOW: begin
+                    absolute_limit_shadow_q <= bus.wdata;
+                    shadow_written_mask_q[5] <= 1'b1;
+                end
+                REG_CONFIG_GENERATION_SHADOW: begin
+                    config_generation_shadow_q <= bus.wdata;
+                    shadow_written_mask_q[6] <= 1'b1;
+                end
+                default: begin
+                end
+            endcase
+        end
+    end
+
+    // Ordinary scan/hold configuration is bus-owned and independent of the
+    // deterministic acquisition control path.
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
+            scan_offset_o     <= 14'sd6962;
+            scan_amp_o        <= 14'sd410;
+            scan_step_o       <= 14'sd1;
+            scan_update_div_o <= 32'd1524;
+            out2_limit_o      <= 14'sd8191;
+            hold_value_o      <= 14'sd0;
+            polarity_o        <= 1'b0;
+        end else if (bus.wen) begin
+            unique case (reg_addr_w)
+                REG_SCAN_OFFSET: scan_offset_o <= bus.wdata[13:0];
+                REG_SCAN_AMP: scan_amp_o <= bus.wdata[13:0];
+                REG_SCAN_STEP: scan_step_o <= bus.wdata[13:0];
+                REG_SCAN_UPDATE_DIV:
+                    scan_update_div_o <= (bus.wdata == 32'd0) ? 32'd1 : bus.wdata;
+                REG_OUT2_LIMIT: begin
+                    if ($signed({1'b0, bus.wdata[13:0]}) > 15'sd8191)
+                        out2_limit_o <= 14'sd8191;
+                    else
+                        out2_limit_o <= bus.wdata[13:0];
+                end
+                REG_HOLD_VALUE: hold_value_o <= bus.wdata[13:0];
+                REG_POLARITY: polarity_o <= bus.wdata[0];
+                default: begin
+                end
+            endcase
+        end
+    end
+
+    // Capture configuration is bus-owned. capture_start_o remains a one-cycle
+    // pulse even when unrelated bus writes occur.
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
+            capture_start_o      <= 1'b0;
+            capture_decimation_o <= 32'd1024;
+            capture_length_o     <= 32'd2048;
+            capture_read_index_o <= 32'd0;
+        end else begin
+            capture_start_o <= 1'b0;
+            if (bus.wen) begin
+                unique case (reg_addr_w)
                     REG_CAPTURE_CTRL: capture_start_o <= bus.wdata[0];
                     REG_CAPTURE_DECIMATION:
                         capture_decimation_o <= (bus.wdata == 32'd0) ? 32'd1 : bus.wdata;

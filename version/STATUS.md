@@ -12,7 +12,8 @@
 
 ### Current Blocker
 
-- [NOT VERIFIED] 尚未由用户在 Vivado 中执行 synthesis/implementation、确认 125 MHz timing、生成或烧录新 bitstream。
+- [FAILED] 用户提供的重构前 Vivado implementation 结果为 125 MHz、WNS `-2.318 ns`、TNS `-1167.723 ns`、`897` failing endpoints；最差路径约 `9.916 ns`，其中 net delay `6.035 ns`，high fanout `95`。
+- [NOT VERIFIED] 已完成第一阶段等价 RTL 控制集拆分，但尚未由用户重新运行 implementation，不能判断 WNS/TNS/high-fanout 是否已经收敛，也不能进入第二阶段流水化。
 - [NOT VERIFIED] 新 acquisition 尚未在真实板卡上验证寄存器 readback、ARM、实际触发点、Kp=0 无扰切换和 OUT2/PZT 行为。
 - [NOT VERIFIED] 尚未执行新的硬件 SOP；最小非零 Kp 与基础 P-only 仍必须等待用户真实硬件结果。
 
@@ -24,6 +25,7 @@
 - [IMPLEMENTED] 独立 `deterministic_lock_acquisition` 在 `adc_clk` 域根据实际 `selected_out2` 相邻值生成 scan direction，并以 active target window 和原始 `laser_error` crossing 产生一次性 trigger。
 - [IMPLEMENTED] 合法 ARM 同拍完成 shadow-to-active snapshot；ARM 后 shadow 修改不影响当前 transaction。trigger 同拍捕获实际 OUT2 为 `LOCK_BIAS`、应用 active `ERROR_SETPOINT`/limits，并原子进入 `MODE=3`、Kp=0、Ki=0。
 - [IMPLEMENTED] `out2_lock_controller` 明确实现 `ABORT/FAULT > TRIGGER > normal` 输出优先级；trigger 拍保持当前 OUT2，P pipeline 填充期间输出捕获 bias。
+- [IMPLEMENTED] 第一阶段 timing refactor 将 `custom_register_bank` 大型寄存器过程拆为 acquisition fast-control、shadow、scan/hold、capture 四个唯一驱动 `always_ff`；只有 fast-control 组保留 acquisition 决策优先级，其他三组仅由 reset 和相关 bus write 驱动。
 - [IMPLEMENTED] Python backend、Linux helper、CLI 和最小 GUI 已切换正常路径为完整 shadow preload + 单次 ARM；实时触发不再由 host target polling 或 `CAPTURE_LOCK_POINT` 决定。
 - [IMPLEMENTED] GUI confirmed target 显示 scan direction、ERROR crossing direction、polarity suggestion（仅显示、不自动应用）和 `config_generation`；只有匹配 generation 的 sticky `TRIGGERED` event 才允许 Apply P。
 - [IMPLEMENTED] legacy `lock-here` / `CAPTURE_LOCK_POINT` 保留为显式 diagnostic 路径，不是 GUI 正常 acquisition 路径。
@@ -31,7 +33,7 @@
 #### AUTOMATED VERIFIED RECORDS
 
 - [AUTOMATED VERIFIED] 正式 host 测试文件 `tests/test_custom_fpga_backend.py`、`tests/test_operator_voltage_diagnostics.py`、`tests/test_custom_fpga_workflow.py`、`tests/test_waveform_preview.py` 合计 `142 passed`。
-- [AUTOMATED VERIFIED] XSim `tb_custom_register_bank_basic` 为 `136/136 PASS`，覆盖地址、signed readback、partial/complete config、invalid ARM、multi-command、snapshot、sticky event、generation、CLEAR_EVENT、Apply P 和 ABORT。
+- [AUTOMATED VERIFIED] XSim `tb_custom_register_bank_basic` 为 `141/141 PASS`，除原有地址、signed readback、ARM/event/Apply P/ABORT 覆盖外，新增 acquisition 控制同时有效时 shadow、scan、capture bus write 独立性和 capture 单拍脉冲回归。
 - [AUTOMATED VERIFIED] XSim `tb_out2_lock_controller` 为 `35/35 PASS`，覆盖 SAFE/SCAN/HOLD/P_LOCK、trigger hold、ABORT/FAULT、P pipeline、correction/absolute saturation。
 - [AUTOMATED VERIFIED] XSim `tb_deterministic_lock_acquisition` 为 `32/32 PASS`，覆盖 RISING/FALLING/相等 sample/端点反转、方向或窗口不匹配、两种 crossing、同拍 ABORT、runtime fault 和集成 trigger。
 - [AUTOMATED VERIFIED] 集成仿真记录 `out2_before=100`、`out2_trigger=100`、`captured_bias=100`、首拍及后续 Kp=0 OUT2 均为 `100`，数字命令跳变为 `0 counts`。
@@ -44,7 +46,7 @@
 
 ### Not Verified
 
-- [NOT VERIFIED] Vivado synthesis/implementation 与 125 MHz timing closure；本轮行为级仿真不等于 timing closed。
+- [NOT VERIFIED] 第一阶段重构后的 Vivado synthesis/implementation 与 125 MHz timing closure；行为级仿真不等于 timing closed。
 - [NOT VERIFIED] 真实板卡 Kp=0 scan-to-lock 是否无扰；`0 counts` 仅为 RTL 数字命令证据，不包含 DAC 模拟瞬态、PZT 或激光动态。
 - [NOT VERIFIED] 最小非零 Kp 是否形成负反馈。
 - [NOT VERIFIED] 基础 P-only 是否能够持续锁定。
@@ -64,4 +66,4 @@
 
 ### Unique Next Experiment
 
-由用户在 Vivado 中确认现有 `custom_register_bank.sv` 已作为工程 source，运行 synthesis/implementation 并检查 125 MHz timing；通过后再生成 bitstream，并按新的单项硬件 SOP 先验证身份、SAFE、SCAN、ARM/event 与 Kp=0 OUT2，无真实结果不得进入 Gate D2。
+由用户在 Vivado 中确认重构后的 `custom_register_bank.sv` 已作为工程 source，重新运行 implementation，并提供 WNS/TNS/failing endpoints/WHS/unconstrained paths、最差路径和 high-fanout 报告。只有新报告仍存在 setup violation 时，才评估第二阶段 acquisition 流水化；timing 全部通过后再生成 bitstream 和进入硬件 SOP。

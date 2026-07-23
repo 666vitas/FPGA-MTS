@@ -105,6 +105,7 @@ module tb_custom_register_bank_basic;
     int pass_count;
     int fail_count;
     logic [31:0] read_data;
+    bit capture_pulse_seen;
 
     task automatic check(input string name, input bit condition);
         tests++;
@@ -146,6 +147,34 @@ module tb_custom_register_bank_basic;
         bus.ren = 1'b0;
         data = bus.rdata;
         bus.addr = 32'd0;
+        wait_cycles(1);
+    endtask
+
+    task automatic bus_write_during_forced_acquisition(
+        input logic [5:0] reg_addr,
+        input logic [31:0] data,
+        output bit capture_start_seen
+    );
+        @(negedge clk);
+        force dut.acq_abort_o = 1'b1;
+        force dut.acq_fault_o = 1'b1;
+        force dut.acq_trigger_o = 1'b1;
+        force dut.arm_accepted_w = 1'b1;
+        bus.addr = {24'd0, reg_addr, 2'b00};
+        bus.wdata = data;
+        bus.wen = 1'b1;
+        bus.ren = 1'b0;
+        @(posedge clk);
+        #1;
+        capture_start_seen = capture_start;
+        @(negedge clk);
+        bus.wen = 1'b0;
+        bus.addr = 32'd0;
+        bus.wdata = 32'd0;
+        release dut.acq_abort_o;
+        release dut.acq_fault_o;
+        release dut.acq_trigger_o;
+        release dut.arm_accepted_w;
         wait_cycles(1);
     endtask
 
@@ -532,6 +561,22 @@ module tb_custom_register_bank_basic;
         bus_write(REG_ACQ_COMMAND, 32'h2);
         bus_read(REG_EVENT_CONFIG_GENERATION, read_data);
         check("ABORT event retains active generation after shadow mutation", read_data == 32'd43);
+
+        bus_write_during_forced_acquisition(REG_TARGET_OUT2_SHADOW, 32'd321, capture_pulse_seen);
+        bus_read(REG_TARGET_OUT2_SHADOW, read_data);
+        check("shadow bus write is independent of acquisition controls", read_data == 32'd321);
+
+        bus_write_during_forced_acquisition(REG_SCAN_OFFSET, 32'd7011, capture_pulse_seen);
+        check("scan bus write is independent of acquisition controls", scan_offset == 14'sd7011);
+
+        bus_write_during_forced_acquisition(REG_CAPTURE_DECIMATION, 32'd77, capture_pulse_seen);
+        check("capture config write is independent of acquisition controls",
+              capture_decimation == 32'd77);
+
+        bus_write_during_forced_acquisition(REG_CAPTURE_CTRL, 32'd1, capture_pulse_seen);
+        check("capture start pulse is independent of acquisition controls", capture_pulse_seen);
+        wait_cycles(1);
+        check("capture start remains a one-cycle pulse", capture_start == 1'b0);
 
         $display("SUMMARY tb_custom_register_bank_basic tests=%0d pass=%0d fail=%0d", tests, pass_count, fail_count);
         if (fail_count != 0) begin

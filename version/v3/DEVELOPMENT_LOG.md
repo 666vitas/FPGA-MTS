@@ -196,3 +196,12 @@
 - XSim 结果：register bank `136/136`、OUT2 controller `35/35`、integrated acquisition `32/32`；bumpless 数字命令跳变 `0 counts`。正式 Python tests 合计 `142 passed`。
 - 安全边界：未运行 Vivado synthesis/implementation/timing，未生成/烧录 bitstream，未执行硬件；真实 Kp=0、最小非零 Kp 与 P-only 均保持 `[NOT VERIFIED]`。
 - 当前 Gate：`D1-D / Integrated software/RTL verification and hardware SOP`。下一步只由用户完成 Vivado source/timing 检查；通过后再进入新的单项硬件 SOP。
+
+## 2026-07-23 v3LOCK-D1 Stage 1 RTL Timing Refactor
+
+- 用户提供的重构前 implementation 基线：125 MHz、WNS `-2.318 ns`、TNS `-1167.723 ns`、`897` failing endpoints；最差路径约 `9.916 ns`，net delay `6.035 ns`，high fanout `95`，路径从 OUT2 controller 输出控制进入 register bank 大量寄存器 CE/R。
+- 根因定位：`custom_register_bank` 原单一大型 `always_ff` 把 `acq_abort_o/acq_fault_o/acq_trigger_o/arm_accepted_w` 放在所有 bus write 之前，使 shadow、scan 和 capture 寄存器也继承 acquisition 决策的 CE 选择逻辑。
+- 等价重构：按唯一驱动拆分 acquisition fast-control、shadow、scan/hold、capture 四个 `always_ff`。只有 fast-control 组响应 acquisition 决策并保持 `reset > abort/fault > trigger > arm accepted > relevant bus write`；其他三组只响应 reset 和相关 bus write，capture start 保持单拍。
+- 回归测试：新增 acquisition 控制同时有效时 shadow、scan、capture bus write 仍独立生效，以及 capture start 单拍断言。XSim `tb_custom_register_bank_basic=141/141`、`tb_out2_lock_controller=35/35`、`tb_deterministic_lock_acquisition=32/32`；bumpless 数字跳变仍为 `0 counts`。
+- 未修改寄存器地址、`MAGIC`、`VERSION`、协议、top-level 路由、acquisition 算法或约束；未运行 synthesis/implementation，未使用 timing exception，未生成或烧录 bitstream。
+- 下一步唯一动作：用户重新运行 Vivado implementation 并提供新的 timing/high-fanout 报告；没有新报告前不进入第二阶段。
