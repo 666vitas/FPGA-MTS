@@ -1,52 +1,63 @@
 # STATUS
 
-## 2026-07-18 v3LOCK-P0 Linien-style Manual Lock Foundation — Gate L0
+## 2026-07-23 v3LOCK-D1 Deterministic FPGA Lock Acquisition Design
 
 ### Stage
 
-`v3LOCK-P0 / Linien-style Manual Lock Foundation`
+`v3LOCK-D1 / Deterministic FPGA Lock Acquisition Design`
 
 ### Current Gate
 
-`Gate L0 / Diagnose scan-to-lock offset`
+`Gate D1-A / Freeze the deterministic lock-acquisition interface`
 
 ### Current Blocker
 
-- [USER HARDWARE VERIFIED] 用户已在真实硬件中观察到：板卡能够产生 PZT 扫描，能够观察 PD、MTS error 和 OUT2，上位机能够选择目标误差零点。
-- [USER HARDWARE VERIFIED] 用户确认当前故障现象：执行 `LOCK HERE` 后，目标饱和吸收峰与示波器 cursor 存在明显偏差。
-- [NOT VERIFIED] 尚未区分偏差来自 loaded PZT 实际电压/动态迟滞、rising/falling 扫描方向、Linux 轮询与寄存器写入时刻、`LOCK HERE` 重新捕获机制，还是 MTS error 零交叉与目标谱峰中心本身不重合。
-- 当前 blocker 是缺少同一谱线、同一零交叉、同一扫描方向下 `HOLD SELECTED COUNT` 与 `LOCK HERE, Kp=0` 的可比较硬件记录；不是已确认的 Python、RTL、寄存器或 bitstream 缺陷。
+- [IMPLEMENTED] 当前 GUI 能从历史 capture 选取并确认 `target_out2_counts`，但 `LOCK HERE` 仍由 Red Pitaya Linux 轮询 `OUT2_MONITOR`，再写 `CAPTURE_LOCK_POINT`。
+- [NOT VERIFIED] GUI 保存的 `ramp_direction` 尚未成为 FPGA 实时触发条件。
+- [NOT VERIFIED] 尚无独立的 ERROR crossing direction 配置与 FPGA 判定。
+- [NOT VERIFIED] 尚无 FPGA `ARM/ARMED/TRIGGERED/LOCK_ACTIVE/FAULT` 状态契约。
+- [NOT VERIFIED] 尚无包含实际触发 OUT2、ERROR、方向、配置代次和 FPGA 时间戳的触发事件 readback。
+- [NOT VERIFIED] 通信延迟尚未退出实时触发链路；Linux 轮询和寄存器写入时刻仍决定当前切换发生在哪一个扫描点。
 
 ### Verified
 
-#### SOFTWARE VERIFIED
+#### SOFTWARE / RTL IMPLEMENTED
 
-- [AUTOMATED VERIFIED] 最新本地记录：当前 host 已提供 identity、SAFE、SCAN safe range、当前 capture 选点、`HOLD SELECTED COUNT`、`LOCK HERE`、MODE/ENABLE、OUT2 readback、saturation 和 CH1/CH3/CH4 capture；最近完整 software tests 为 `137 passed`。
+- [IMPLEMENTED] 当前 host 已实现 SCAN、四通道 capture、GUI ERROR 零交叉选取、confirmed target 和 Kp=0 `LOCK HERE` 命令路径。
+- [IMPLEMENTED] 当前 `CAPTURE_LOCK_POINT` 命令到达 FPGA 后，会在同一 `clk_i` 域捕获当时的 `ERROR_MONITOR` 与 `OUT2_MONITOR`，将 Kp/Ki 清零并进入 `MODE=3 P_LOCK`。
+- [IMPLEMENTED] 当前 RTL 已有 P-only 数据路径、correction limit、absolute limit、SAFE/SCAN/HOLD/P_LOCK 基础模式和 saturation readback；这些实现不等于确定性 acquisition 已完成。
 
-#### SIMULATION VERIFIED
+#### AUTOMATED VERIFIED RECORDS
 
-- [AUTOMATED VERIFIED] 当前记录中的独立 XSim：custom register bank `83/83`、OUT2 controller `29/29`，均无失败。未运行 synthesis、implementation 或 timing。
+- [AUTOMATED VERIFIED] 最近完整 software test 记录为 `137 passed`；本轮只修改文档，没有重跑 Python 测试。
+- [AUTOMATED VERIFIED] 最近独立 XSim 记录为 custom register bank `83/83`、OUT2 controller `29/29`；本轮没有修改 RTL，也没有重跑 RTL 仿真。
 
-#### HARDWARE VERIFIED
+#### USER HARDWARE OBSERVATIONS
 
-- [USER HARDWARE VERIFIED] PZT 断开时，用户确认当前软件预补偿后的 GUI OUT2 设定与板上真实 OUT2 输出一致；本轮没有新增精确测量元数据。
-- [USER HARDWARE VERIFIED] loaded PZT 实验中已经观察到可扫描的 PD、MTS error、OUT2 和 `LOCK HERE` 后谱峰/cursor 偏差这一故障现象；这只证明现象存在，不证明锁定或 Gate 通过。
+- [USER HARDWARE VERIFIED] PZT 断开时，用户确认当前软件预补偿后的 GUI OUT2 设定与板上真实 OUT2 输出一致；当前没有新增精确测量元数据。
+- [USER HARDWARE VERIFIED] 用户已观察到真实 PZT 扫描、PD、MTS error 与 OUT2，并能在 GUI 中选择目标误差零点。
+- [USER HARDWARE VERIFIED] 用户已观察到当前 `LOCK HERE` 后谱峰与 cursor 存在偏差；该观察只证明现象存在，不证明确定性切换或锁定通过。
 
 ### Not Verified
 
-- [NOT VERIFIED] 当前 loaded PZT 节点在对比实验中的真实 min/max/center/Vpp。
-- [NOT VERIFIED] 同一目标点在 rising/falling 方向下的频率或谱峰位置差异。
-- [NOT VERIFIED] `HOLD SELECTED COUNT` 后谱峰是否相对 cursor 偏移。
-- [NOT VERIFIED] `LOCK HERE` 后真实 OUT2 跳变量及捕获时刻。
+- [NOT VERIFIED] FPGA deterministic acquisition interface、寄存器契约、FSM RTL 和仿真验收尚未实现。
 - [NOT VERIFIED] Kp=0 scan-to-lock 是否无扰。
 - [NOT VERIFIED] 最小非零 Kp 是否形成负反馈。
 - [NOT VERIFIED] 基础 P-only 是否能够持续锁定。
+- [NOT VERIFIED] 所有真实硬件锁定、自动重锁和长期稳频结果。
 
 ### Forbidden Scope
 
-- 本 Gate 只诊断偏移，不实现 Linien 状态机，不提高 Kp，不改变 Ki/polarity，不开展 PI、自动锁定、自动重锁、AI 优化或 GUI 扩张。
-- 只有用户返回可比较的 HOLD/LOCK HERE 硬件记录并确认判据，才能结束 Gate L0；不得自动进入 Gate L1。
+- 本 Gate 不做 PI、Ki、自动重锁、机器学习、谱形相关、完整自动锁定或无关 GUI 扩张。
+- 本 Gate 不进行硬件实验，不运行 Vivado synthesis/implementation，不生成或烧录 bitstream。
+- 不把接口设计、软件测试或 RTL 仿真写成 GUI/硬件/锁定通过。
 
-### Unique Next Experiment
+### Historical / Superseded Diagnostic Path
 
-只按 `software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md` 执行一次 Gate L0 A/B 对比：在已确认安全的同一接线和 `0.770 V / 0.080 V / 2 Hz / Kp=0 / Ki=0` 扫描条件下，对同一谱线、零交叉和扫描方向依次记录 `HOLD SELECTED COUNT` 与 `LOCK HERE` 的 selected counts、readback counts、loaded-node 实际电压、谱峰相对 cursor 偏移和 rising/falling；两次动作之间及结束后均返回 SAFE。任一身份、接线、范围、readback、saturation、跳变或最终 SAFE 条件不明确时立即停止。
+- 原 `Gate L0 / Diagnose scan-to-lock offset` 及其 HOLD/LOCK HERE A/B SOP 和已有记录全部保留，不删除，也不标记为 PASS。
+- Gate L0 现标记为 `historical / superseded diagnostic path`。用户已明确授权先修复数字获取架构，暂缓 HOLD/LOCK HERE 硬件 A/B；待软件与 RTL 仿真通过后再制定新的硬件 Gate。
+- 原 L0 结果仍可作为偏移现象与安全边界的历史证据，但不再是当前唯一 blocker。
+
+### Unique Next Action
+
+完成 FPGA deterministic lock acquisition 的接口设计、寄存器契约、状态机行为和软件/RTL 仿真验收标准；当前设计基线见 `software/redpitaya_lock_host/docs/FPGA_DETERMINISTIC_LOCK_ACQUISITION.md`。

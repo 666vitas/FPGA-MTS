@@ -1,6 +1,20 @@
 # Hardware Calibration SOP
 
-## 当前范围：Gate L0 HOLD / LOCK HERE 对比
+## 2026-07-23 当前状态：硬件实验暂缓
+
+```text
+Current Stage: v3LOCK-D1 / Deterministic FPGA Lock Acquisition Design
+Current Gate: Gate D1-A / Freeze the deterministic lock-acquisition interface
+Hardware action: PAUSED / no experiment in the current Gate
+Hardware lock result: [NOT VERIFIED]
+```
+
+- 当前 Gate 已转为软件/RTL deterministic acquisition 设计。
+- 当前 HOLD/LOCK HERE A/B 实验暂缓，不再是当前唯一 blocker。
+- 新硬件 SOP 只在接口、RTL、软件和仿真通过后另行生成。
+- 下方旧实验和结果完整保留为 historical/superseded diagnostic evidence；它们不代表 Gate L0 失败或通过，也不代表 Kp=0、P-only 或锁定通过。
+
+## 历史/暂缓范围：Gate L0 HOLD / LOCK HERE 对比
 
 ```text
 Current Stage: v3LOCK-P0 / Linien-style Manual Lock Foundation
@@ -9,7 +23,7 @@ Allowed action: one A/B comparison, HOLD SELECTED COUNT vs LOCK HERE at Kp=0
 Hardware result: [NOT VERIFIED]
 ```
 
-本次只诊断用户已观察到的谱峰/cursor 偏移。它不是 P-only 实验，不授权 `APPLY P`、非零 Kp/Ki、polarity 切换、PI 或自动进入下一 Gate。
+本节是保留的旧实验设计，当前不得执行。它只诊断用户已观察到的谱峰/cursor 偏移，不是 P-only 实验，不授权 `APPLY P`、非零 Kp/Ki、polarity 切换、PI 或自动进入下一 Gate。
 
 ### 接线与开始条件
 
@@ -96,4 +110,4 @@ PASS 必须同时满足：
 
 ## 历史 HV-1B 后续说明
 
-HV-1B 已完成。除非校准、板卡、负载或模拟链发生变化，不重复本空载复测。当前唯一动作只看本文件顶部 Gate L0。
+HV-1B 已完成。除非校准、板卡、负载或模拟链发生变化，不重复本空载复测。当前动作只看本文件顶部 D1 状态；本文件当前不授权任何硬件实验。

@@ -895,3 +895,13 @@ git diff --check
 - 新增 `docs/LOADED_PZT_SCAN_SOP.md`；当前 Gate 为 `Gate 2 / HV-2 loaded PZT SCAN voltage and spectral-response verification`。只允许 `0.770 V / 0.080 V / 2 Hz / Kp=Ki=0` 的 loaded PZT SCAN-only 观测。
 - 只修改上位机 capture-window 同步与回归测试；未修改 RTL、Vivado、寄存器、`MAGIC`、`VERSION` 或 bitstream，未运行 Vivado。
 - HV-2 PASS 前不执行 HOLD SELECTED COUNT、LOCK HERE、APPLY P、polarity 变更或非零 Kp/Ki。
+
+## 2026-07-23 v3LOCK-D1 Deterministic FPGA Lock Acquisition Design
+
+- 用户授权的方向变化：停止把 Gate L0 HOLD/LOCK HERE 硬件 A/B 作为当前唯一 blocker；当前 Stage 改为 `v3LOCK-D1 / Deterministic FPGA Lock Acquisition Design`，当前 Gate 改为 `Gate D1-A / Freeze the deterministic lock-acquisition interface`。旧 L0 记录和 SOP 保留为 historical/superseded diagnostic evidence，不删除、不标为 PASS。
+- 读取和审计：核对 `AGENTS.md`、`version/STATUS.md`、`version/CURRENT_REVIEW_MANIFEST.md`、活动工程规则、`custom_register_bank.sv`、`ramp_generator.sv`、`red_pitaya_top.sv`、host GUI/backend/Linux helper 及三份相关工作流/SOP。请求中列出的独立 `v0.94/rtl/out2_lock_controller.sv` 当前不存在；该 module 实际附在 `custom_register_bank.sv` 末尾。
+- 当前真实路径：[IMPLEMENTED] GUI 从历史 capture 保存 `target_out2_counts` 和 `ramp_direction`；Linux 只轮询 `OUT2_MONITOR` 进入窗口并写 `CAPTURE_LOCK_POINT`；FPGA 在命令到达拍捕获当前 ERROR/OUT2 并进入 Kp=0。`ramp_direction` 和独立 ERROR crossing direction 未进入 FPGA 实时条件，通信延迟仍在触发链路。
+- 修改内容：新增 `FPGA_DETERMINISTIC_LOCK_ACQUISITION.md`，定义职责、目标描述、SAFE/SCAN/ARMED/TRIGGER_CAPTURE/P_LOCK_KP0/P_LOCK_ACTIVE/FAULT、四条件触发、bumpless transfer、建议寄存器、event readback、验收矩阵和 GUI 功能债务；同步 STATUS、活动规则、两份 supporting workflow 和本 SOP 顶部状态。
+- 未修改范围：未修改 RTL、Python 产品代码、tests、Vivado 工程、寄存器地址/语义、`MAGIC`、`VERSION` 或 bitstream；未执行硬件操作。
+- 验证范围：本轮只做文档验证；不运行 Python tests，不运行 RTL 仿真，不运行 Vivado synthesis/implementation。
+- 下一 Gate：D1-B 最小 RTL 任务是先为 ramp 生成与 `scan_o` 对齐的 direction，加入 shadow-to-active ARM snapshot、独立 ERROR crossing 判定、一次性 TRIGGER_CAPTURE、P_LOCK_KP0 bumpless assertion 和 sticky event readback，再以独立 testbench 覆盖验收矩阵。

@@ -1,6 +1,6 @@
 # FPGA-MTS 单开发者 Gate 工作流
 
-本文件是 FPGA-MTS 当前唯一有效的详细工程规则。当前目标不是扩展 GUI、PI、自动锁定、AI 优化或审查流程，而是在现有 SystemVerilog MTS 信号链上实现一个 Linien-style minimal manual lock framework。
+本文件是 FPGA-MTS 当前唯一有效的详细工程规则。当前目标不是扩展 GUI、PI、自动锁定、AI 优化或审查流程，而是在现有 SystemVerilog MTS 信号链上实现 `v3LOCK-D1 / Deterministic FPGA Lock Acquisition Design`：host 只配置目标并 ARM，FPGA 自主判定方向与 ERROR crossing，原子进入 Kp=0，再由用户批准最小非零 Kp。
 
 ## 1. 当前唯一工程目标
 
@@ -38,7 +38,7 @@
 日常开发只需读取：
 
 1. `AGENTS.md`：角色、基本工作方式和安全边界。
-2. `version/STATUS.md` 顶部：Current Stage、Current Gate、Blocker、证据和唯一实验。
+2. `version/STATUS.md` 顶部：Current Stage、Current Gate、Blocker、证据和唯一下一动作/实验。
 3. 本文件：完整 Gate 工作流和完成标准。
 4. `version/CURRENT_REVIEW_MANIFEST.md`：当前有效代码、测试、文档根目录和历史排除。
 5. `software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md`：OUT2、loaded PZT 和锁点对比实验的操作与证据要求。
@@ -77,13 +77,13 @@ Gate 未通过时禁止自动进入下一 Gate、扩展额外功能、用测试�
 
 按顺序完成：
 
-1. 核实真实 OUT2 与 loaded PZT 节点电压。
-2. 对同一谱线、零交叉和扫描方向比较 `HOLD SELECTED COUNT` 与 `LOCK HERE`。
-3. 区分 scan-to-hold 动态迟滞、rising/falling 差异与 `LOCK HERE` 逻辑或触发错误。
-4. 采用 Linien 的 manual lock、谱线区域选择、方向选择、扫描居中/缩小、FPGA robust trigger 和 lock check 思想。
-5. 设计并实现最小 FPGA scan-to-lock 状态机。
-6. 实现并验证 Kp=0 无明显跳变。
-7. 实现并验证最小 P-only 稳频。
+1. 冻结 deterministic lock acquisition 的接口设计、寄存器契约、状态机语义和验收标准。
+2. 实现 FPGA acquisition FSM RTL，并用独立仿真覆盖方向、窗口、ERROR crossing、原子切换、事件 readback、ABORT、FAULT、限幅和 saturation。
+3. 将 host 从 `target wait -> CAPTURE_LOCK_POINT` 改为 preload target -> `ARM`；Linux 只传输低速参数和读取状态。
+4. 完成软件/RTL 集成验证，证明 host 轮询频率和通信延迟不参与实时触发。
+5. 编写但不执行新的硬件 SOP。
+6. 由用户在真实硬件验证 Kp=0 deterministic transition。
+7. 由用户批准并验证最小非零 Kp。
 
 在第 7 项通过前，禁止开展 PI、自动重锁、完整自动锁定、AI 参数优化、深度学习、全谱线自动识别、大量 GUI 页面、大规模上位机重构、多 Agent 项目管理或新增重复规则。
 
@@ -115,31 +115,41 @@ MAGIC = 0x4D545330
 
 ## 8. Gate 路线
 
-### Gate L0：Diagnose scan-to-lock offset
+### Historical Gate L0：Diagnose scan-to-lock offset
 
-比较同一目标在 `HOLD SELECTED COUNT` 与 `LOCK HERE, Kp=0` 下的 selected count、readback、真实 loaded-node 电压、扫描方向和谱峰相对 cursor 偏移，区分物理迟滞、方向差异、触发逻辑与 MTS 零点/谱峰对应关系。
+原 HOLD/LOCK HERE A/B 诊断、SOP 和记录保留为 `historical / superseded diagnostic path`，不得删除或写成 PASS。用户已授权先修复数字获取架构，因此 L0 不再是当前唯一 blocker；新的软件/RTL链路通过后再制定硬件 Gate。
 
-### Gate L1：Target and direction are deterministic
+### Gate D1-A：Freeze deterministic acquisition interface
 
-确认目标来自当前 capture；谱线区域、零交叉、误差斜率、rising/falling 方向、扫描中心和缩小后的范围均明确且可重复。
+以当前真实 `LOCK HERE` 路径为基线，冻结 target shadow registers、ARM/ABORT、状态、触发条件、原子切换、bumpless transfer、事件 readback、fault 与软件/RTL验收标准。
 
-### Gate L2：Atomic scan-to-Kp=0 transition
+### Gate D1-B：FPGA acquisition FSM RTL and simulation
 
-FPGA 在指定方向穿越目标时原子捕获 setpoint/bias 并切换；Windows/Linux 只配置和读取。确认 Kp=0 时 OUT2 无危险跳变、谱峰不明显偏移、无 saturation，并最终 SAFE。
+FPGA 实现扫描方向、目标窗口、独立 ERROR crossing direction 和一次性触发；仿真证明 Windows/Linux 通信不决定 scan-to-lock 时刻，Kp=0 切换的 OUT2 bias 来自触发拍实际 `selected_out2`。
 
-### Gate L3：Minimal nonzero Kp
+### Gate D1-C：Host ARM integration
+
+Windows 从当前 capture 生成目标描述并预装配置，Red Pitaya Linux 只写配置、发 ARM 和读状态；删除实时路径中的 host target polling 和 `CAPTURE_LOCK_POINT` 决策职责。
+
+### Gate D1-D：Integrated software/RTL verification and hardware SOP
+
+完成寄存器契约、状态/事件解析和集成测试，随后编写但不执行新的硬件 SOP。只有用户返回真实硬件结果，才能批准 Kp=0 acquisition。
+
+### Gate D2：Minimal nonzero Kp
 
 Ki=0，从用户批准的最小 Kp 开始；polarity 必须有方向证据；correction/absolute limit 生效。确认形成负反馈，异常立即 SAFE。
 
-### Gate L4：Basic P-only lock
+### Gate D3：Basic P-only lock
 
-确认 error RMS 降低、OUT2 不长期饱和、仍有调节余量、可重复进入同一锁点，并保存锁定前后数据。Gate L4 通过前禁止 PI。
+确认 error RMS 降低、OUT2 不长期饱和、仍有调节余量、可重复进入同一锁点，并保存锁定前后数据。Gate D3 通过前禁止 PI。
 
 ## 9. 根因与最小修改
 
-先建立可重复的 pass/fail 反馈环，再修改代码。按需检查最终信号路由、host/RTL 地址与模式、signed/位宽/饱和、counts 与物理电压、capture 对齐、扫描方向、模式切换和 stale 数据。
+先建立可重复的 pass/fail 反馈环，再修改代码。按需检查最终信号路由、host/RTL 地址与模式、signed/位宽/饱和、counts 与物理电压、capture 对齐、扫描方向、ERROR crossing direction、模式切换和 stale 数据。
 
-优先修复根因，保持已验证的 SAFE/SCAN、寄存器兼容和测试。禁止无关重构，也不得在 Gate L0 结果返回前预先实现 Linien 状态机。
+优先修复根因，保持已验证的 SAFE/SCAN、限幅和测试，禁止无关重构。当前已批准按 D1 单 Gate 路线设计并实现最小 Linien-style acquisition FSM，不再等待 Gate L0 A/B 结果。
+
+用户已明确批准这条后续路线需要修改 RTL、寄存器地址/语义和 `VERSION`；本轮仅冻结文档设计。实际代码修改仍须按每次单一 Gate 的明确范围执行，不授权无关 RTL、Vivado 工程、`MAGIC`、bitstream 或硬件操作。
 
 ## 10. 自检与额外审查
 
