@@ -24,6 +24,7 @@ module custom_register_bank (
     output logic signed [13:0] ki_o,
     output logic               integral_reset_o,
     output logic               acq_trigger_o,
+    output logic               acq_hold_o,
     output logic               acq_abort_o,
     output logic               acq_fault_o,
     output logic               capture_start_o,
@@ -146,6 +147,8 @@ module custom_register_bank (
     logic [13:0] active_correction_limit_w;
     logic [13:0] active_absolute_limit_w;
     logic arm_accepted_w;
+    logic signed [13:0] trigger_out2_sample_w;
+    logic signed [13:0] trigger_error_sample_w;
 
     assign reg_addr_w = bus.addr[2+:6];
     assign sys_en_w = bus.wen | bus.ren;
@@ -185,8 +188,11 @@ module custom_register_bank (
         .apply_p_pulse_i(apply_p_pulse_w),
         .apply_p_kp_i(bus.wdata[13:0]),
         .trigger_o(acq_trigger_o),
+        .hold_o(acq_hold_o),
         .fault_immediate_o(acq_fault_o),
         .arm_accepted_o(arm_accepted_w),
+        .trigger_out2_sample_o(trigger_out2_sample_w),
+        .trigger_error_sample_o(trigger_error_sample_w),
         .config_validation_o(config_validation_w),
         .state_readback_o(acq_state_w),
         .active_target_out2_o(active_target_out2_w),
@@ -228,7 +234,7 @@ module custom_register_bank (
                 ki_o             <= 14'sd0;
                 integral_reset_o <= 1'b1;
             end else if (acq_trigger_o) begin
-                lock_bias_o       <= out2_monitor_i;
+                lock_bias_o       <= trigger_out2_sample_w;
                 error_setpoint_o  <= active_error_setpoint_w;
                 lock_correction_limit_o <= $signed({1'b0, active_correction_limit_w[12:0]});
                 lock_limit_o      <= $signed({1'b0, active_absolute_limit_w[12:0]});
@@ -513,8 +519,11 @@ module deterministic_lock_acquisition (
     input  logic               apply_p_pulse_i,
     input  logic signed [13:0] apply_p_kp_i,
     output logic               trigger_o,
+    output logic               hold_o,
     output logic               fault_immediate_o,
     output logic               arm_accepted_o,
+    output logic signed [13:0] trigger_out2_sample_o,
+    output logic signed [13:0] trigger_error_sample_o,
     output logic        [31:0] config_validation_o,
     output logic        [31:0] state_readback_o,
     output logic signed [13:0] active_target_out2_o,
@@ -571,11 +580,15 @@ module deterministic_lock_acquisition (
 
     logic [2:0] state_q;
     logic active_config_valid_q;
+    logic [31:0] active_generation_q;
+    logic signed [15:0] active_target_low_q;
+    logic signed [15:0] active_target_high_q;
     logic signed [13:0] previous_error_q;
     logic previous_error_valid_q;
     logic signed [13:0] previous_out2_q;
     logic [1:0] scan_direction_q;
     logic scan_direction_valid_q;
+    logic trigger_pending_q;
     logic [63:0] cycle_counter_q;
     logic [2:0] event_type_q;
     logic event_valid_q;
@@ -583,6 +596,16 @@ module deterministic_lock_acquisition (
     logic [1:0] event_error_direction_q;
     logic [15:0] reject_code_q;
     logic [15:0] fault_code_q;
+    logic event_commit_pulse_q;
+    logic [2:0] event_stage_type_q;
+    logic signed [13:0] event_stage_out2_q;
+    logic signed [13:0] event_stage_error_q;
+    logic [31:0] event_stage_generation_q;
+    logic [1:0] event_stage_scan_direction_q;
+    logic [1:0] event_stage_error_direction_q;
+    logic [63:0] event_stage_timestamp_q;
+    logic [15:0] event_stage_reject_code_q;
+    logic [15:0] event_stage_fault_code_q;
 
     logic fields_complete_w;
     logic signed_fields_valid_w;
@@ -602,13 +625,14 @@ module deterministic_lock_acquisition (
 
     logic [1:0] scan_direction_now_w;
     logic scan_direction_now_valid_w;
-    logic signed [15:0] active_delta_w;
-    logic signed [15:0] active_delta_abs_w;
+    logic signed [15:0] out2_ext_w;
     logic inside_window_w;
     logic neg_to_pos_w;
     logic pos_to_neg_w;
     logic required_crossing_w;
     logic direction_match_w;
+    logic trigger_candidate_w;
+    logic fault_candidate_w;
 
     always_comb begin
         fields_complete_w = (shadow_written_mask_i == 7'h7F);
@@ -678,13 +702,9 @@ module deterministic_lock_acquisition (
             scan_direction_now_valid_w = scan_direction_valid_q;
         end
 
-        active_delta_w = {{2{out2_i[13]}}, out2_i} -
-                         {{2{active_target_out2_o[13]}}, active_target_out2_o};
-        if (active_delta_w < 16'sd0)
-            active_delta_abs_w = -active_delta_w;
-        else
-            active_delta_abs_w = active_delta_w;
-        inside_window_w = active_delta_abs_w <= $signed({2'd0, active_window_o});
+        out2_ext_w = {{2{out2_i[13]}}, out2_i};
+        inside_window_w = (out2_ext_w >= active_target_low_q) &&
+                          (out2_ext_w <= active_target_high_q);
         neg_to_pos_w = (previous_error_q < active_error_setpoint_o) &&
                        (error_i >= active_error_setpoint_o);
         pos_to_neg_w = (previous_error_q > active_error_setpoint_o) &&
@@ -697,17 +717,19 @@ module deterministic_lock_acquisition (
                             (scan_direction_now_w == active_requirements_o[1:0]);
     end
 
-    assign fault_immediate_o = (state_q == STATE_ARMED) &&
+    assign fault_candidate_w = (state_q == STATE_ARMED) &&
                                (saturated_i || !enable_i || (mode_i != MODE_SCAN) ||
                                 !active_config_valid_q);
-    assign trigger_o = (state_q == STATE_ARMED) &&
-                       previous_error_valid_q &&
-                       active_config_valid_q &&
-                       !abort_pulse_i &&
-                       !fault_immediate_o &&
-                       direction_match_w &&
-                       inside_window_w &&
-                       required_crossing_w;
+    assign trigger_candidate_w = (state_q == STATE_ARMED) &&
+                                 !trigger_pending_q &&
+                                 previous_error_valid_q &&
+                                 active_config_valid_q &&
+                                 !abort_pulse_i &&
+                                 !fault_candidate_w &&
+                                 direction_match_w &&
+                                 inside_window_w &&
+                                 required_crossing_w;
+    assign hold_o = trigger_pending_q || trigger_o;
     assign arm_accepted_o = arm_pulse_i && config_valid_w;
 
     always_comb begin
@@ -744,91 +766,97 @@ module deterministic_lock_acquisition (
         fault_detail_o = {fault_code_q, reject_code_q};
     end
 
+    // Acquisition control and decision pipeline. The real-time comparator tree
+    // terminates at trigger_pending_q; only registered pulses leave the module.
     always_ff @(posedge clk_i) begin
         if (!rstn_i) begin
             state_q <= STATE_SAFE;
             active_config_valid_q <= 1'b0;
+            active_generation_q <= 32'd0;
             active_target_out2_o <= 14'sd0;
             active_error_setpoint_o <= 14'sd0;
             active_window_o <= 14'd0;
             active_requirements_o <= 32'd0;
             active_correction_limit_o <= 14'd0;
             active_absolute_limit_o <= 14'd0;
+            active_target_low_q <= 16'sd0;
+            active_target_high_q <= 16'sd0;
             previous_error_q <= 14'sd0;
             previous_error_valid_q <= 1'b0;
             previous_out2_q <= 14'sd0;
             scan_direction_q <= SCAN_DIR_RISING;
             scan_direction_valid_q <= 1'b0;
+            trigger_pending_q <= 1'b0;
+            trigger_o <= 1'b0;
+            fault_immediate_o <= 1'b0;
+            trigger_out2_sample_o <= 14'sd0;
+            trigger_error_sample_o <= 14'sd0;
             cycle_counter_q <= 64'd0;
-            event_sequence_o <= 32'd0;
-            event_out2_o <= 32'd0;
-            event_error_o <= 32'd0;
-            event_config_generation_o <= 32'd0;
-            event_timestamp_lo_o <= 32'd0;
-            event_timestamp_hi_o <= 32'd0;
-            event_type_q <= EVENT_NONE;
-            event_valid_q <= 1'b0;
-            event_scan_direction_q <= 2'd0;
-            event_error_direction_q <= 2'd0;
-            reject_code_q <= 16'd0;
-            fault_code_q <= 16'd0;
+            event_commit_pulse_q <= 1'b0;
+            event_stage_type_q <= EVENT_NONE;
+            event_stage_out2_q <= 14'sd0;
+            event_stage_error_q <= 14'sd0;
+            event_stage_generation_q <= 32'd0;
+            event_stage_scan_direction_q <= 2'd0;
+            event_stage_error_direction_q <= 2'd0;
+            event_stage_timestamp_q <= 64'd0;
+            event_stage_reject_code_q <= 16'd0;
+            event_stage_fault_code_q <= 16'd0;
         end else begin
             cycle_counter_q <= cycle_counter_q + 64'd1;
+            trigger_o <= 1'b0;
+            fault_immediate_o <= 1'b0;
+            event_commit_pulse_q <= 1'b0;
+
             previous_out2_q <= out2_i;
             if (out2_i != previous_out2_q) begin
                 scan_direction_q <= scan_direction_now_w;
                 scan_direction_valid_q <= 1'b1;
             end
 
-            if (clear_event_pulse_i) begin
-                event_valid_q <= 1'b0;
-                event_type_q <= EVENT_NONE;
-                event_scan_direction_q <= 2'd0;
-                event_error_direction_q <= 2'd0;
-                reject_code_q <= 16'd0;
-                if (state_q != STATE_FAULT)
-                    fault_code_q <= 16'd0;
-            end
-
             if (abort_pulse_i) begin
                 state_q <= STATE_SAFE;
                 active_config_valid_q <= 1'b0;
                 previous_error_valid_q <= 1'b0;
-                event_sequence_o <= event_sequence_o + 32'd1;
-                event_type_q <= EVENT_ABORTED;
-                event_valid_q <= 1'b1;
-                event_out2_o <= {{18{out2_i[13]}}, out2_i};
-                event_error_o <= {{18{error_i[13]}}, error_i};
-                event_config_generation_o <= event_config_generation_o;
-                event_scan_direction_q <= scan_direction_now_w;
-                event_error_direction_q <= 2'd0;
-                event_timestamp_lo_o <= cycle_counter_q[31:0];
-                event_timestamp_hi_o <= cycle_counter_q[63:32];
-            end else if (fault_immediate_o) begin
+                trigger_pending_q <= 1'b0;
+                event_commit_pulse_q <= 1'b1;
+                event_stage_type_q <= EVENT_ABORTED;
+                event_stage_out2_q <= out2_i;
+                event_stage_error_q <= error_i;
+                event_stage_generation_q <= active_generation_q;
+                event_stage_scan_direction_q <= scan_direction_now_w;
+                event_stage_error_direction_q <= 2'd0;
+                event_stage_timestamp_q <= cycle_counter_q;
+                event_stage_reject_code_q <= reject_code_q;
+                event_stage_fault_code_q <= fault_code_q;
+            end else if (fault_candidate_w) begin
                 state_q <= STATE_FAULT;
                 active_config_valid_q <= 1'b0;
                 previous_error_valid_q <= 1'b0;
-                fault_code_q <= FAULT_RUNTIME_SAFETY;
-                event_sequence_o <= event_sequence_o + 32'd1;
-                event_type_q <= EVENT_FAULT;
-                event_valid_q <= 1'b1;
-                event_out2_o <= {{18{out2_i[13]}}, out2_i};
-                event_error_o <= {{18{error_i[13]}}, error_i};
-                event_config_generation_o <= event_config_generation_o;
-                event_scan_direction_q <= scan_direction_now_w;
-                event_error_direction_q <= active_requirements_o[3:2];
-                event_timestamp_lo_o <= cycle_counter_q[31:0];
-                event_timestamp_hi_o <= cycle_counter_q[63:32];
+                trigger_pending_q <= 1'b0;
+                fault_immediate_o <= 1'b1;
+                event_commit_pulse_q <= 1'b1;
+                event_stage_type_q <= EVENT_FAULT;
+                event_stage_out2_q <= out2_i;
+                event_stage_error_q <= error_i;
+                event_stage_generation_q <= active_generation_q;
+                event_stage_scan_direction_q <= scan_direction_now_w;
+                event_stage_error_direction_q <= active_requirements_o[3:2];
+                event_stage_timestamp_q <= cycle_counter_q;
+                event_stage_reject_code_q <= reject_code_q;
+                event_stage_fault_code_q <= FAULT_RUNTIME_SAFETY;
             end else begin
                 unique case (state_q)
                     STATE_SAFE: begin
                         active_config_valid_q <= 1'b0;
                         previous_error_valid_q <= 1'b0;
+                        trigger_pending_q <= 1'b0;
                         if (enable_i && (mode_i == MODE_SCAN) && (fault_code_q == 16'd0))
                             state_q <= STATE_SCAN;
                     end
                     STATE_SCAN: begin
                         previous_error_valid_q <= 1'b0;
+                        trigger_pending_q <= 1'b0;
                         if (!enable_i || (mode_i == MODE_SAFE)) begin
                             state_q <= STATE_SAFE;
                             active_config_valid_q <= 1'b0;
@@ -838,13 +866,25 @@ module deterministic_lock_acquisition (
                             else
                                 state_q <= STATE_P_LOCK_ACTIVE;
                         end else if (command_reject_pulse_i) begin
-                            reject_code_q <= REJECT_COMMAND;
-                            event_sequence_o <= event_sequence_o + 32'd1;
-                            event_type_q <= EVENT_COMMAND_REJECTED;
-                            event_valid_q <= 1'b1;
-                            event_timestamp_lo_o <= cycle_counter_q[31:0];
-                            event_timestamp_hi_o <= cycle_counter_q[63:32];
+                            event_commit_pulse_q <= 1'b1;
+                            event_stage_type_q <= EVENT_COMMAND_REJECTED;
+                            event_stage_out2_q <= event_out2_o[13:0];
+                            event_stage_error_q <= event_error_o[13:0];
+                            event_stage_generation_q <= event_config_generation_o;
+                            event_stage_scan_direction_q <= event_scan_direction_q;
+                            event_stage_error_direction_q <= event_error_direction_q;
+                            event_stage_timestamp_q <= cycle_counter_q;
+                            event_stage_reject_code_q <= REJECT_COMMAND;
+                            event_stage_fault_code_q <= fault_code_q;
                         end else if (arm_pulse_i) begin
+                            event_commit_pulse_q <= 1'b1;
+                            event_stage_out2_q <= out2_i;
+                            event_stage_error_q <= error_i;
+                            event_stage_generation_q <= shadow_generation_i;
+                            event_stage_scan_direction_q <= scan_direction_now_w;
+                            event_stage_error_direction_q <= shadow_requirements_i[3:2];
+                            event_stage_timestamp_q <= cycle_counter_q;
+                            event_stage_fault_code_q <= fault_code_q;
                             if (config_valid_w) begin
                                 active_target_out2_o <= shadow_target_out2_i[13:0];
                                 active_error_setpoint_o <= shadow_error_setpoint_i[13:0];
@@ -852,76 +892,77 @@ module deterministic_lock_acquisition (
                                 active_requirements_o <= shadow_requirements_i;
                                 active_correction_limit_o <= shadow_correction_limit_i[13:0];
                                 active_absolute_limit_o <= shadow_absolute_limit_i[13:0];
+                                active_generation_q <= shadow_generation_i;
+                                active_target_low_q <= shadow_target_low_w;
+                                active_target_high_q <= shadow_target_high_w;
                                 active_config_valid_q <= 1'b1;
                                 previous_error_q <= error_i;
                                 previous_error_valid_q <= 1'b0;
                                 state_q <= STATE_ARMED;
-                                reject_code_q <= 16'd0;
-                                event_sequence_o <= event_sequence_o + 32'd1;
-                                event_type_q <= EVENT_ARMED;
-                                event_valid_q <= 1'b1;
-                                event_out2_o <= {{18{out2_i[13]}}, out2_i};
-                                event_error_o <= {{18{error_i[13]}}, error_i};
-                                event_config_generation_o <= shadow_generation_i;
-                                event_scan_direction_q <= scan_direction_now_w;
-                                event_error_direction_q <= shadow_requirements_i[3:2];
-                                event_timestamp_lo_o <= cycle_counter_q[31:0];
-                                event_timestamp_hi_o <= cycle_counter_q[63:32];
+                                event_stage_type_q <= EVENT_ARMED;
+                                event_stage_reject_code_q <= 16'd0;
                             end else begin
-                                reject_code_q <= config_reject_code_w;
-                                event_sequence_o <= event_sequence_o + 32'd1;
-                                event_type_q <= EVENT_CONFIG_REJECTED;
-                                event_valid_q <= 1'b1;
-                                event_out2_o <= {{18{out2_i[13]}}, out2_i};
-                                event_error_o <= {{18{error_i[13]}}, error_i};
-                                event_config_generation_o <= shadow_generation_i;
-                                event_scan_direction_q <= scan_direction_now_w;
-                                event_error_direction_q <= shadow_requirements_i[3:2];
-                                event_timestamp_lo_o <= cycle_counter_q[31:0];
-                                event_timestamp_hi_o <= cycle_counter_q[63:32];
+                                event_stage_type_q <= EVENT_CONFIG_REJECTED;
+                                event_stage_reject_code_q <= config_reject_code_w;
                             end
                         end
                     end
                     STATE_ARMED: begin
-                        if (command_reject_pulse_i) begin
-                            reject_code_q <= REJECT_COMMAND;
-                            event_sequence_o <= event_sequence_o + 32'd1;
-                            event_type_q <= EVENT_COMMAND_REJECTED;
-                            event_valid_q <= 1'b1;
-                            event_timestamp_lo_o <= cycle_counter_q[31:0];
-                            event_timestamp_hi_o <= cycle_counter_q[63:32];
-                        end else if (arm_pulse_i) begin
-                            reject_code_q <= REJECT_STATE;
-                            event_sequence_o <= event_sequence_o + 32'd1;
-                            event_type_q <= EVENT_CONFIG_REJECTED;
-                            event_valid_q <= 1'b1;
-                            event_out2_o <= {{18{out2_i[13]}}, out2_i};
-                            event_error_o <= {{18{error_i[13]}}, error_i};
-                            event_config_generation_o <= event_config_generation_o;
-                            event_scan_direction_q <= scan_direction_now_w;
-                            event_error_direction_q <= active_requirements_o[3:2];
-                            event_timestamp_lo_o <= cycle_counter_q[31:0];
-                            event_timestamp_hi_o <= cycle_counter_q[63:32];
-                        end
-                        if (!previous_error_valid_q) begin
+                        if (trigger_pending_q) begin
+                            trigger_pending_q <= 1'b0;
                             previous_error_q <= error_i;
-                            previous_error_valid_q <= 1'b1;
-                        end else if (trigger_o) begin
-                            previous_error_q <= error_i;
-                            previous_error_valid_q <= 1'b0;
-                            state_q <= STATE_TRIGGER_CAPTURE;
-                            event_sequence_o <= event_sequence_o + 32'd1;
-                            event_type_q <= EVENT_TRIGGERED;
-                            event_valid_q <= 1'b1;
-                            event_out2_o <= {{18{out2_i[13]}}, out2_i};
-                            event_error_o <= {{18{error_i[13]}}, error_i};
-                            event_config_generation_o <= event_config_generation_o;
-                            event_scan_direction_q <= scan_direction_now_w;
-                            event_error_direction_q <= active_requirements_o[3:2];
-                            event_timestamp_lo_o <= cycle_counter_q[31:0];
-                            event_timestamp_hi_o <= cycle_counter_q[63:32];
+                            if (inside_window_w && direction_match_w) begin
+                                trigger_o <= 1'b1;
+                                trigger_out2_sample_o <= out2_i;
+                                trigger_error_sample_o <= error_i;
+                                previous_error_valid_q <= 1'b0;
+                                state_q <= STATE_TRIGGER_CAPTURE;
+                                event_commit_pulse_q <= 1'b1;
+                                event_stage_type_q <= EVENT_TRIGGERED;
+                                event_stage_out2_q <= out2_i;
+                                event_stage_error_q <= error_i;
+                                event_stage_generation_q <= active_generation_q;
+                                event_stage_scan_direction_q <= scan_direction_now_w;
+                                event_stage_error_direction_q <= active_requirements_o[3:2];
+                                event_stage_timestamp_q <= cycle_counter_q;
+                                event_stage_reject_code_q <= reject_code_q;
+                                event_stage_fault_code_q <= fault_code_q;
+                            end else begin
+                                previous_error_valid_q <= 1'b1;
+                            end
                         end else begin
-                            previous_error_q <= error_i;
+                            if (command_reject_pulse_i) begin
+                                event_commit_pulse_q <= 1'b1;
+                                event_stage_type_q <= EVENT_COMMAND_REJECTED;
+                                event_stage_out2_q <= event_out2_o[13:0];
+                                event_stage_error_q <= event_error_o[13:0];
+                                event_stage_generation_q <= event_config_generation_o;
+                                event_stage_scan_direction_q <= event_scan_direction_q;
+                                event_stage_error_direction_q <= event_error_direction_q;
+                                event_stage_timestamp_q <= cycle_counter_q;
+                                event_stage_reject_code_q <= REJECT_COMMAND;
+                                event_stage_fault_code_q <= fault_code_q;
+                            end else if (arm_pulse_i) begin
+                                event_commit_pulse_q <= 1'b1;
+                                event_stage_type_q <= EVENT_CONFIG_REJECTED;
+                                event_stage_out2_q <= out2_i;
+                                event_stage_error_q <= error_i;
+                                event_stage_generation_q <= active_generation_q;
+                                event_stage_scan_direction_q <= scan_direction_now_w;
+                                event_stage_error_direction_q <= active_requirements_o[3:2];
+                                event_stage_timestamp_q <= cycle_counter_q;
+                                event_stage_reject_code_q <= REJECT_STATE;
+                                event_stage_fault_code_q <= fault_code_q;
+                            end
+
+                            if (!previous_error_valid_q) begin
+                                previous_error_q <= error_i;
+                                previous_error_valid_q <= 1'b1;
+                            end else begin
+                                previous_error_q <= error_i;
+                                if (trigger_candidate_w)
+                                    trigger_pending_q <= 1'b1;
+                            end
                         end
                     end
                     STATE_TRIGGER_CAPTURE: state_q <= STATE_P_LOCK_KP0;
@@ -944,18 +985,57 @@ module deterministic_lock_acquisition (
                     STATE_FAULT: begin
                         active_config_valid_q <= 1'b0;
                         previous_error_valid_q <= 1'b0;
-                        if (!enable_i && (mode_i == MODE_SAFE) && !event_valid_q) begin
+                        trigger_pending_q <= 1'b0;
+                        if (!enable_i && (mode_i == MODE_SAFE) && !event_valid_q)
                             state_q <= STATE_SAFE;
-                            fault_code_q <= 16'd0;
-                        end
                     end
                     default: begin
                         state_q <= STATE_FAULT;
                         active_config_valid_q <= 1'b0;
-                        fault_code_q <= FAULT_RUNTIME_SAFETY;
+                        trigger_pending_q <= 1'b0;
                     end
                 endcase
             end
+        end
+    end
+
+    // Sticky event commit is intentionally one registered stage after the
+    // acquisition decision. Real-time comparators never drive event CE/D.
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
+            event_sequence_o <= 32'd0;
+            event_out2_o <= 32'd0;
+            event_error_o <= 32'd0;
+            event_config_generation_o <= 32'd0;
+            event_timestamp_lo_o <= 32'd0;
+            event_timestamp_hi_o <= 32'd0;
+            event_type_q <= EVENT_NONE;
+            event_valid_q <= 1'b0;
+            event_scan_direction_q <= 2'd0;
+            event_error_direction_q <= 2'd0;
+            reject_code_q <= 16'd0;
+            fault_code_q <= 16'd0;
+        end else if (event_commit_pulse_q) begin
+            event_sequence_o <= event_sequence_o + 32'd1;
+            event_out2_o <= {{18{event_stage_out2_q[13]}}, event_stage_out2_q};
+            event_error_o <= {{18{event_stage_error_q[13]}}, event_stage_error_q};
+            event_config_generation_o <= event_stage_generation_q;
+            event_timestamp_lo_o <= event_stage_timestamp_q[31:0];
+            event_timestamp_hi_o <= event_stage_timestamp_q[63:32];
+            event_type_q <= event_stage_type_q;
+            event_valid_q <= 1'b1;
+            event_scan_direction_q <= event_stage_scan_direction_q;
+            event_error_direction_q <= event_stage_error_direction_q;
+            reject_code_q <= event_stage_reject_code_q;
+            fault_code_q <= event_stage_fault_code_q;
+        end else if (clear_event_pulse_i) begin
+            event_valid_q <= 1'b0;
+            event_type_q <= EVENT_NONE;
+            event_scan_direction_q <= 2'd0;
+            event_error_direction_q <= 2'd0;
+            reject_code_q <= 16'd0;
+            if (state_q != STATE_FAULT)
+                fault_code_q <= 16'd0;
         end
     end
 
@@ -978,7 +1058,7 @@ module out2_lock_controller (
     input  logic signed [13:0] lock_limit_i,
     input  logic signed [13:0] lock_correction_limit_i,
     input  logic               integral_reset_i,
-    input  logic               acq_trigger_i,
+    input  logic               acq_hold_i,
     input  logic               acq_abort_i,
     input  logic               acq_fault_i,
     output logic signed [13:0] control_o,
@@ -1158,7 +1238,7 @@ module out2_lock_controller (
             if (!enable_i || (mode_i == MODE_SAFE) || acq_abort_i || acq_fault_i) begin
                 control_o   <= 14'sd0;
                 saturated_o <= 1'b0;
-            end else if (acq_trigger_i) begin
+            end else if (acq_hold_i) begin
                 control_o   <= control_o;
                 saturated_o <= 1'b0;
             end else begin

@@ -85,6 +85,7 @@ module tb_custom_register_bank_basic;
     logic signed [13:0] ki;
     logic integral_reset;
     logic acq_trigger;
+    logic acq_hold;
     logic acq_abort;
     logic acq_fault;
     logic capture_start;
@@ -202,6 +203,7 @@ module tb_custom_register_bank_basic;
         .ki_o(ki),
         .integral_reset_o(integral_reset),
         .acq_trigger_o(acq_trigger),
+        .acq_hold_o(acq_hold),
         .acq_abort_o(acq_abort),
         .acq_fault_o(acq_fault),
         .capture_start_o(capture_start),
@@ -498,7 +500,7 @@ module tb_custom_register_bank_basic;
         check("ARMED does not trigger without crossing", mode == 32'd1);
         out2_monitor = 14'sd100;
         error_monitor = 14'sd1;
-        wait_cycles(1);
+        wait_cycles(3);
         check("matching direction/window/crossing atomically enters P_LOCK", mode == 32'd3);
         check("trigger captures actual OUT2 as LOCK_BIAS", lock_bias == 14'sd100);
         check("trigger applies active setpoint rather than current error", error_setpoint == 14'sd0);
@@ -557,6 +559,10 @@ module tb_custom_register_bank_basic;
         check("ARM snapshots negative active target with sign extension", $signed(read_data) == -32'sd100);
         bus_read(REG_ACTIVE_ERROR_SETPOINT, read_data);
         check("ARM snapshots negative active error setpoint with sign extension", $signed(read_data) == -32'sd7);
+        check("ARM precomputes signed negative target low boundary",
+              dut.i_deterministic_lock_acquisition.active_target_low_q == -16'sd110);
+        check("ARM precomputes signed negative target high boundary",
+              dut.i_deterministic_lock_acquisition.active_target_high_q == -16'sd90);
         bus_write(REG_CONFIG_GENERATION_SHADOW, 32'd99);
         bus_write(REG_ACQ_COMMAND, 32'h2);
         bus_read(REG_EVENT_CONFIG_GENERATION, read_data);

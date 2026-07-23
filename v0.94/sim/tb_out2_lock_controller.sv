@@ -26,7 +26,7 @@ module tb_out2_lock_controller;
     logic signed [13:0] lock_limit;
     logic signed [13:0] lock_correction_limit;
     logic integral_reset;
-    logic acq_trigger_i;
+    logic acq_hold_i;
     logic acq_abort_i;
     logic acq_fault_i;
     logic signed [13:0] control_o;
@@ -68,7 +68,7 @@ module tb_out2_lock_controller;
         .lock_limit_i(lock_limit),
         .lock_correction_limit_i(lock_correction_limit),
         .integral_reset_i(integral_reset),
-        .acq_trigger_i(acq_trigger_i),
+        .acq_hold_i(acq_hold_i),
         .acq_abort_i(acq_abort_i),
         .acq_fault_i(acq_fault_i),
         .control_o(control_o),
@@ -90,7 +90,7 @@ module tb_out2_lock_controller;
         lock_limit = 14'sd8191;
         lock_correction_limit = 14'sd128;
         integral_reset = 1'b0;
-        acq_trigger_i = 1'b0;
+        acq_hold_i = 1'b0;
         acq_abort_i = 1'b0;
         acq_fault_i = 1'b0;
 
@@ -109,11 +109,11 @@ module tb_out2_lock_controller;
         scan_i = 14'sd400;
         wait_cycles(1);
         check("SCAN reaches pre-trigger output", control_o == 14'sd400);
-        acq_trigger_i = 1'b1;
+        acq_hold_i = 1'b1;
         scan_i = 14'sd401;
         wait_cycles(1);
         check("acquisition trigger edge holds exact current OUT2", control_o == 14'sd400);
-        acq_trigger_i = 1'b0;
+        acq_hold_i = 1'b0;
         wait_cycles(1);
         check("SCAN resumes after isolated trigger pulse", control_o == 14'sd401);
 

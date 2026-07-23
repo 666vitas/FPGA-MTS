@@ -205,3 +205,13 @@
 - 回归测试：新增 acquisition 控制同时有效时 shadow、scan、capture bus write 仍独立生效，以及 capture start 单拍断言。XSim `tb_custom_register_bank_basic=141/141`、`tb_out2_lock_controller=35/35`、`tb_deterministic_lock_acquisition=32/32`；bumpless 数字跳变仍为 `0 counts`。
 - 未修改寄存器地址、`MAGIC`、`VERSION`、协议、top-level 路由、acquisition 算法或约束；未运行 synthesis/implementation，未使用 timing exception，未生成或烧录 bitstream。
 - 下一步唯一动作：用户重新运行 Vivado implementation 并提供新的 timing/high-fanout 报告；没有新报告前不进入第二阶段。
+
+## 2026-07-23 v3LOCK-D1 Stage 2 Acquisition Decision Pipeline
+
+- 第一阶段后用户 implementation 基线：WNS `-0.630 ns`、TNS `-97.981 ns`、`310` setup failing endpoints、`0` hold failing endpoints；其中 A 类自定义 `pll_adc_clk` 为 `295` endpoints，最差路径 `control_o_reg -> lock_limit_o_reg`，delay `8.131 ns`、logic `3.455 ns`、net `4.676 ns`、11 levels、5 个 CARRY4、fanout `86`。
+- 根因：实时 OUT2 经 subtract/abs/window、direction、ERROR crossing 和 safety 组合判断后，未注册 trigger 直接扇出到 fast-control 与 event D/CE。
+- RTL 修复：ARM 时保存 signed 16-bit `active_target_low/high`；运行时改为 low/high 边界比较；comparator tree 只进入 `trigger_pending_q`；新增注册 hold、单拍 trigger/fault、真实 trigger OUT2/ERROR sample 和 event staging/commit。
+- 无跳变处理：pending 周期先让 OUT2 controller 保持当前真实输出；随后捕获该 hold 样本；commit 周期继续 hold，register bank 使用捕获 OUT2 设置 `LOCK_BIAS`，进入 P_LOCK_KP0 后继续输出同一值。逐拍改变 scan command 的压力测试模拟 `scan_update_div=1`。
+- XSim：`tb_custom_register_bank_basic=143/143`、`tb_out2_lock_controller=35/35`、`tb_deterministic_lock_acquisition=48/48`；`out2_before=106`、`out2_trigger=106`、`captured_bias=106`、首拍/后续 Kp=0 均为 `106`，数字跳变 `0 counts`。
+- 边界：未修改寄存器地址、`MAGIC`、`VERSION`、host 协议、event 编码、generation、模式编号、Kp/Ki、125 MHz 时钟、DAC 路由或约束；未处理 `clk_fpga_3` 和 `par_clk` CDC；未运行 synthesis/implementation。
+- 下一步唯一动作：用户重新运行 Vivado implementation 并提供新的 timing summary、A 类最差路径和 high-fanout 报告；没有新报告前停止继续重构。

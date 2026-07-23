@@ -265,6 +265,7 @@ logic                 scan_saturated;
 logic                 lock_saturated;
 logic                 out2_saturated;
 logic                 acq_trigger;
+logic                 acq_hold;
 logic                 acq_abort;
 logic                 acq_fault;
 logic                 capture_start;
@@ -522,6 +523,7 @@ custom_register_bank i_custom_register_bank (
   .ki_o            (lock_ki        ),
   .integral_reset_o(integral_reset ),
   .acq_trigger_o   (acq_trigger    ),
+  .acq_hold_o      (acq_hold       ),
   .acq_abort_o     (acq_abort      ),
   .acq_fault_o     (acq_fault      ),
   .capture_start_o (capture_start  ),
@@ -594,7 +596,7 @@ out2_lock_controller i_out2_lock_controller (
   .lock_limit_i     (lock_limit     ),
   .lock_correction_limit_i(lock_correction_limit),
   .integral_reset_i (integral_reset ),
-  .acq_trigger_i    (acq_trigger    ),
+  .acq_hold_i       (acq_hold       ),
   .acq_abort_i      (acq_abort      ),
   .acq_fault_i      (acq_fault      ),
   .control_o        (selected_out2  ),

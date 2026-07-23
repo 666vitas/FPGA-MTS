@@ -15,6 +15,9 @@ module tb_deterministic_lock_acquisition;
     localparam logic [5:0] REG_CONFIG_VALIDATION = 6'h1F;
     localparam logic [5:0] REG_ACQ_COMMAND = 6'h29;
     localparam logic [5:0] REG_ACQ_STATE = 6'h2A;
+    localparam logic [5:0] REG_EVENT_OUT2 = 6'h2C;
+    localparam logic [5:0] REG_EVENT_ERROR = 6'h2D;
+    localparam logic [5:0] REG_EVENT_CONFIG_GENERATION = 6'h2E;
     localparam logic [5:0] REG_EVENT_INFO = 6'h2F;
 
     logic clk = 1'b0;
@@ -45,6 +48,7 @@ module tb_deterministic_lock_acquisition;
     logic signed [13:0] ki;
     logic integral_reset;
     logic acq_trigger;
+    logic acq_hold;
     logic acq_abort;
     logic acq_fault;
     logic capture_start;
@@ -52,8 +56,10 @@ module tb_deterministic_lock_acquisition;
     logic [31:0] capture_length;
     logic [31:0] capture_read_index;
 
+    logic signed [13:0] out2_before_candidate;
     logic signed [13:0] out2_before_trigger;
     logic signed [13:0] out2_on_trigger_edge;
+    logic signed [13:0] captured_bias_on_rising_trigger;
     logic signed [13:0] first_kp0_out2;
     logic signed [13:0] subsequent_kp0_out2;
     logic [31:0] read_data;
@@ -160,6 +166,7 @@ module tb_deterministic_lock_acquisition;
         .ki_o(ki),
         .integral_reset_o(integral_reset),
         .acq_trigger_o(acq_trigger),
+        .acq_hold_o(acq_hold),
         .acq_abort_o(acq_abort),
         .acq_fault_o(acq_fault),
         .capture_start_o(capture_start),
@@ -192,7 +199,7 @@ module tb_deterministic_lock_acquisition;
         .lock_limit_i(lock_limit),
         .lock_correction_limit_i(correction_limit),
         .integral_reset_i(integral_reset),
-        .acq_trigger_i(acq_trigger),
+        .acq_hold_i(acq_hold),
         .acq_abort_i(acq_abort),
         .acq_fault_i(acq_fault),
         .control_o(selected_out2),
@@ -247,44 +254,68 @@ module tb_deterministic_lock_acquisition;
         laser_error = -14'sd10;
         preload_target(14'sd100, 14'd2, 2'd1, 2'd1, 32'd6);
         bus_write(REG_ACQ_COMMAND, 32'h1);
-        scan_command = 14'sd90;
+        scan_command = 14'sd99;
         laser_error = -14'sd1;
         wait_cycles(2);
         @(negedge clk);
         laser_error = 14'sd1;
+        scan_command = 14'sd103;
         #1;
-        check("matching direction/crossing does not trigger outside target window", !acq_trigger);
+        check("inside-window raw decision remains internal", !acq_trigger);
         @(posedge clk);
         #1;
-        check("outside-window crossing leaves acquisition ARMED", mode == 32'd1);
+        check("raw decision enters registered hold before commit", acq_hold && !acq_trigger);
+        @(posedge clk);
+        #1;
+        check("hold sample outside target window cancels trigger commit", !acq_trigger && !acq_hold);
+        check("outside-window hold sample leaves acquisition ARMED", mode == 32'd1);
         bus_write(REG_ACQ_COMMAND, 32'h2);
 
         enter_scan(14'sd80);
         laser_error = -14'sd10;
         wait_cycles(2);
-        preload_target(14'sd100, 14'd5, 2'd1, 2'd1, 32'd7);
+        preload_target(14'sd100, 14'd6, 2'd1, 2'd1, 32'd7);
         bus_write(REG_ACQ_COMMAND, 32'h1);
         bus_read(REG_ACQ_STATE, read_data);
         check("rising transaction enters ARMED", read_data[2:0] == 3'd2);
+        check("ARM precomputes positive target low boundary",
+              i_register_bank.i_deterministic_lock_acquisition.active_target_low_q == 16'sd94);
+        check("ARM precomputes positive target high boundary",
+              i_register_bank.i_deterministic_lock_acquisition.active_target_high_q == 16'sd106);
 
         scan_command = 14'sd90;
         laser_error = -14'sd5;
         wait_cycles(2);
-        scan_command = 14'sd100;
+        scan_command = 14'sd105;
         laser_error = -14'sd1;
         wait_cycles(2);
-        out2_before_trigger = selected_out2;
+        out2_before_candidate = selected_out2;
         @(negedge clk);
         laser_error = 14'sd1;
+        scan_command = 14'sd106;
         #1;
-        check("all rising trigger conditions assert on one FPGA sample", acq_trigger == 1'b1);
+        check("raw rising conditions do not escape as a combinational trigger", acq_trigger == 1'b0);
         @(posedge clk);
         #1;
+        check("rising decision is registered before trigger commit", acq_trigger == 1'b0);
+        out2_before_trigger = selected_out2;
+        check("update_div=1 model permits only the final normal scan step before hold",
+              out2_before_trigger == (out2_before_candidate + 14'sd1));
+        scan_command = 14'sd107;
+        laser_error = 14'sd2;
+        @(posedge clk);
+        #1;
+        check("registered rising trigger is a commit pulse", acq_trigger == 1'b1);
         out2_on_trigger_edge = selected_out2;
         check("trigger edge holds selected_out2 exactly", out2_on_trigger_edge == out2_before_trigger);
-        check("captured lock bias equals trigger-edge OUT2", lock_bias == out2_before_trigger);
+        scan_command = 14'sd108;
         @(posedge clk);
         #1;
+        check("registered rising trigger is exactly one cycle", acq_trigger == 1'b0);
+        check("captured lock bias equals trigger-edge OUT2", lock_bias == out2_before_trigger);
+        captured_bias_on_rising_trigger = lock_bias;
+        check("cycle-by-cycle scan changes remain held through trigger commit",
+              selected_out2 == out2_before_trigger);
         first_kp0_out2 = selected_out2;
         @(posedge clk);
         #1;
@@ -297,6 +328,14 @@ module tb_deterministic_lock_acquisition;
             (first_kp0_out2 - out2_before_trigger == 14'sd0) &&
             (subsequent_kp0_out2 - out2_before_trigger == 14'sd0)
         );
+        bus_read(REG_EVENT_OUT2, read_data);
+        check("trigger event uses the actual held OUT2 sample",
+              $signed(read_data) == $signed(out2_before_trigger));
+        bus_read(REG_EVENT_ERROR, read_data);
+        check("trigger event uses the actual trigger-edge ERROR sample",
+              $signed(read_data) == 32'sd2);
+        bus_read(REG_EVENT_CONFIG_GENERATION, read_data);
+        check("trigger event retains active generation", read_data == 32'd7);
 
         bus_write(REG_ACQ_COMMAND, 32'h2);
         enter_scan(14'sd120);
@@ -306,16 +345,23 @@ module tb_deterministic_lock_acquisition;
         scan_command = 14'sd110;
         laser_error = 14'sd5;
         wait_cycles(2);
-        scan_command = 14'sd100;
+        scan_command = 14'sd95;
         laser_error = 14'sd1;
         wait_cycles(2);
         @(negedge clk);
         laser_error = -14'sd1;
         #1;
-        check("falling POS_TO_NEG transaction asserts trigger", acq_trigger == 1'b1);
+        check("falling raw conditions do not assert combinational trigger", acq_trigger == 1'b0);
         @(posedge clk);
         #1;
-        check("falling trigger captures actual target OUT2", lock_bias == 14'sd100);
+        check("falling decision waits for registered commit", acq_trigger == 1'b0);
+        scan_command = 14'sd99;
+        @(posedge clk);
+        #1;
+        check("falling POS_TO_NEG transaction asserts registered trigger", acq_trigger == 1'b1);
+        @(posedge clk);
+        #1;
+        check("falling low-window boundary captures actual OUT2", lock_bias == 14'sd95);
         bus_read(REG_EVENT_INFO, read_data);
         check("falling event records FALLING direction", read_data[5:4] == 2'd2);
         check("falling event records POS_TO_NEG crossing", read_data[7:6] == 2'd2);
@@ -349,8 +395,17 @@ module tb_deterministic_lock_acquisition;
         laser_error = -14'sd10;
         preload_target(14'sd100, 14'd5, 2'd1, 2'd1, 32'd10);
         bus_write(REG_ACQ_COMMAND, 32'h1);
+        scan_command = 14'sd100;
+        laser_error = -14'sd1;
+        wait_cycles(2);
+        @(negedge clk);
+        laser_error = 14'sd1;
+        @(posedge clk);
+        #1;
+        check("fault test creates a pending registered decision", acq_hold && !acq_trigger);
         scan_saturated = 1'b1;
-        wait_cycles(1);
+        wait_cycles(2);
+        check("FAULT suppresses a pending trigger commit", acq_trigger == 1'b0);
         check("ARMED saturation drives SAFE output", selected_out2 == 14'sd0);
         check("ARMED saturation forces MODE SAFE", mode == 32'd0);
         scan_saturated = 1'b0;
@@ -363,7 +418,7 @@ module tb_deterministic_lock_acquisition;
             "BUMPLESS out2_before=%0d out2_trigger=%0d captured_bias=%0d first_kp0=%0d subsequent_kp0=%0d digital_jump=%0d",
             out2_before_trigger,
             out2_on_trigger_edge,
-            lock_bias,
+            captured_bias_on_rising_trigger,
             first_kp0_out2,
             subsequent_kp0_out2,
             first_kp0_out2 - out2_before_trigger
