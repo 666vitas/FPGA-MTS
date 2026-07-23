@@ -8,6 +8,7 @@ import json
 import shlex
 import sys
 from dataclasses import dataclass
+from enum import IntEnum
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -24,7 +25,7 @@ from .ssh_client import RedPitayaSshClient, SshCommandResult
 
 
 EXPECTED_MAGIC = 0x4D545330
-EXPECTED_VERSION = 0x00030001
+EXPECTED_VERSION = 0x00030100
 DEFAULT_BASE_ADDR = 0x4060_0000
 DEFAULT_CLK_HZ = 125_000_000.0
 ALLOWED_UPDATE_KP = (0, 4, 8, 16, 32)
@@ -35,6 +36,36 @@ BASIC_LOCK_STEP_COUNTS = 1
 
 class CustomFpgaBackendError(RuntimeError):
     """Raised when the Custom FPGA register operation fails."""
+
+
+class ScanDirection(IntEnum):
+    RISING = 1
+    FALLING = 2
+
+
+class ErrorCrossingDirection(IntEnum):
+    NEG_TO_POS = 1
+    POS_TO_NEG = 2
+
+
+class AcquisitionState(IntEnum):
+    SAFE = 0
+    SCAN = 1
+    ARMED = 2
+    TRIGGER_CAPTURE = 3
+    P_LOCK_KP0 = 4
+    P_LOCK_ACTIVE = 5
+    FAULT = 6
+
+
+class AcquisitionEventType(IntEnum):
+    NONE = 0
+    ARMED = 1
+    TRIGGERED = 2
+    ABORTED = 3
+    CONFIG_REJECTED = 4
+    COMMAND_REJECTED = 5
+    FAULT = 6
 
 
 @dataclass(frozen=True)
@@ -65,6 +96,35 @@ class LockConfig:
 class UpdatePLockConfig:
     kp: int
     polarity: int
+    config_generation: int
+
+
+@dataclass(frozen=True)
+class AcquisitionTargetConfig:
+    target_out2_counts: int
+    target_error_setpoint_counts: int
+    target_window_counts: int
+    required_scan_direction: ScanDirection
+    required_error_crossing_direction: ErrorCrossingDirection
+    initial_polarity_suggestion: int
+    correction_limit_counts: int
+    absolute_limit_counts: int
+    config_generation: int
+
+
+@dataclass(frozen=True)
+class AcquisitionEvent:
+    sequence: int
+    valid: bool
+    event_type: AcquisitionEventType
+    out2_counts: int
+    error_counts: int
+    scan_direction: int
+    error_crossing_direction: int
+    config_generation: int
+    timestamp: int
+    reject_code: int
+    fault_code: int
 
 
 @dataclass(frozen=True)
@@ -150,6 +210,99 @@ def volts_to_counts(volts: float) -> int:
 
 def counts_to_volts(counts: int) -> float:
     return float(int(counts)) / COUNTS_PER_VOLT
+
+
+def encode_signed14_word(value: int) -> int:
+    counts = int(value)
+    if counts < -8191 or counts > 8191:
+        raise CustomFpgaBackendError("signed 14-bit count must be within -8191..8191")
+    return counts & 0xFFFFFFFF
+
+
+def decode_signed14_word(value: int) -> int:
+    raw = int(value) & 0x3FFF
+    return raw - 0x4000 if raw & 0x2000 else raw
+
+
+def build_acquisition_target_config(
+    *,
+    target_out2_counts: int,
+    target_error_setpoint_counts: int,
+    target_window_counts: int,
+    required_scan_direction: ScanDirection | int | str,
+    required_error_crossing_direction: ErrorCrossingDirection | int | str,
+    initial_polarity_suggestion: int,
+    correction_limit_counts: int,
+    absolute_limit_counts: int,
+    config_generation: int,
+    safe_min_counts: int,
+    safe_max_counts: int,
+) -> AcquisitionTargetConfig:
+    target = int(target_out2_counts)
+    setpoint = int(target_error_setpoint_counts)
+    window = int(target_window_counts)
+    correction = int(correction_limit_counts)
+    absolute = int(absolute_limit_counts)
+    safe_min = int(safe_min_counts)
+    safe_max = int(safe_max_counts)
+    if isinstance(required_scan_direction, str):
+        scan_direction = (
+            ScanDirection.RISING
+            if required_scan_direction.strip().lower() == "rising"
+            else ScanDirection.FALLING
+            if required_scan_direction.strip().lower() == "falling"
+            else None
+        )
+    else:
+        try:
+            scan_direction = ScanDirection(int(required_scan_direction))
+        except (TypeError, ValueError):
+            scan_direction = None
+    if isinstance(required_error_crossing_direction, str):
+        crossing_name = required_error_crossing_direction.strip().lower()
+        crossing_direction = (
+            ErrorCrossingDirection.NEG_TO_POS
+            if crossing_name in {"neg_to_pos", "negative-to-positive", "negative_to_positive"}
+            else ErrorCrossingDirection.POS_TO_NEG
+            if crossing_name in {"pos_to_neg", "positive-to-negative", "positive_to_negative"}
+            else None
+        )
+    else:
+        try:
+            crossing_direction = ErrorCrossingDirection(int(required_error_crossing_direction))
+        except (TypeError, ValueError):
+            crossing_direction = None
+
+    encode_signed14_word(target)
+    encode_signed14_word(setpoint)
+    if scan_direction is None or crossing_direction is None:
+        raise CustomFpgaBackendError("acquisition requires independent valid scan and ERROR crossing directions")
+    if window <= 0 or window > 8191:
+        raise CustomFpgaBackendError("target window must be within 1..8191 counts")
+    if safe_min >= safe_max:
+        raise CustomFpgaBackendError("PZT safe range is invalid")
+    if target - window < safe_min or target + window > safe_max:
+        raise CustomFpgaBackendError("target window exceeds the user-approved PZT safe range")
+    if target - correction < safe_min or target + correction > safe_max:
+        raise CustomFpgaBackendError("P correction excursion exceeds the user-approved PZT safe range")
+    if correction < 0 or absolute < 0 or correction > absolute or absolute > 8191:
+        raise CustomFpgaBackendError("correction/absolute limits must satisfy 0 <= correction <= absolute <= 8191")
+    if target - window < -absolute or target + window > absolute:
+        raise CustomFpgaBackendError("target window exceeds the configured absolute limit")
+    generation = int(config_generation)
+    if generation <= 0 or generation > 0xFFFFFFFF:
+        raise CustomFpgaBackendError("config generation must be within 1..0xFFFFFFFF")
+    return AcquisitionTargetConfig(
+        target_out2_counts=target,
+        target_error_setpoint_counts=setpoint,
+        target_window_counts=window,
+        required_scan_direction=scan_direction,
+        required_error_crossing_direction=crossing_direction,
+        initial_polarity_suggestion=1 if int(initial_polarity_suggestion) else 0,
+        correction_limit_counts=correction,
+        absolute_limit_counts=absolute,
+        config_generation=generation,
+    )
 
 
 def build_basic_lock_config(
@@ -527,12 +680,21 @@ def build_lock_config_from_counts(
     )
 
 
-def build_update_p_lock_config(*, kp: int, polarity: int) -> UpdatePLockConfig:
+def build_update_p_lock_config(
+    *,
+    kp: int,
+    polarity: int,
+    config_generation: int = 0,
+) -> UpdatePLockConfig:
     kp_value = int(kp)
     if kp_value not in ALLOWED_UPDATE_KP:
         allowed = ", ".join(str(value) for value in ALLOWED_UPDATE_KP)
         raise CustomFpgaBackendError(f"APPLY P Kp must be one of: {allowed}")
-    return UpdatePLockConfig(kp=kp_value, polarity=1 if int(polarity) else 0)
+    return UpdatePLockConfig(
+        kp=kp_value,
+        polarity=1 if int(polarity) else 0,
+        config_generation=max(0, int(config_generation)),
+    )
 
 
 def missing_magic_guidance(magic_text: str) -> str:
@@ -568,7 +730,16 @@ def _load_scan_script_module():
 def _remote_python_command(
     base_addr: int,
     operation: str,
-    config: ScanConfig | HoldConfig | LockConfig | UpdatePLockConfig | CaptureConfig | LockHereConfig | None,
+    config: (
+        ScanConfig
+        | HoldConfig
+        | LockConfig
+        | UpdatePLockConfig
+        | CaptureConfig
+        | LockHereConfig
+        | AcquisitionTargetConfig
+        | None
+    ),
 ) -> str:
     helper = _load_scan_script_module().REMOTE_HELPER
     helper_b64 = base64.b64encode(helper.encode("utf-8")).decode("ascii")
@@ -612,6 +783,29 @@ def _remote_python_command(
             str(config.kp),
             "--polarity",
             str(config.polarity),
+            "--config-generation",
+            str(config.config_generation),
+        ]
+    elif isinstance(config, AcquisitionTargetConfig):
+        remote_args += [
+            "--target-out2-counts",
+            str(config.target_out2_counts),
+            "--target-error-setpoint-counts",
+            str(config.target_error_setpoint_counts),
+            "--target-window-counts",
+            str(config.target_window_counts),
+            "--required-scan-direction",
+            str(int(config.required_scan_direction)),
+            "--required-error-crossing-direction",
+            str(int(config.required_error_crossing_direction)),
+            "--initial-polarity-suggestion",
+            str(config.initial_polarity_suggestion),
+            "--correction-limit-counts",
+            str(config.correction_limit_counts),
+            "--absolute-limit-counts",
+            str(config.absolute_limit_counts),
+            "--config-generation",
+            str(config.config_generation),
         ]
     elif isinstance(config, CaptureConfig):
         remote_args += [
@@ -742,9 +936,76 @@ class CustomFpgaBackend:
         *,
         kp: int,
         polarity: int,
+        config_generation: int = 0,
     ) -> CustomFpgaResponse:
-        config = build_update_p_lock_config(kp=kp, polarity=polarity)
+        config = build_update_p_lock_config(
+            kp=kp,
+            polarity=polarity,
+            config_generation=config_generation,
+        )
         return self._run("update-p-lock", config, allow_nonzero=False)
+
+    def preload_acquisition_target(
+        self,
+        config: AcquisitionTargetConfig,
+    ) -> CustomFpgaResponse:
+        return self._run("preload-acquisition", config, allow_nonzero=False)
+
+    def arm_acquisition(
+        self,
+        config: AcquisitionTargetConfig,
+    ) -> CustomFpgaResponse:
+        return self._run("arm-acquisition", config, allow_nonzero=False)
+
+    def arm_lock_target(
+        self,
+        config: AcquisitionTargetConfig,
+    ) -> CustomFpgaResponse:
+        return self.arm_acquisition(config)
+
+    def read_acquisition_state(self) -> CustomFpgaResponse:
+        return self._run("acquisition-status", None, allow_nonzero=False)
+
+    def read_acquisition_event_coherent(self) -> AcquisitionEvent:
+        response = self.read_acquisition_state()
+        event = response.payload.get("acquisition_event")
+        if not isinstance(event, dict):
+            raise CustomFpgaBackendError("acquisition event payload is unavailable")
+        try:
+            return AcquisitionEvent(
+                sequence=int(event["sequence"]),
+                valid=bool(event["valid"]),
+                event_type=AcquisitionEventType(int(event["event_type"])),
+                out2_counts=int(event["out2_counts"]),
+                error_counts=int(event["error_counts"]),
+                scan_direction=int(event["scan_direction"]),
+                error_crossing_direction=int(event["error_crossing_direction"]),
+                config_generation=int(event["config_generation"]),
+                timestamp=int(event["timestamp"]),
+                reject_code=int(event["reject_code"]),
+                fault_code=int(event["fault_code"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CustomFpgaBackendError("invalid coherent acquisition event payload") from exc
+
+    def abort_acquisition(self) -> CustomFpgaResponse:
+        return self._run("abort-acquisition", None, allow_nonzero=False)
+
+    def clear_acquisition_event(self) -> CustomFpgaResponse:
+        return self._run("clear-acquisition-event", None, allow_nonzero=False)
+
+    def apply_p_lock(
+        self,
+        *,
+        kp: int,
+        polarity: int,
+        config_generation: int,
+    ) -> CustomFpgaResponse:
+        return self.update_p_lock(
+            kp=kp,
+            polarity=polarity,
+            config_generation=config_generation,
+        )
 
     def set_mode_pi_lock(
         self,
@@ -830,7 +1091,16 @@ class CustomFpgaBackend:
     def _run(
         self,
         operation: str,
-        config: ScanConfig | HoldConfig | LockConfig | UpdatePLockConfig | CaptureConfig | LockHereConfig | None,
+        config: (
+            ScanConfig
+            | HoldConfig
+            | LockConfig
+            | UpdatePLockConfig
+            | CaptureConfig
+            | LockHereConfig
+            | AcquisitionTargetConfig
+            | None
+        ),
         *,
         allow_nonzero: bool,
     ) -> CustomFpgaResponse:

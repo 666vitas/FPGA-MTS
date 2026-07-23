@@ -128,13 +128,12 @@ module red_pitaya_top #(
 
 localparam int unsigned GDW = DWE;
 
-// Current mainline: v3REG-0 register-controlled OUT2 SAFE/SCAN.
+// Current mainline: deterministic scan-to-P_LOCK acquisition on OUT2.
 // USE_LASER_LOCK_CORE = 0 keeps the official ASG + PID DAC path.
 // USE_LASER_LOCK_CORE = 1 enables the custom FPGA observation/control shell:
 //   ADC IN1 + ADC IN2 are processed by laser_lock_core.
 //   DAC A / OUT1 = laser_error = mixer + LPF error observation.
-//   DAC B / OUT2 = selected_out2 from custom_register_bank + ramp_generator.
-//   selected_out2 supports only SAFE and SCAN in v3REG-0.
+//   DAC B / OUT2 = selected_out2 from SAFE/SCAN/HOLD/P_LOCK controller.
 // laser_control / pi_controller_seq are retained only as future candidates;
 // they are not the current OUT2 output.
 // This switch does not change ADC IO, PLL, ODDR, PS, AXI, DDR, or constraints.
@@ -145,10 +144,10 @@ localparam int unsigned GDW = DWE;
 // 3 = mixer + post-mixer LPF -> OUT1
 // Current board expectation for OUTPUT_MODE=3:
 //   OUT1/CH2: FPGA mixer + LPF error observation.
-//   OUT2/CH4: v3REG-0 SAFE/SCAN triangle output selected by registers.
+//   OUT2/CH4: register-controlled SAFE/SCAN or P-only output.
 // LASER_LOCK_CONTROL_PATH_MODE remains compiled for candidate logic only.
-// It does not drive current OUT2, does not authorize a laser closed loop, and
-// does not authorize connecting OUT2 to Scan/PZT.
+// It does not drive current OUT2. RTL implementation alone is not a hardware
+// gate pass; user wiring and oscilloscope validation remain required.
 localparam logic USE_LASER_LOCK_CORE = 1'b1;
 localparam int   LASER_LOCK_OUTPUT_MODE = 3;
 localparam int   LASER_LOCK_CONTROL_PATH_MODE = 1;
@@ -225,24 +224,24 @@ logic signed [15-1:0] dac_a_sum_laser;
 logic signed [15-1:0] dac_b_sum_laser;
 
 // Custom laser lock core outputs, still before the official DAC saturation path.
-// Current v3REG-0 routing:
+// Current routing:
 // - OUT1 / DAC A = laser_error, used on oscilloscope CH2 to observe the FPGA
 //   mixer + LPF error signal.
-// - OUT2 / DAC B = selected_out2, driven by custom_register_bank +
-//   ramp_generator in SAFE/SCAN mode.
+// - OUT2 / DAC B = selected_out2, driven by the register bank, ramp generator,
+//   deterministic acquisition, and timing-friendly P-only controller.
 // laser_control is retained only as a future candidate and is not the current
 // OUT2 source.
-// OUT2 is oscilloscope-only in this stage. Do not connect it to a laser
-// actuator, D2-125 Servo Output tee, or Scan input.
+// Hardware use remains gate-controlled: OUT2 may only reach the explicitly
+// approved laser PZT/Scan input and measurement equipment, never current
+// modulation or any paralleled active output.
 // This is not the old D2-125 DC Error input route. The error is generated
 // inside FPGA from IN1/IN2 by mixer_core + lpf_core + output_protect.
 logic signed [14-1:0] laser_error;
 logic signed [14-1:0] laser_control;
 
-// v3REG-1/2 host-controlled OUT2 path. SAFE/SCAN remain the proven baseline.
-// HOLD and P/PI lock modes are scope-first additions that use laser_error as
-// the existing MTS error signal. Kp/Ki default to zero and must be increased
-// manually from the host after oscilloscope checks.
+// D1 host-controlled OUT2 path. FPGA acquisition keeps scanning after ARM,
+// detects direction/window/raw-laser_error crossing in adc_clk, and commits
+// atomically to P_LOCK with Kp=0/Ki=0. Nonzero Kp is a later manual host step.
 logic        [32-1:0] custom_mode;
 logic                 custom_enable;
 logic signed [14-1:0] scan_offset;
@@ -265,6 +264,9 @@ logic signed [14-1:0] selected_out2;
 logic                 scan_saturated;
 logic                 lock_saturated;
 logic                 out2_saturated;
+logic                 acq_trigger;
+logic                 acq_abort;
+logic                 acq_fault;
 logic                 capture_start;
 logic        [32-1:0] capture_decimation;
 logic        [32-1:0] capture_length;
@@ -519,6 +521,9 @@ custom_register_bank i_custom_register_bank (
   .error_setpoint_o(error_setpoint ),
   .ki_o            (lock_ki        ),
   .integral_reset_o(integral_reset ),
+  .acq_trigger_o   (acq_trigger    ),
+  .acq_abort_o     (acq_abort      ),
+  .acq_fault_o     (acq_fault      ),
   .capture_start_o (capture_start  ),
   .capture_decimation_o(capture_decimation),
   .capture_length_o(capture_length ),
@@ -589,6 +594,9 @@ out2_lock_controller i_out2_lock_controller (
   .lock_limit_i     (lock_limit     ),
   .lock_correction_limit_i(lock_correction_limit),
   .integral_reset_i (integral_reset ),
+  .acq_trigger_i    (acq_trigger    ),
+  .acq_abort_i      (acq_abort      ),
+  .acq_fault_i      (acq_fault      ),
   .control_o        (selected_out2  ),
   .saturated_o      (lock_saturated )
 );
@@ -611,13 +619,12 @@ assign dac_b_sum_laser    = {selected_out2[13], selected_out2};
 
 // USE_LASER_LOCK_CORE=1:
 //   DAC A / OUT1 shows laser_error.
-//   DAC B / OUT2 shows the v3REG-0 SAFE/SCAN register-controlled output.
+//   DAC B / OUT2 shows selected_out2 from SAFE/SCAN/HOLD/P_LOCK.
 // Scope meaning after bitstream is manually generated and loaded:
-//   OUT1 should keep the v1/v2 error-observation role.
-//   OUT2 is now selected by custom_mode: SAFE drives 0, SCAN drives the
-//   register-controlled triangle generator. It still must only be observed on
-//   a scope in this first stage.
-//   OUT2 must not be used as proof that FPGA has locked the laser.
+//   OUT1 remains the mixer+LPF error observation.
+//   OUT2 is selected by custom_mode; deterministic acquisition changes from
+//   SCAN to P_LOCK_KP0 without a digital command jump.
+//   This routing is not proof of timing closure or real laser locking.
 assign dac_a_sum = USE_LASER_LOCK_CORE ? dac_a_sum_laser : dac_a_sum_official;
 assign dac_b_sum = USE_LASER_LOCK_CORE ? dac_b_sum_laser : dac_b_sum_official;
 

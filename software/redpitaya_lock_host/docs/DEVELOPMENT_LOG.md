@@ -905,3 +905,12 @@ git diff --check
 - 未修改范围：未修改 RTL、Python 产品代码、tests、Vivado 工程、寄存器地址/语义、`MAGIC`、`VERSION` 或 bitstream；未执行硬件操作。
 - 验证范围：本轮只做文档验证；不运行 Python tests，不运行 RTL 仿真，不运行 Vivado synthesis/implementation。
 - 下一 Gate：D1-B 最小 RTL 任务是先为 ramp 生成与 `scan_o` 对齐的 direction，加入 shadow-to-active ARM snapshot、独立 ERROR crossing 判定、一次性 TRIGGER_CAPTURE、P_LOCK_KP0 bumpless assertion 和 sticky event readback，再以独立 testbench 覆盖验收矩阵。
+
+## 2026-07-23 v3LOCK-D1 Deterministic FPGA Lock Acquisition Implementation
+
+- 实现范围：`custom_register_bank.sv` 增加 D1 shadow/active、written mask、validation、W1P command、`SAFE/SCAN/ARMED/TRIGGER_CAPTURE/P_LOCK_KP0/P_LOCK_ACTIVE/FAULT`、sticky coherent event 与 fault/reject；独立 `deterministic_lock_acquisition` 放在同一 source 末尾，`VERSION` 统一提升为 `0x00030100`。顶层接入 `acq_trigger/acq_abort/acq_fault`，OUT2 controller 增加同步 trigger hold 与 SAFE 优先级。
+- 实时判定：scan direction 来自实际 `selected_out2` 相邻有效值，相等 sample 保留最近方向；trigger 只使用 ARM 时冻结的 active target、window、独立 ERROR crossing direction 和原始 `laser_error`。host 写只进入 shadow，不进入实时 OUT2 组合路径。
+- 上位机：backend/helper/CLI/worker/GUI 正常 `ARM LOCK` 路径写完整 shadow、验证后只写一次 ARM，不 target polling、不调用 `CAPTURE_LOCK_POINT`；legacy `lock-here` 明确保留为 diagnostic。confirmed target 递增 generation 并显示 scan/crossing/polarity suggestion；匹配 sticky `TRIGGERED` generation 后才允许 Apply P，Kp 只允许 `0/4/8/16/32`，Ki 必须为 0。
+- 自动验证：XSim register bank `136/136`、OUT2 controller `35/35`、集成 acquisition `32/32`；集成记录 trigger 前/trigger 拍/首拍及后续 Kp=0 OUT2 均为 `100 counts`，数字跳变 `0 counts`。四个正式 Python test 文件合计 `142 passed`；py_compile/tabnanny 与最终验证命令另见本轮交接。
+- 证据边界：未运行 synthesis/implementation/timing，未生成或烧录 bitstream，未执行真实 GUI/板卡/PZT/激光实验；`0 counts` 只证明 RTL 数字命令无跳变，不证明模拟瞬态或真实锁定。
+- 下一步唯一动作：用户在 Vivado 中确认 source、运行 synthesis/implementation 并检查 125 MHz timing；通过后才生成 bitstream，并另按单项硬件 SOP 验证身份、SAFE、SCAN、ARM/event 与 Kp=0。

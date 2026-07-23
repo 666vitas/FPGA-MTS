@@ -189,3 +189,10 @@
 - 文档更新：当前 Gate 转为 `Gate 2 / HV-2 loaded PZT SCAN voltage and spectral-response verification`；新增 `software/redpitaya_lock_host/docs/LOADED_PZT_SCAN_SOP.md`，旧 `HARDWARE_CALIBRATION_SOP.md` 保留为已完成 HV-1B 记录。
 - 只修改上位机 capture-window 同步与回归测试；未修改 RTL、Vivado、寄存器、`MAGIC`、`VERSION` 或 bitstream，未运行 Vivado，未执行硬件操作。
 - 下一步唯一动作：只执行 loaded PZT 低速 SCAN-only：`SAFE -> OUT2 接专用 PZT/Scan + scope Hi-Z -> 0.770 V / 0.080 V / 2 Hz / Kp=Ki=0 -> Capture/record -> SAFE`。HV-2 PASS 前不执行 HOLD、LOCK HERE、APPLY P 或 polarity 变更。
+
+## 2026-07-23 v3LOCK-D1 Deterministic FPGA Lock Acquisition Implementation
+
+- D1-B/D1-C 已实现并自动验证：新 `VERSION=0x00030100`；FPGA shadow-to-active ARM、实际 OUT2 direction、原始 `laser_error` crossing、atomic P_LOCK_KP0、sticky event、ABORT/FAULT；host/GUI 正常路径改为完整 preload + 单次 ARM，legacy `CAPTURE_LOCK_POINT` 仅保留 diagnostic。
+- XSim 结果：register bank `136/136`、OUT2 controller `35/35`、integrated acquisition `32/32`；bumpless 数字命令跳变 `0 counts`。正式 Python tests 合计 `142 passed`。
+- 安全边界：未运行 Vivado synthesis/implementation/timing，未生成/烧录 bitstream，未执行硬件；真实 Kp=0、最小非零 Kp 与 P-only 均保持 `[NOT VERIFIED]`。
+- 当前 Gate：`D1-D / Integrated software/RTL verification and hardware SOP`。下一步只由用户完成 Vivado source/timing 检查；通过后再进入新的单项硬件 SOP。

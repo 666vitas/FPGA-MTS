@@ -31,7 +31,7 @@ from redpitaya_lock_host.out2_calibration import (
 def identity_payload(**overrides) -> dict:
     payload = {
         "magic": "0x4D545330",
-        "version": "0x00030001",
+        "version": "0x00030100",
         "mode": 2,
         "enable": 1,
         "status_raw": "0x00000001",
@@ -56,8 +56,10 @@ def confirmed_selection(generation: int = 1) -> dict:
         "error_residual_counts": 0.25,
         "slope": 4.5,
         "ramp_direction": "rising",
+        "error_crossing_direction": "neg_to_pos",
         "target_window_counts": 64,
         "capture_generation": generation,
+        "config_generation": generation,
     }
 
 
@@ -348,7 +350,7 @@ def test_hold_selected_success_state_is_not_locked_and_shows_readback() -> None:
         app.processEvents()
 
 
-def test_lock_here_result_uses_fpga_captured_values_and_warns_on_error_delta() -> None:
+def test_fpga_trigger_result_uses_sticky_event_and_matching_generation() -> None:
     app, window = make_window()
     selected_counts = window.selected_lock_point["target_out2_counts"]
     try:
@@ -358,10 +360,16 @@ def test_lock_here_result_uses_fpga_captured_values_and_warns_on_error_delta() -
                 "operation": "lock",
                 "payload": identity_payload(
                     mode=3,
+                    acquisition_state=4,
                     current_kp=0,
-                    captured_lock_bias_counts=selected_counts + 2,
-                    captured_error_setpoint_counts=20,
-                    target_wait_matched=True,
+                    acquisition_event={
+                        "valid": True,
+                        "event_type": 2,
+                        "event_type_name": "TRIGGERED",
+                        "out2_counts": selected_counts + 2,
+                        "error_counts": 20,
+                        "config_generation": 1,
+                    },
                 ),
                 "stderr": "",
             }
@@ -369,9 +377,11 @@ def test_lock_here_result_uses_fpga_captured_values_and_warns_on_error_delta() -
 
         diagnostics = window.last_lock_transition_diagnostics
         assert diagnostics["captured_lock_bias_counts"] == selected_counts + 2
-        assert diagnostics["captured_error_setpoint_counts"] == 20
-        assert diagnostics["delta_error_setpoint_counts"] == 10
-        assert "differ" in window.operator_alert_label.text()
+        assert diagnostics["captured_error_setpoint_counts"] == 10
+        assert diagnostics["delta_error_setpoint_counts"] == 0
+        assert window.operator_alert_label.text() == ""
+        assert window.p_lock_ready
+        assert "FPGA TRIGGERED" in window.operator_state_label.text()
         assert window.applied_kp == 0
     finally:
         window.close()
@@ -395,6 +405,37 @@ def test_lock_here_missing_captured_values_remains_unavailable_and_not_ready() -
         assert diagnostics["captured_error_setpoint_counts"] is None
         assert window.operator_lock_diagnostic_labels["captured_bias"].text() == "--"
         assert not window.p_lock_ready
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_stale_fpga_trigger_generation_does_not_enable_apply_p() -> None:
+    app, window = make_window()
+    try:
+        window.current_custom_operation = "lock"
+        window._on_custom_fpga_finished(
+            {
+                "operation": "lock",
+                "payload": identity_payload(
+                    mode=3,
+                    acquisition_state=4,
+                    current_kp=0,
+                    acquisition_event={
+                        "valid": True,
+                        "event_type": 2,
+                        "event_type_name": "TRIGGERED",
+                        "out2_counts": window.selected_lock_point["target_out2_counts"],
+                        "error_counts": 10,
+                        "config_generation": 99,
+                    },
+                ),
+                "stderr": "",
+            }
+        )
+
+        assert not window.p_lock_ready
+        assert "matching TRIGGERED" in window.operator_alert_label.text()
     finally:
         window.close()
         app.processEvents()
@@ -481,9 +522,11 @@ def test_safe_keeps_last_diagnostic_not_live_and_disconnect_marks_stale() -> Non
         assert window.last_lock_transition_diagnostics["stale"] is False
         assert window.operator_lock_diagnostic_state_label.text() == "Last transition / not live"
 
+        window.p_lock_ready = True
         window._clear_system_identity("Disconnected")
         assert window.last_lock_transition_diagnostics["stale"] is True
         assert window.operator_lock_diagnostic_state_label.text() == "Last transition / stale"
+        assert not window.p_lock_ready
     finally:
         window.close()
         app.processEvents()

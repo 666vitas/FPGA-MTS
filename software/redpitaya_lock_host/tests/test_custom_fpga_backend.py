@@ -9,12 +9,19 @@ import numpy as np
 from redpitaya_lock_host.custom_fpga_backend import (
     EXPECTED_MAGIC,
     EXPECTED_VERSION,
+    AcquisitionEventType,
+    AcquisitionState,
+    ErrorCrossingDirection,
+    ScanDirection,
     CustomFpgaBackendError,
+    build_acquisition_target_config,
     build_basic_lock_config,
     build_hold_config,
     build_lock_config,
     build_scan_config,
     build_update_p_lock_config,
+    decode_signed14_word,
+    encode_signed14_word,
     build_lock_config_from_counts,
     find_zero_crossing_candidates,
     interpolate_zero_crossing,
@@ -56,7 +63,7 @@ def make_capture_payload(count: int = 256) -> dict:
     error = 260.0 * x * np.exp(-(x * 3.5) ** 2)
     return {
         "magic": "0x4D545330",
-        "version": "0x00030001",
+        "version": "0x00030100",
         "mode": 1,
         "enable": 1,
         "saturated": False,
@@ -184,7 +191,7 @@ def test_status_payload_accepts_expected_magic_string() -> None:
 
 
 def test_system_identity_formats_version_and_requires_magic_and_version() -> None:
-    assert format_fpga_version("0x00030001") == "v3.0.1"
+    assert format_fpga_version("0x00030100") == "v3.1.0"
     assert format_fpga_version("--") == "--"
     assert identity_payload_matches(make_identity_payload())
     assert not identity_payload_matches(make_identity_payload(magic="0x00000000"))
@@ -265,7 +272,7 @@ def test_one_click_lock_bias_uses_out2_monitor_counts_not_voltage_estimate() -> 
     assert config.correction_limit_counts == 128
 
 
-def test_custom_fpga_cli_exposes_hold_p_lock_and_pi_lock_without_default_gain() -> None:
+def test_custom_fpga_cli_exposes_manual_and_deterministic_acquisition_commands() -> None:
     custom_fpga_scan_control = load_scan_control_module()
 
     for command in ("hold", "p-lock", "pi-lock", "lock-here", "update-p-lock"):
@@ -285,6 +292,27 @@ def test_custom_fpga_cli_exposes_hold_p_lock_and_pi_lock_without_default_gain() 
     assert lock_here_args.target_out2_counts is None
     assert lock_here_args.target_window_counts == 64
     assert update_p_args.kp == 0
+    assert update_p_args.config_generation == 0
+
+    arm_args = custom_fpga_scan_control.parse_args(
+        [
+            "--host",
+            "rp.local",
+            "arm-acquisition",
+            "--target-out2-counts",
+            "5000",
+            "--required-scan-direction",
+            "1",
+            "--required-error-crossing-direction",
+            "2",
+            "--config-generation",
+            "7",
+        ]
+    )
+    assert arm_args.command == "arm-acquisition"
+    assert arm_args.target_error_setpoint_counts == 0
+    assert arm_args.target_window_counts == 64
+    assert arm_args.config_generation == 7
 
 
 def test_update_p_lock_accepts_only_manual_small_kp_steps() -> None:
@@ -312,7 +340,7 @@ def test_update_p_lock_keeps_captured_lock_point_registers_untouched() -> None:
     run_start = helper.index("def run_update_p_lock(regs, args):")
     next_function = helper.index("\ndef probe_base_addresses", run_start)
     run_body = helper[run_start:next_function]
-    normal_start = run_body.index("# Normal update writes only KP and POLARITY.")
+    normal_start = run_body.index("# Polarity is changed and read back while Kp is still zero.")
     normal_end = run_body.index("# Post-update verification", normal_start)
     normal_body = run_body[normal_start:normal_end]
 
@@ -321,9 +349,16 @@ def test_update_p_lock_keeps_captured_lock_point_registers_untouched() -> None:
     assert "MODE=3" in run_body
     assert "ENABLE=1" in run_body
     assert "saturation" in run_body
+    assert "Apply P requires Ki=0" in run_body
+    assert "Ki changed during Apply P" in run_body
     assert "first APPLY P with --kp 0" in run_body
+    assert "sticky FPGA TRIGGERED event" in run_body
+    assert "does not match the confirmed target" in run_body
     assert 'regs.write(REGISTERS["KP"], args.kp)' in normal_body
     assert 'regs.write(REGISTERS["POLARITY"], requested_polarity)' in normal_body
+    assert normal_body.index('regs.write(REGISTERS["POLARITY"], requested_polarity)') < normal_body.index(
+        'regs.write(REGISTERS["KP"], args.kp)'
+    )
     for forbidden in (
         "ERROR_SETPOINT",
         "LOCK_BIAS",
@@ -351,14 +386,145 @@ def test_update_p_lock_safes_on_post_update_lock_point_or_saturation_failure() -
     assert "bool(after[\"saturated\"])" in helper
 
 
-def test_remote_helper_register_map_includes_lock_here_setpoint_registers() -> None:
+def test_remote_helper_register_map_includes_deterministic_acquisition_and_legacy_diagnostic_registers() -> None:
     custom_fpga_scan_control = load_scan_control_module()
 
     assert custom_fpga_scan_control.REGISTERS["ERROR_SETPOINT"] == 0x54
     assert custom_fpga_scan_control.REGISTERS["LOCK_ERROR_MONITOR"] == 0x58
     assert custom_fpga_scan_control.REGISTERS["CAPTURE_LOCK_POINT"] == 0x5C
+    assert custom_fpga_scan_control.REGISTERS["TARGET_OUT2_SHADOW"] == 0x60
+    assert custom_fpga_scan_control.REGISTERS["ACQ_COMMAND"] == 0xA4
+    assert custom_fpga_scan_control.REGISTERS["ACQ_STATE"] == 0xA8
+    assert custom_fpga_scan_control.REGISTERS["EVENT_SEQUENCE"] == 0xAC
+    assert custom_fpga_scan_control.REGISTERS["FAULT_DETAIL"] == 0xE0
     assert f"EXPECTED_VERSION = 0x{EXPECTED_VERSION:08X}" in custom_fpga_scan_control.REMOTE_HELPER
     assert '"lock-here"' in custom_fpga_scan_control.REMOTE_HELPER
+    assert '"arm-acquisition"' in custom_fpga_scan_control.REMOTE_HELPER
+
+
+def test_acquisition_signed_count_encoding_and_independent_directions() -> None:
+    assert encode_signed14_word(-1) == 0xFFFFFFFF
+    assert decode_signed14_word(encode_signed14_word(-8191)) == -8191
+    assert decode_signed14_word(encode_signed14_word(8191)) == 8191
+
+    config = build_acquisition_target_config(
+        target_out2_counts=5000,
+        target_error_setpoint_counts=-12,
+        target_window_counts=64,
+        required_scan_direction="falling",
+        required_error_crossing_direction="neg_to_pos",
+        initial_polarity_suggestion=1,
+        correction_limit_counts=128,
+        absolute_limit_counts=8191,
+        config_generation=9,
+        safe_min_counts=4500,
+        safe_max_counts=5500,
+    )
+    assert config.required_scan_direction is ScanDirection.FALLING
+    assert config.required_error_crossing_direction is ErrorCrossingDirection.NEG_TO_POS
+    assert config.config_generation == 9
+    assert AcquisitionState(2).name == "ARMED"
+    assert AcquisitionState(4).name == "P_LOCK_KP0"
+    assert AcquisitionEventType(2).name == "TRIGGERED"
+
+    with np.testing.assert_raises(CustomFpgaBackendError):
+        build_acquisition_target_config(
+            target_out2_counts=5000,
+            target_error_setpoint_counts=0,
+            target_window_counts=20,
+            required_scan_direction="rising",
+            required_error_crossing_direction="neg_to_pos",
+            initial_polarity_suggestion=0,
+            correction_limit_counts=128,
+            absolute_limit_counts=8191,
+            config_generation=10,
+            safe_min_counts=4900,
+            safe_max_counts=5100,
+        )
+
+
+def test_normal_arm_path_writes_complete_shadow_once_without_host_trigger_polling() -> None:
+    module = load_scan_control_module()
+    helper = module.REMOTE_HELPER
+    run_start = helper.index("def run_preload_acquisition(regs, args, arm):")
+    run_end = helper.index("\ndef capture_waveform", run_start)
+    run_body = helper[run_start:run_end]
+    shadow_start = helper.index("def write_acquisition_shadow(regs, args):")
+    shadow_end = helper.index("\ndef run_preload_acquisition", shadow_start)
+    shadow_body = helper[shadow_start:shadow_end]
+
+    for register in (
+        "TARGET_OUT2_SHADOW",
+        "TARGET_ERROR_SETPOINT_SHADOW",
+        "TARGET_WINDOW_SHADOW",
+        "TARGET_REQUIREMENTS_SHADOW",
+        "CORRECTION_LIMIT_SHADOW",
+        "ABSOLUTE_LIMIT_SHADOW",
+        "CONFIG_GENERATION_SHADOW",
+    ):
+        assert f'REGISTERS["{register}"]' in shadow_body
+    assert run_body.count('regs.write(REGISTERS["ACQ_COMMAND"], 1)') == 1
+    assert run_body.index('if not (validation & (1 << 7)):') < run_body.index(
+        'regs.write(REGISTERS["ACQ_COMMAND"], 1)'
+    )
+    assert "time.sleep" not in run_body
+    assert "target_poll" not in run_body
+    assert "CAPTURE_LOCK_POINT" not in run_body
+
+
+def test_cli_and_worker_normal_lock_path_route_only_to_fpga_arm() -> None:
+    module = load_scan_control_module()
+    args = module.parse_args(
+        [
+            "--host",
+            "rp.local",
+            "arm-acquisition",
+            "--target-out2-counts",
+            "5000",
+            "--target-error-setpoint-counts",
+            "-3",
+            "--required-scan-direction",
+            "1",
+            "--required-error-crossing-direction",
+            "2",
+            "--config-generation",
+            "11",
+        ]
+    )
+    command = module.remote_command(
+        args,
+        args.command,
+        module.build_acquisition_target_config(args),
+    )[-1]
+    assert command.count("--config-generation") == 1
+    assert command.count("--required-scan-direction") == 1
+    assert command.count("--required-error-crossing-direction") == 1
+    assert "CAPTURE_LOCK_POINT" not in command
+    assert "--target-poll-s" not in command
+
+    worker_source = (
+        ROOT / "redpitaya_lock_host" / "connection_workers.py"
+    ).read_text(encoding="utf-8")
+    lock_start = worker_source.index('elif self.operation == "lock":')
+    lock_end = worker_source.index('elif self.operation == "abort-acquisition":', lock_start)
+    lock_body = worker_source[lock_start:lock_end]
+    assert "backend.arm_lock_target(target)" in lock_body
+    assert "backend.lock_here" not in lock_body
+
+
+def test_remote_helper_coherent_event_read_retries_on_sequence_change() -> None:
+    helper = load_scan_control_module().REMOTE_HELPER
+    start = helper.index("def read_acquisition_event_coherent(regs, retries=8):")
+    end = helper.index("\ndef acquisition_status", start)
+    body = helper[start:end]
+    assert body.index('sequence_before = regs.read(REGISTERS["EVENT_SEQUENCE"])') < body.index(
+        'info = regs.read(REGISTERS["EVENT_INFO"])'
+    )
+    assert body.index('sequence_after = regs.read(REGISTERS["EVENT_SEQUENCE"])') > body.index(
+        'fault_detail = regs.read(REGISTERS["FAULT_DETAIL"])'
+    )
+    assert "if sequence_before == sequence_after:" in body
+    assert "coherent acquisition event read failed" in body
 
 
 def test_lock_here_does_not_embed_historical_board_values() -> None:
@@ -767,6 +933,8 @@ def test_resolve_lock_point_result_contains_all_required_fields() -> None:
     assert isinstance(result["pzt_bias"], float)
     assert isinstance(result["slope"], float)
     assert result["ramp_direction"] in ("rising", "falling")
+    assert result["error_crossing_direction"] in ("neg_to_pos", "pos_to_neg")
+    assert result["error_crossing_direction"] == "neg_to_pos"
     assert isinstance(result["target_window_counts"], int)
     assert result["target_window_counts"] > 0
 
@@ -782,8 +950,8 @@ def test_gui_text_separates_scpi_and_custom_fpga_out2_paths() -> None:
     assert "Capture Bias" in source
     assert "UNLOCK / SAFE" in source
     assert "Current LOCK=P-only; Ki/PI disabled" in source
-    assert "LOCK_BIAS source: FPGA CAPTURE_LOCK_POINT captured OUT2_MONITOR" in source
-    assert "ERROR_SETPOINT source: FPGA CAPTURE_LOCK_POINT captured ERROR_MONITOR" in source
+    assert "LOCK_BIAS source: FPGA deterministic trigger captured OUT2_MONITOR" in source
+    assert "legacy CAPTURE_LOCK_POINT path remains diagnostic-only" in source
     assert "SCPI ASG output commands do not drive physical OUT2" in source
     assert "Custom FPGA Scope" in source
     assert "custom_debug_capture not available" in source
@@ -823,7 +991,7 @@ def test_main_window_constructs_without_legacy_scpi_output_controls() -> None:
         assert window.basic_lock_button.text() == "BASIC LOCK"
         assert window.basic_safe_button.text() == "SAFE"
         assert not window.custom_advanced_body.isVisible()
-        assert window.custom_lock_button.text() == "LOCK HERE"
+        assert window.custom_lock_button.text() == "ARM LOCK"
         assert window.custom_apply_p_button.text() == "APPLY P"
         assert [window.custom_kp.itemText(index) for index in range(window.custom_kp.count())] == ["0", "4", "8", "16", "32"]
         assert window.custom_correction_limit_counts.value() == 128
@@ -882,7 +1050,7 @@ def test_system_identity_success_shows_readback_and_local_probe_time() -> None:
 
         assert window.system_connection_value.text() == "Connected"
         assert window.system_identity_value.text() == "Matched"
-        assert window.system_fpga_version_value.text() == "v3.0.1"
+        assert window.system_fpga_version_value.text() == "v3.1.0"
         assert window.system_mode_value.text() == "SCAN"
         assert window.system_output_value.text() == "Enabled"
         assert window.last_identity_probe_time is not None
@@ -890,7 +1058,7 @@ def test_system_identity_success_shows_readback_and_local_probe_time() -> None:
         assert window.system_last_probe_value.text() == window.last_identity_probe_time.strftime("%H:%M:%S")
         details = window.system_identity_group.toolTip()
         assert "MAGIC   0x4D545330" in details
-        assert "VERSION 0x00030001" in details
+        assert "VERSION 0x00030100" in details
         assert "MODE    1" in details
         assert "ENABLE  1" in details
     finally:
@@ -1345,7 +1513,12 @@ def test_confirm_lock_point_promotes_pending_zero_crossing_only() -> None:
 
         window._confirm_pending_lock_point()
 
-        assert window.selected_lock_point == pending
+        assert {
+            key: value
+            for key, value in window.selected_lock_point.items()
+            if key not in {"config_generation", "initial_polarity_suggestion"}
+        } == pending
+        assert window.selected_lock_point["config_generation"] == 1
         assert "confirmed" in window.selected_lock_label.text()
         # Verify all required fields are present
         assert "selected_peak_index" in window.selected_lock_point
@@ -1427,7 +1600,7 @@ def test_lock_point_calibration_adjusts_bias_without_enabling_feedback() -> None
         app.processEvents()
 
 
-def test_basic_lock_lock_here_stops_at_p_lock_kp_zero_without_auto_gain() -> None:
+def test_basic_lock_arm_stops_at_fpga_armed_without_auto_gain() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from PySide6.QtWidgets import QApplication
@@ -1442,13 +1615,13 @@ def test_basic_lock_lock_here_stops_at_p_lock_kp_zero_without_auto_gain() -> Non
         window.basic_lock_queue = []
         window.custom_kp.setCurrentText("16")
 
-        window._continue_basic_lock_after_success("lock", {})
+        window._continue_basic_lock_after_success("lock", {"acquisition_state": 2})
 
         assert not window.basic_lock_active
         assert window.basic_lock_queue == []
         assert window.custom_kp.currentText() == "0"
-        assert "P_LOCK" in window.basic_status_label.text()
-        assert "Kp=0" in window.basic_status_label.text()
+        assert "ARMED" in window.basic_status_label.text()
+        assert "raw-error crossing" in window.basic_status_label.text()
     finally:
         window.close()
         app.processEvents()
@@ -2013,7 +2186,7 @@ def test_safe_range_violation_shows_out2_value_and_range() -> None:
         # OUT2 outside safe range
         payload = {
             "magic": "0x4D545330",
-            "version": "0x00030001",
+            "version": "0x00030100",
             "saturated": False,
             "out2_counts": config.safe_min_counts - 100,
             "out2_volts": (config.safe_min_counts - 100) / 8191.0,
@@ -2370,7 +2543,12 @@ def test_target_region_click_finds_error_zero_crossing_and_only_creates_pending(
 
         pending = dict(window.pending_lock_point)
         window._confirm_pending_lock_point()
-        assert window.selected_lock_point == pending
+        assert {
+            key: value
+            for key, value in window.selected_lock_point.items()
+            if key not in {"config_generation", "initial_polarity_suggestion"}
+        } == pending
+        assert window.selected_lock_point["config_generation"] == 1
         assert window.operator_state_label.text() == "LOCK POINT CONFIRMED"
         assert "Status: Confirmed" in window.operator_candidate_label.text()
         assert window.custom_lock_button.isEnabled()
@@ -2494,7 +2672,7 @@ def test_apply_p_polarity_and_safe_button_guards() -> None:
         assert not window.custom_apply_p_button.isEnabled()
         window._start_custom_fpga_operation("update-p-lock")
         assert window.current_custom_operation is None
-        assert "successful LOCK HERE at Kp=0" in window.operator_alert_label.text()
+        assert "matching TRIGGERED generation" in window.operator_alert_label.text()
 
         window.custom_polarity.setCurrentIndex(0)
         window.applied_polarity_index = 0

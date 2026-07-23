@@ -60,6 +60,14 @@ REGISTERS = {
     "ERROR_SETPOINT": 0x54,
     "LOCK_ERROR_MONITOR": 0x58,
     "CAPTURE_LOCK_POINT": 0x5C,
+    "TARGET_OUT2_SHADOW": 0x60,
+    "TARGET_ERROR_SETPOINT_SHADOW": 0x64,
+    "TARGET_WINDOW_SHADOW": 0x68,
+    "TARGET_REQUIREMENTS_SHADOW": 0x6C,
+    "CORRECTION_LIMIT_SHADOW": 0x70,
+    "ABSOLUTE_LIMIT_SHADOW": 0x74,
+    "CONFIG_GENERATION_SHADOW": 0x78,
+    "CONFIG_VALIDATION": 0x7C,
     "CAPTURE_CTRL": 0x80,
     "CAPTURE_STATUS": 0x84,
     "CAPTURE_DECIMATION": 0x88,
@@ -69,6 +77,22 @@ REGISTERS = {
     "CAPTURE_DATA_CH2": 0x98,
     "CAPTURE_DATA_CH3": 0x9C,
     "CAPTURE_DATA_CH4": 0xA0,
+    "ACQ_COMMAND": 0xA4,
+    "ACQ_STATE": 0xA8,
+    "EVENT_SEQUENCE": 0xAC,
+    "EVENT_OUT2": 0xB0,
+    "EVENT_ERROR": 0xB4,
+    "EVENT_CONFIG_GENERATION": 0xB8,
+    "EVENT_INFO": 0xBC,
+    "EVENT_TIMESTAMP_LO": 0xC0,
+    "EVENT_TIMESTAMP_HI": 0xC4,
+    "ACTIVE_TARGET_OUT2": 0xC8,
+    "ACTIVE_ERROR_SETPOINT": 0xCC,
+    "ACTIVE_WINDOW": 0xD0,
+    "ACTIVE_REQUIREMENTS": 0xD4,
+    "ACTIVE_CORRECTION_LIMIT": 0xD8,
+    "ACTIVE_ABSOLUTE_LIMIT": 0xDC,
+    "FAULT_DETAIL": 0xE0,
 }
 
 
@@ -106,6 +130,14 @@ REGISTERS = {
     "ERROR_SETPOINT": 0x54,
     "LOCK_ERROR_MONITOR": 0x58,
     "CAPTURE_LOCK_POINT": 0x5C,
+    "TARGET_OUT2_SHADOW": 0x60,
+    "TARGET_ERROR_SETPOINT_SHADOW": 0x64,
+    "TARGET_WINDOW_SHADOW": 0x68,
+    "TARGET_REQUIREMENTS_SHADOW": 0x6C,
+    "CORRECTION_LIMIT_SHADOW": 0x70,
+    "ABSOLUTE_LIMIT_SHADOW": 0x74,
+    "CONFIG_GENERATION_SHADOW": 0x78,
+    "CONFIG_VALIDATION": 0x7C,
     "CAPTURE_CTRL": 0x80,
     "CAPTURE_STATUS": 0x84,
     "CAPTURE_DECIMATION": 0x88,
@@ -115,10 +147,26 @@ REGISTERS = {
     "CAPTURE_DATA_CH2": 0x98,
     "CAPTURE_DATA_CH3": 0x9C,
     "CAPTURE_DATA_CH4": 0xA0,
+    "ACQ_COMMAND": 0xA4,
+    "ACQ_STATE": 0xA8,
+    "EVENT_SEQUENCE": 0xAC,
+    "EVENT_OUT2": 0xB0,
+    "EVENT_ERROR": 0xB4,
+    "EVENT_CONFIG_GENERATION": 0xB8,
+    "EVENT_INFO": 0xBC,
+    "EVENT_TIMESTAMP_LO": 0xC0,
+    "EVENT_TIMESTAMP_HI": 0xC4,
+    "ACTIVE_TARGET_OUT2": 0xC8,
+    "ACTIVE_ERROR_SETPOINT": 0xCC,
+    "ACTIVE_WINDOW": 0xD0,
+    "ACTIVE_REQUIREMENTS": 0xD4,
+    "ACTIVE_CORRECTION_LIMIT": 0xD8,
+    "ACTIVE_ABSOLUTE_LIMIT": 0xDC,
+    "FAULT_DETAIL": 0xE0,
 }
 
 EXPECTED_MAGIC = 0x4D545330
-EXPECTED_VERSION = 0x00030001
+EXPECTED_VERSION = 0x00030100
 ALLOWED_UPDATE_KP = {0, 4, 8, 16, 32}
 PROBE_BASE_ADDRS = [
     0x40000000,
@@ -137,6 +185,28 @@ def to_signed14(value):
     if value & 0x2000:
         value -= 0x4000
     return value
+
+
+ACQ_STATE_NAMES = {
+    0: "SAFE",
+    1: "SCAN",
+    2: "ARMED",
+    3: "TRIGGER_CAPTURE",
+    4: "P_LOCK_KP0",
+    5: "P_LOCK_ACTIVE",
+    6: "FAULT",
+}
+
+
+EVENT_TYPE_NAMES = {
+    0: "NONE",
+    1: "ARMED",
+    2: "TRIGGERED",
+    3: "ABORTED",
+    4: "CONFIG_REJECTED",
+    5: "COMMAND_REJECTED",
+    6: "FAULT",
+}
 
 
 def pack32(value):
@@ -231,8 +301,11 @@ def read_status(regs):
     error_setpoint_raw = regs.read(REGISTERS["ERROR_SETPOINT"])
     lock_error_raw = regs.read(REGISTERS["LOCK_ERROR_MONITOR"])
     kp_raw = regs.read(REGISTERS["KP"])
+    ki_raw = regs.read(REGISTERS["KI"])
     polarity_raw = regs.read(REGISTERS["POLARITY"])
     lock_bias_raw = regs.read(REGISTERS["LOCK_BIAS"])
+    acq_state_raw = regs.read(REGISTERS["ACQ_STATE"])
+    acq_state = acq_state_raw & 0x7
     return {
         "magic": f"0x{magic:08X}",
         "version": f"0x{version:08X}",
@@ -252,11 +325,109 @@ def read_status(regs):
         "lock_error_counts": to_signed14(lock_error_raw),
         "lock_error_volts": to_signed14(lock_error_raw) / 8191.0,
         "kp": to_signed14(kp_raw),
+        "ki": to_signed14(ki_raw),
         "polarity": polarity_raw & 1,
         "control_counts": to_signed14(control_raw),
         "control_volts": to_signed14(control_raw) / 8191.0,
         "lock_correction_limit_counts": to_signed14(regs.read(REGISTERS["LOCK_CORRECTION_LIMIT"])),
+        "acquisition_state_raw": f"0x{acq_state_raw:08X}",
+        "acquisition_state": acq_state,
+        "acquisition_state_name": ACQ_STATE_NAMES.get(acq_state, "UNKNOWN"),
+        "acquisition_event_valid": bool(acq_state_raw & (1 << 8)),
+        "acquisition_active": bool(acq_state_raw & (1 << 10)),
+        "acquisition_fault": bool(acq_state_raw & (1 << 11)),
+        "acquisition_scan_direction": (acq_state_raw >> 14) & 0x3,
     }
+
+
+def read_acquisition_event_coherent(regs, retries=8):
+    for _ in range(max(1, int(retries))):
+        sequence_before = regs.read(REGISTERS["EVENT_SEQUENCE"])
+        info = regs.read(REGISTERS["EVENT_INFO"])
+        out2_raw = regs.read(REGISTERS["EVENT_OUT2"])
+        error_raw = regs.read(REGISTERS["EVENT_ERROR"])
+        generation = regs.read(REGISTERS["EVENT_CONFIG_GENERATION"])
+        timestamp_lo = regs.read(REGISTERS["EVENT_TIMESTAMP_LO"])
+        timestamp_hi = regs.read(REGISTERS["EVENT_TIMESTAMP_HI"])
+        fault_detail = regs.read(REGISTERS["FAULT_DETAIL"])
+        sequence_after = regs.read(REGISTERS["EVENT_SEQUENCE"])
+        if sequence_before == sequence_after:
+            event_type = (info >> 1) & 0x7
+            return {
+                "sequence": sequence_after,
+                "valid": bool(info & 1),
+                "event_type": event_type,
+                "event_type_name": EVENT_TYPE_NAMES.get(event_type, "UNKNOWN"),
+                "out2_counts": to_signed14(out2_raw),
+                "error_counts": to_signed14(error_raw),
+                "scan_direction": (info >> 4) & 0x3,
+                "error_crossing_direction": (info >> 6) & 0x3,
+                "config_generation": generation,
+                "timestamp": (timestamp_hi << 32) | timestamp_lo,
+                "reject_code": fault_detail & 0xFFFF,
+                "fault_code": (fault_detail >> 16) & 0xFFFF,
+            }
+    raise SystemExit("coherent acquisition event read failed after sequence changed repeatedly")
+
+
+def acquisition_status(regs):
+    status = read_status(regs)
+    status["acquisition_event"] = read_acquisition_event_coherent(regs)
+    return status
+
+
+def write_acquisition_shadow(regs, args):
+    requirements = (
+        (int(args.required_scan_direction) & 0x3)
+        | ((int(args.required_error_crossing_direction) & 0x3) << 2)
+        | ((int(args.initial_polarity_suggestion) & 0x1) << 4)
+    )
+    regs.write(REGISTERS["TARGET_OUT2_SHADOW"], int(args.target_out2_counts))
+    regs.write(
+        REGISTERS["TARGET_ERROR_SETPOINT_SHADOW"],
+        int(args.target_error_setpoint_counts),
+    )
+    regs.write(REGISTERS["TARGET_WINDOW_SHADOW"], int(args.target_window_counts))
+    regs.write(REGISTERS["TARGET_REQUIREMENTS_SHADOW"], requirements)
+    regs.write(REGISTERS["CORRECTION_LIMIT_SHADOW"], int(args.correction_limit_counts))
+    regs.write(REGISTERS["ABSOLUTE_LIMIT_SHADOW"], int(args.absolute_limit_counts))
+    regs.write(REGISTERS["CONFIG_GENERATION_SHADOW"], int(args.config_generation))
+
+
+def run_preload_acquisition(regs, args, arm):
+    require_magic(regs)
+    before = read_status(regs)
+    if before["version"] != f"0x{EXPECTED_VERSION:08X}":
+        raise SystemExit(
+            f"VERSION mismatch: expected 0x{EXPECTED_VERSION:08X}, got {before['version']}"
+        )
+    if int(before["mode"]) != 1 or int(before["enable"]) != 1:
+        raise SystemExit("FPGA acquisition requires MODE=1 SCAN and ENABLE=1")
+    if bool(before["saturated"]):
+        raise SystemExit("FPGA acquisition refused because STATUS reports saturation")
+    write_acquisition_shadow(regs, args)
+    validation = regs.read(REGISTERS["CONFIG_VALIDATION"])
+    if not (validation & (1 << 7)):
+        raise SystemExit(f"FPGA acquisition shadow validation failed: 0x{validation:08X}")
+    if arm:
+        regs.write(REGISTERS["ACQ_COMMAND"], 1)
+    result = acquisition_status(regs)
+    result["config_validation"] = f"0x{validation:08X}"
+    result["config_generation"] = int(args.config_generation)
+    result["target_out2_counts"] = int(args.target_out2_counts)
+    result["target_error_setpoint_counts"] = int(args.target_error_setpoint_counts)
+    result["target_window_counts"] = int(args.target_window_counts)
+    result["required_scan_direction"] = int(args.required_scan_direction)
+    result["required_error_crossing_direction"] = int(
+        args.required_error_crossing_direction
+    )
+    result["initial_polarity_suggestion"] = int(args.initial_polarity_suggestion)
+    if arm and int(result["acquisition_state"]) not in (2, 3, 4):
+        raise SystemExit(
+            "ARM command was written once, but FPGA did not report ARMED/TRIGGER_CAPTURE/P_LOCK_KP0"
+        )
+    result["lock_state"] = result["acquisition_state_name"]
+    return result
 
 
 def capture_waveform(regs, length, decimation):
@@ -369,14 +540,17 @@ def safe_exit(regs, reason):
 
 def run_update_p_lock(regs, args):
     require_magic(regs)
-    before = read_status(regs)
+    before = acquisition_status(regs)
     before_error_setpoint = int(before["error_setpoint_counts"])
     before_lock_bias = int(before["lock_bias_counts"])
     before_mode = int(before["mode"])
     before_enable = int(before["enable"])
     before_kp = int(before["kp"])
+    before_ki = int(before["ki"])
     before_polarity = int(before["polarity"])
     requested_polarity = int(args.polarity)
+    requested_generation = int(args.config_generation)
+    event = before["acquisition_event"]
 
     if before["version"] != f"0x{EXPECTED_VERSION:08X}":
         safe_exit(regs, f"VERSION mismatch: expected 0x{EXPECTED_VERSION:08X}, got {before['version']}")
@@ -386,20 +560,39 @@ def run_update_p_lock(regs, args):
         safe_exit(regs, f"ENABLE=1 is required, got ENABLE={before_enable}")
     if bool(before["saturated"]):
         safe_exit(regs, "pre-update saturation is set")
+    if before_ki != 0:
+        safe_exit(regs, f"Apply P requires Ki=0, got Ki={before_ki}")
     if int(args.kp) not in ALLOWED_UPDATE_KP:
         safe_exit(regs, f"Kp must be one of {sorted(ALLOWED_UPDATE_KP)}, got {args.kp}")
+    if int(args.kp) != 0 and int(before["acquisition_state"]) != 4:
+        safe_exit(regs, "nonzero Apply P requires FPGA state P_LOCK_KP0")
+    if int(args.kp) == 0 and int(before["acquisition_state"]) not in (4, 5):
+        safe_exit(regs, "Apply P Kp=0 requires FPGA state P_LOCK_KP0 or P_LOCK_ACTIVE")
+    if not bool(event["valid"]) or int(event["event_type"]) != 2:
+        safe_exit(regs, "Apply P requires a sticky FPGA TRIGGERED event")
+    if requested_generation <= 0 or int(event["config_generation"]) != requested_generation:
+        safe_exit(
+            regs,
+            "Apply P refused because FPGA event generation does not match the confirmed target",
+        )
     if before_polarity != requested_polarity and before_kp != 0:
         raise SystemExit(
             "update-p-lock refused: polarity change while Kp is nonzero. "
             "first APPLY P with --kp 0, then change polarity."
         )
 
-    # Normal update writes only KP and POLARITY.
-    regs.write(REGISTERS["KP"], args.kp)
+    # Polarity is changed and read back while Kp is still zero.
     regs.write(REGISTERS["POLARITY"], requested_polarity)
+    polarity_readback = regs.read(REGISTERS["POLARITY"]) & 1
+    if polarity_readback != requested_polarity:
+        safe_exit(
+            regs,
+            f"POLARITY readback mismatch before Apply P: expected {requested_polarity}, got {polarity_readback}",
+        )
+    regs.write(REGISTERS["KP"], args.kp)
 
     # Post-update verification keeps the FPGA in SAFE on any lock-point drift.
-    after = read_status(regs)
+    after = acquisition_status(regs)
     after_lock_bias = int(after["lock_bias_counts"])
     if int(after["mode"]) != 3:
         safe_exit(regs, f"MODE changed after update: {after['mode']}")
@@ -411,6 +604,8 @@ def run_update_p_lock(regs, args):
         safe_exit(regs, "LOCK_BIAS changed during update-p-lock")
     if int(after["kp"]) != int(args.kp):
         safe_exit(regs, f"KP readback mismatch: expected {args.kp}, got {after['kp']}")
+    if int(after["ki"]) != 0:
+        safe_exit(regs, f"Ki changed during Apply P: {after['ki']}")
     if int(after["polarity"]) != requested_polarity:
         safe_exit(regs, f"POLARITY readback mismatch: expected {requested_polarity}, got {after['polarity']}")
     if bool(after["saturated"]):
@@ -421,10 +616,12 @@ def run_update_p_lock(regs, args):
         "before_kp": before_kp,
         "before_polarity": before_polarity,
         "current_kp": int(after["kp"]),
+        "current_ki": int(after["ki"]),
         "current_polarity": int(after["polarity"]),
         "error_setpoint_preserved_counts": before_error_setpoint,
         "lock_bias_preserved_counts": before_lock_bias,
-        "update_rule": "Only KP and POLARITY were written; LOCK_BIAS and ERROR_SETPOINT were not touched.",
+        "config_generation": requested_generation,
+        "update_rule": "POLARITY was verified while Kp=0, then KP was written; LOCK_BIAS and ERROR_SETPOINT were not touched.",
     })
     return after
 
@@ -466,7 +663,27 @@ def probe_base_addresses():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-addr", default="0x40600000")
-    parser.add_argument("--op", choices=["safe", "scan", "hold", "p-lock", "update-p-lock", "pi-lock", "lock-here", "status", "probe", "capture"], required=True)
+    parser.add_argument(
+        "--op",
+        choices=[
+            "safe",
+            "scan",
+            "hold",
+            "p-lock",
+            "update-p-lock",
+            "pi-lock",
+            "lock-here",
+            "preload-acquisition",
+            "arm-acquisition",
+            "acquisition-status",
+            "abort-acquisition",
+            "clear-acquisition-event",
+            "status",
+            "probe",
+            "capture",
+        ],
+        required=True,
+    )
     parser.add_argument("--offset-counts", type=int, default=6962)
     parser.add_argument("--amp-counts", type=int, default=410)
     parser.add_argument("--step-counts", type=int, default=1)
@@ -483,7 +700,18 @@ def main():
     parser.add_argument("--capture-decimation", type=int, default=1024)
     parser.add_argument("--settle-s", type=float, default=0.5)
     parser.add_argument("--target-out2-counts", type=int, default=None)
+    parser.add_argument("--target-error-setpoint-counts", type=int, default=0)
     parser.add_argument("--target-window-counts", type=int, default=64)
+    parser.add_argument("--required-scan-direction", type=int, choices=[1, 2], default=1)
+    parser.add_argument(
+        "--required-error-crossing-direction",
+        type=int,
+        choices=[1, 2],
+        default=1,
+    )
+    parser.add_argument("--initial-polarity-suggestion", type=int, choices=[0, 1], default=0)
+    parser.add_argument("--absolute-limit-counts", type=int, default=8191)
+    parser.add_argument("--config-generation", type=int, default=0)
     parser.add_argument("--target-timeout-s", type=float, default=5.0)
     parser.add_argument("--target-poll-s", type=float, default=0.005)
     args = parser.parse_args()
@@ -546,13 +774,38 @@ def main():
             status = run_lock_here(regs, args)
             print(json.dumps(status, indent=2, sort_keys=True))
             return
+        elif args.op == "preload-acquisition":
+            status = run_preload_acquisition(regs, args, False)
+            print(json.dumps(status, indent=2, sort_keys=True))
+            return
+        elif args.op == "arm-acquisition":
+            status = run_preload_acquisition(regs, args, True)
+            print(json.dumps(status, indent=2, sort_keys=True))
+            return
+        elif args.op == "acquisition-status":
+            require_magic(regs)
+            status = acquisition_status(regs)
+            print(json.dumps(status, indent=2, sort_keys=True))
+            return
+        elif args.op == "abort-acquisition":
+            require_magic(regs)
+            regs.write(REGISTERS["ACQ_COMMAND"], 2)
+            status = acquisition_status(regs)
+            print(json.dumps(status, indent=2, sort_keys=True))
+            return
+        elif args.op == "clear-acquisition-event":
+            require_magic(regs)
+            regs.write(REGISTERS["ACQ_COMMAND"], 4)
+            status = acquisition_status(regs)
+            print(json.dumps(status, indent=2, sort_keys=True))
+            return
         elif args.op == "capture":
             require_magic(regs)
             status = read_status(regs)
             status.update(capture_waveform(regs, args.capture_length, args.capture_decimation))
             print(json.dumps(status, indent=2, sort_keys=True))
             return
-        status = read_status(regs)
+        status = acquisition_status(regs)
         if args.op == "status":
             warn_missing_magic(int(status["magic"], 16))
         print(json.dumps(status, indent=2, sort_keys=True))
@@ -593,6 +846,20 @@ class LockConfig:
 class UpdatePLockConfig:
     kp: int
     polarity: int
+    config_generation: int
+
+
+@dataclass
+class AcquisitionTargetConfig:
+    target_out2_counts: int
+    target_error_setpoint_counts: int
+    target_window_counts: int
+    required_scan_direction: int
+    required_error_crossing_direction: int
+    initial_polarity_suggestion: int
+    correction_limit_counts: int
+    absolute_limit_counts: int
+    config_generation: int
 
 
 def volts_to_counts(volts: float) -> int:
@@ -642,13 +909,41 @@ def build_update_p_lock_config(args: argparse.Namespace) -> UpdatePLockConfig:
     return UpdatePLockConfig(
         kp=int(args.kp),
         polarity=1 if str(args.polarity).lower() in {"1", "invert", "inverted", "negative"} else 0,
+        config_generation=max(0, int(args.config_generation)),
+    )
+
+
+def build_acquisition_target_config(args: argparse.Namespace) -> AcquisitionTargetConfig:
+    target = int(args.target_out2_counts)
+    setpoint = int(args.target_error_setpoint_counts)
+    window = int(args.target_window_counts)
+    correction = int(args.correction_limit_counts)
+    absolute = int(args.absolute_limit_counts)
+    if target < -8191 or target > 8191 or setpoint < -8191 or setpoint > 8191:
+        raise SystemExit("acquisition target and error setpoint must be within -8191..8191")
+    if window <= 0 or target - window < -8191 or target + window > 8191:
+        raise SystemExit("acquisition target window exceeds signed DAC range")
+    if correction < 0 or correction > absolute or absolute > 8191:
+        raise SystemExit("acquisition limits must satisfy 0 <= correction <= absolute <= 8191")
+    if int(args.config_generation) <= 0:
+        raise SystemExit("acquisition config generation must be positive")
+    return AcquisitionTargetConfig(
+        target_out2_counts=target,
+        target_error_setpoint_counts=setpoint,
+        target_window_counts=window,
+        required_scan_direction=int(args.required_scan_direction),
+        required_error_crossing_direction=int(args.required_error_crossing_direction),
+        initial_polarity_suggestion=int(args.initial_polarity_suggestion),
+        correction_limit_counts=correction,
+        absolute_limit_counts=absolute,
+        config_generation=int(args.config_generation),
     )
 
 
 def remote_command(
     args: argparse.Namespace,
     op: str,
-    config: ScanConfig | HoldConfig | LockConfig | UpdatePLockConfig | None,
+    config: ScanConfig | HoldConfig | LockConfig | UpdatePLockConfig | AcquisitionTargetConfig | None,
 ) -> list[str]:
     helper_b64 = base64.b64encode(REMOTE_HELPER.encode("utf-8")).decode("ascii")
     remote_args = [
@@ -696,6 +991,29 @@ def remote_command(
             str(config.kp),
             "--polarity",
             str(config.polarity),
+            "--config-generation",
+            str(config.config_generation),
+        ]
+    elif isinstance(config, AcquisitionTargetConfig):
+        remote_args += [
+            "--target-out2-counts",
+            str(config.target_out2_counts),
+            "--target-error-setpoint-counts",
+            str(config.target_error_setpoint_counts),
+            "--target-window-counts",
+            str(config.target_window_counts),
+            "--required-scan-direction",
+            str(config.required_scan_direction),
+            "--required-error-crossing-direction",
+            str(config.required_error_crossing_direction),
+            "--initial-polarity-suggestion",
+            str(config.initial_polarity_suggestion),
+            "--correction-limit-counts",
+            str(config.correction_limit_counts),
+            "--absolute-limit-counts",
+            str(config.absolute_limit_counts),
+            "--config-generation",
+            str(config.config_generation),
         ]
     elif op == "capture":
         remote_args += [
@@ -784,6 +1102,37 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     update_p_parser.add_argument("--kp", type=int, choices=ALLOWED_UPDATE_KP, default=0)
     update_p_parser.add_argument("--polarity", choices=["normal", "invert", "0", "1"], default="normal")
+    update_p_parser.add_argument("--config-generation", type=int, default=0)
+
+    def add_acquisition_arguments(command_parser: argparse.ArgumentParser) -> None:
+        command_parser.add_argument("--target-out2-counts", type=int, required=True)
+        command_parser.add_argument("--target-error-setpoint-counts", type=int, default=0)
+        command_parser.add_argument("--target-window-counts", type=int, default=64)
+        command_parser.add_argument("--required-scan-direction", type=int, choices=[1, 2], required=True)
+        command_parser.add_argument(
+            "--required-error-crossing-direction",
+            type=int,
+            choices=[1, 2],
+            required=True,
+        )
+        command_parser.add_argument("--initial-polarity-suggestion", type=int, choices=[0, 1], default=0)
+        command_parser.add_argument("--correction-limit-counts", type=int, default=128)
+        command_parser.add_argument("--absolute-limit-counts", type=int, default=8191)
+        command_parser.add_argument("--config-generation", type=int, required=True)
+
+    preload_acq_parser = subparsers.add_parser(
+        "preload-acquisition",
+        help="Write and validate the deterministic acquisition shadow configuration",
+    )
+    add_acquisition_arguments(preload_acq_parser)
+    arm_acq_parser = subparsers.add_parser(
+        "arm-acquisition",
+        help="Write the target shadow configuration and issue exactly one FPGA ARM command",
+    )
+    add_acquisition_arguments(arm_acq_parser)
+    subparsers.add_parser("acquisition-status", help="Read coherent acquisition state and sticky event")
+    subparsers.add_parser("abort-acquisition", help="Abort an armed acquisition into SAFE")
+    subparsers.add_parser("clear-acquisition-event", help="Clear the sticky acquisition event in SAFE")
 
     pi_lock_parser = subparsers.add_parser("pi-lock", help="Enable PI lock mode; Kp/Ki default to zero")
     pi_lock_parser.add_argument("--kp", type=int, default=0, help="Fixed-point Kp, 256 = gain 1.0")
@@ -823,6 +1172,8 @@ def main(argv: list[str] | None = None) -> int:
         config = build_lock_config(args, pi=False)
     elif args.command == "update-p-lock":
         config = build_update_p_lock_config(args)
+    elif args.command in {"preload-acquisition", "arm-acquisition"}:
+        config = build_acquisition_target_config(args)
     elif args.command == "pi-lock":
         config = build_lock_config(args, pi=True)
     else:
@@ -866,7 +1217,25 @@ def main(argv: list[str] | None = None) -> int:
                     # update-p-lock parameters
                     # kp={config.kp}
                     # polarity={config.polarity}
-                    # normal path writes only KP and POLARITY
+                    # config_generation={config.config_generation}
+                    # normal path applies P only to the matching triggered generation
+                    """
+                ).strip()
+            )
+        elif isinstance(config, AcquisitionTargetConfig):
+            print(
+                textwrap.dedent(
+                    f"""
+                    # deterministic acquisition target
+                    # target_out2_counts={config.target_out2_counts}
+                    # target_error_setpoint_counts={config.target_error_setpoint_counts}
+                    # target_window_counts={config.target_window_counts}
+                    # required_scan_direction={config.required_scan_direction}
+                    # required_error_crossing_direction={config.required_error_crossing_direction}
+                    # initial_polarity_suggestion={config.initial_polarity_suggestion}
+                    # correction_limit_counts={config.correction_limit_counts}
+                    # absolute_limit_counts={config.absolute_limit_counts}
+                    # config_generation={config.config_generation}
                     """
                 ).strip()
             )

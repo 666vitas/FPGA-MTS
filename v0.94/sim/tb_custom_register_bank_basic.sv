@@ -26,6 +26,14 @@ module tb_custom_register_bank_basic;
     localparam logic [5:0] REG_ERROR_SETPOINT  = 6'h15;
     localparam logic [5:0] REG_LOCK_ERROR_MONITOR = 6'h16;
     localparam logic [5:0] REG_CAPTURE_LOCK_POINT = 6'h17;
+    localparam logic [5:0] REG_TARGET_OUT2_SHADOW = 6'h18;
+    localparam logic [5:0] REG_TARGET_ERROR_SETPOINT_SHADOW = 6'h19;
+    localparam logic [5:0] REG_TARGET_WINDOW_SHADOW = 6'h1A;
+    localparam logic [5:0] REG_TARGET_REQUIREMENTS_SHADOW = 6'h1B;
+    localparam logic [5:0] REG_CORRECTION_LIMIT_SHADOW = 6'h1C;
+    localparam logic [5:0] REG_ABSOLUTE_LIMIT_SHADOW = 6'h1D;
+    localparam logic [5:0] REG_CONFIG_GENERATION_SHADOW = 6'h1E;
+    localparam logic [5:0] REG_CONFIG_VALIDATION = 6'h1F;
     localparam logic [5:0] REG_CAPTURE_CTRL       = 6'h20;
     localparam logic [5:0] REG_CAPTURE_STATUS     = 6'h21;
     localparam logic [5:0] REG_CAPTURE_DECIMATION = 6'h22;
@@ -35,6 +43,22 @@ module tb_custom_register_bank_basic;
     localparam logic [5:0] REG_CAPTURE_DATA_CH2   = 6'h26;
     localparam logic [5:0] REG_CAPTURE_DATA_CH3   = 6'h27;
     localparam logic [5:0] REG_CAPTURE_DATA_CH4   = 6'h28;
+    localparam logic [5:0] REG_ACQ_COMMAND = 6'h29;
+    localparam logic [5:0] REG_ACQ_STATE = 6'h2A;
+    localparam logic [5:0] REG_EVENT_SEQUENCE = 6'h2B;
+    localparam logic [5:0] REG_EVENT_OUT2 = 6'h2C;
+    localparam logic [5:0] REG_EVENT_ERROR = 6'h2D;
+    localparam logic [5:0] REG_EVENT_CONFIG_GENERATION = 6'h2E;
+    localparam logic [5:0] REG_EVENT_INFO = 6'h2F;
+    localparam logic [5:0] REG_EVENT_TIMESTAMP_LO = 6'h30;
+    localparam logic [5:0] REG_EVENT_TIMESTAMP_HI = 6'h31;
+    localparam logic [5:0] REG_ACTIVE_TARGET_OUT2 = 6'h32;
+    localparam logic [5:0] REG_ACTIVE_ERROR_SETPOINT = 6'h33;
+    localparam logic [5:0] REG_ACTIVE_WINDOW = 6'h34;
+    localparam logic [5:0] REG_ACTIVE_REQUIREMENTS = 6'h35;
+    localparam logic [5:0] REG_ACTIVE_CORRECTION_LIMIT = 6'h36;
+    localparam logic [5:0] REG_ACTIVE_ABSOLUTE_LIMIT = 6'h37;
+    localparam logic [5:0] REG_FAULT_DETAIL = 6'h38;
 
     logic clk = 1'b0;
     always #5 clk = ~clk;
@@ -60,6 +84,9 @@ module tb_custom_register_bank_basic;
     logic signed [13:0] error_setpoint;
     logic signed [13:0] ki;
     logic integral_reset;
+    logic acq_trigger;
+    logic acq_abort;
+    logic acq_fault;
     logic capture_start;
     logic [31:0] capture_decimation;
     logic [31:0] capture_length;
@@ -145,6 +172,9 @@ module tb_custom_register_bank_basic;
         .error_setpoint_o(error_setpoint),
         .ki_o(ki),
         .integral_reset_o(integral_reset),
+        .acq_trigger_o(acq_trigger),
+        .acq_abort_o(acq_abort),
+        .acq_fault_o(acq_fault),
         .capture_start_o(capture_start),
         .capture_decimation_o(capture_decimation),
         .capture_length_o(capture_length),
@@ -202,7 +232,7 @@ module tb_custom_register_bank_basic;
         bus_read(REG_MAGIC, read_data);
         check("read MAGIC", read_data == 32'h4D545330);
         bus_read(REG_VERSION, read_data);
-        check("read VERSION", read_data == 32'h00030001);
+        check("read VERSION", read_data == 32'h00030100);
 
         bus_write(REG_MODE, 32'd1);
         bus_write(REG_ENABLE, 32'd1);
@@ -354,6 +384,154 @@ module tb_custom_register_bank_basic;
         bus_read(REG_STATUS, read_data);
         check("STATUS bit0 clears when disabled", read_data[0] == 1'b0);
         check("STATUS bit1 clears when not saturated", read_data[1] == 1'b0);
+
+        bus_write(REG_ACQ_COMMAND, 32'h2);
+        check("ABORT command forces MODE SAFE", mode == 32'd0);
+        check("ABORT command clears ENABLE", enable == 1'b0);
+        bus_read(REG_ACQ_COMMAND, read_data);
+        check("ACQ_COMMAND is write-only and reads zero", read_data == 32'd0);
+
+        bus_write(REG_MODE, 32'd1);
+        bus_write(REG_ENABLE, 32'd1);
+        wait_cycles(2);
+        bus_read(REG_ACQ_STATE, read_data);
+        check("acquisition state follows enabled SCAN", read_data[2:0] == 3'd1);
+
+        bus_write(REG_TARGET_OUT2_SHADOW, 32'd100);
+        bus_read(REG_CONFIG_VALIDATION, read_data);
+        check("partial shadow write is incomplete", read_data[0] == 1'b0);
+        check("partial shadow written mask records target only", read_data[14:8] == 7'b0000001);
+        bus_write(REG_ACQ_COMMAND, 32'h1);
+        bus_read(REG_ACQ_STATE, read_data);
+        check("invalid ARM remains in SCAN", read_data[2:0] == 3'd1);
+        bus_read(REG_EVENT_INFO, read_data);
+        check("invalid ARM reports CONFIG_REJECTED", read_data[3:1] == 3'd4);
+        bus_read(REG_FAULT_DETAIL, read_data);
+        check("invalid ARM reports missing-field reject bit", read_data[0] == 1'b1);
+
+        bus_write(REG_ACQ_COMMAND, 32'h4);
+        bus_write(REG_ACQ_COMMAND, 32'h3);
+        bus_read(REG_EVENT_INFO, read_data);
+        check("multi-command is rejected atomically", read_data[3:1] == 3'd5);
+        bus_read(REG_ACQ_STATE, read_data);
+        check("multi-command executes no partial command", read_data[2:0] == 3'd1);
+        bus_write(REG_ACQ_COMMAND, 32'h4);
+
+        bus_write(REG_TARGET_OUT2_SHADOW, 32'd100);
+        bus_write(REG_TARGET_ERROR_SETPOINT_SHADOW, 32'd0);
+        bus_write(REG_TARGET_WINDOW_SHADOW, 32'd10);
+        bus_write(REG_TARGET_REQUIREMENTS_SHADOW, 32'h0000_0005);
+        bus_write(REG_CORRECTION_LIMIT_SHADOW, 32'd8);
+        bus_write(REG_ABSOLUTE_LIMIT_SHADOW, 32'd200);
+        bus_write(REG_CONFIG_GENERATION_SHADOW, 32'd42);
+        bus_read(REG_CONFIG_VALIDATION, read_data);
+        check("complete shadow config has all written bits", read_data[14:8] == 7'h7F);
+        check("complete shadow config is ARM-valid", read_data[7] == 1'b1);
+        check("CONFIG_VALIDATION marks host PZT range responsibility", read_data[15] == 1'b1);
+
+        out2_monitor = 14'sd95;
+        error_monitor = -14'sd10;
+        wait_cycles(2);
+        bus_write(REG_ACQ_COMMAND, 32'h1);
+        bus_read(REG_ACQ_STATE, read_data);
+        check("valid ARM enters ARMED", read_data[2:0] == 3'd2);
+        check("valid ARM clears Kp", kp == 14'sd0);
+        check("valid ARM clears Ki", ki == 14'sd0);
+        bus_read(REG_ACTIVE_TARGET_OUT2, read_data);
+        check("ARM snapshots active target", $signed(read_data) == 32'sd100);
+        bus_read(REG_ACTIVE_ERROR_SETPOINT, read_data);
+        check("ARM snapshots active error setpoint", $signed(read_data) == 32'sd0);
+        bus_read(REG_ACTIVE_WINDOW, read_data);
+        check("ARM snapshots active window", read_data == 32'd10);
+        bus_read(REG_ACTIVE_REQUIREMENTS, read_data);
+        check("ARM snapshots independent direction requirements", read_data == 32'h5);
+        bus_read(REG_ACTIVE_CORRECTION_LIMIT, read_data);
+        check("ARM snapshots correction limit", read_data == 32'd8);
+        bus_read(REG_ACTIVE_ABSOLUTE_LIMIT, read_data);
+        check("ARM snapshots absolute limit", read_data == 32'd200);
+
+        bus_write(REG_ACQ_COMMAND, 32'h1);
+        bus_read(REG_ACQ_STATE, read_data);
+        check("repeated ARM remains ARMED", read_data[2:0] == 3'd2);
+        bus_read(REG_EVENT_INFO, read_data);
+        check("repeated ARM reports CONFIG_REJECTED", read_data[3:1] == 3'd4);
+        bus_read(REG_FAULT_DETAIL, read_data);
+        check("repeated ARM reports state reject bit", read_data[6] == 1'b1);
+        bus_write(REG_ACQ_COMMAND, 32'h4);
+
+        bus_write(REG_TARGET_OUT2_SHADOW, 32'd150);
+        bus_read(REG_ACTIVE_TARGET_OUT2, read_data);
+        check("shadow writes after ARM do not alter active target", $signed(read_data) == 32'sd100);
+
+        out2_monitor = 14'sd96;
+        error_monitor = -14'sd5;
+        wait_cycles(1);
+        check("ARMED does not trigger without crossing", mode == 32'd1);
+        out2_monitor = 14'sd100;
+        error_monitor = 14'sd1;
+        wait_cycles(1);
+        check("matching direction/window/crossing atomically enters P_LOCK", mode == 32'd3);
+        check("trigger captures actual OUT2 as LOCK_BIAS", lock_bias == 14'sd100);
+        check("trigger applies active setpoint rather than current error", error_setpoint == 14'sd0);
+        check("trigger applies active correction limit", lock_correction_limit == 14'sd8);
+        check("trigger applies active absolute limit", lock_limit == 14'sd200);
+        wait_cycles(2);
+        bus_read(REG_ACQ_STATE, read_data);
+        check("trigger commit reaches P_LOCK_KP0", read_data[2:0] == 3'd4);
+        check("P_LOCK_KP0 readback marks lock active", read_data[10] == 1'b1);
+        bus_read(REG_EVENT_OUT2, read_data);
+        check("trigger event records actual OUT2", $signed(read_data) == 32'sd100);
+        bus_read(REG_EVENT_ERROR, read_data);
+        check("trigger event records actual ERROR", $signed(read_data) == 32'sd1);
+        bus_read(REG_EVENT_CONFIG_GENERATION, read_data);
+        check("trigger event records active generation", read_data == 32'd42);
+        bus_read(REG_EVENT_INFO, read_data);
+        check("trigger event is sticky and typed TRIGGERED", read_data[0] && (read_data[3:1] == 3'd2));
+        check("trigger event records RISING scan direction", read_data[5:4] == 2'd1);
+        check("trigger event records NEG_TO_POS crossing", read_data[7:6] == 2'd1);
+        bus_read(REG_EVENT_TIMESTAMP_LO, read_data);
+        check("trigger event timestamp is nonzero", read_data != 32'd0);
+        bus_read(REG_EVENT_SEQUENCE, read_data);
+        check("event sequence advances monotonically", read_data >= 32'd4);
+
+        bus_write(REG_ACQ_COMMAND, 32'h4);
+        bus_read(REG_ACQ_STATE, read_data);
+        check("CLEAR_EVENT clears sticky event only", (read_data[8] == 1'b0) && (read_data[2:0] == 3'd4));
+        check("CLEAR_EVENT preserves P_LOCK mode", mode == 32'd3);
+
+        bus_write(REG_KP, 32'd4);
+        wait_cycles(2);
+        bus_read(REG_ACQ_STATE, read_data);
+        check("explicit nonzero Kp enters P_LOCK_ACTIVE", read_data[2:0] == 3'd5);
+        check("explicit Apply P writes requested Kp", kp == 14'sd4);
+
+        bus_write(REG_ACQ_COMMAND, 32'h2);
+        check("ABORT from P_LOCK_ACTIVE returns MODE SAFE", mode == 32'd0);
+        check("ABORT from P_LOCK_ACTIVE clears Kp", kp == 14'sd0);
+
+        bus_write(REG_MODE, 32'd1);
+        bus_write(REG_ENABLE, 32'd1);
+        wait_cycles(2);
+        bus_write(REG_TARGET_OUT2_SHADOW, -32'sd100);
+        bus_write(REG_TARGET_ERROR_SETPOINT_SHADOW, -32'sd7);
+        bus_write(REG_TARGET_WINDOW_SHADOW, 32'd10);
+        bus_write(REG_TARGET_REQUIREMENTS_SHADOW, 32'h0000_000A);
+        bus_write(REG_CORRECTION_LIMIT_SHADOW, 32'd8);
+        bus_write(REG_ABSOLUTE_LIMIT_SHADOW, 32'd200);
+        bus_write(REG_CONFIG_GENERATION_SHADOW, 32'd43);
+        bus_read(REG_CONFIG_VALIDATION, read_data);
+        check("negative target and setpoint are valid signed 14-bit fields", read_data[7] == 1'b1);
+        out2_monitor = -14'sd90;
+        error_monitor = 14'sd5;
+        bus_write(REG_ACQ_COMMAND, 32'h1);
+        bus_read(REG_ACTIVE_TARGET_OUT2, read_data);
+        check("ARM snapshots negative active target with sign extension", $signed(read_data) == -32'sd100);
+        bus_read(REG_ACTIVE_ERROR_SETPOINT, read_data);
+        check("ARM snapshots negative active error setpoint with sign extension", $signed(read_data) == -32'sd7);
+        bus_write(REG_CONFIG_GENERATION_SHADOW, 32'd99);
+        bus_write(REG_ACQ_COMMAND, 32'h2);
+        bus_read(REG_EVENT_CONFIG_GENERATION, read_data);
+        check("ABORT event retains active generation after shadow mutation", read_data == 32'd43);
 
         $display("SUMMARY tb_custom_register_bank_basic tests=%0d pass=%0d fail=%0d", tests, pass_count, fail_count);
         if (fail_count != 0) begin

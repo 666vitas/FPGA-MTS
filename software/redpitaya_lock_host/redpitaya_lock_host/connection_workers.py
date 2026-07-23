@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import QThread, Signal
 
 from .connection_probe import ProbeResult, probe_redpitaya, test_port
-from .custom_fpga_backend import CustomFpgaBackend
+from .custom_fpga_backend import CustomFpgaBackend, build_acquisition_target_config
 from .rp_scpi_client import RedPitayaScpiClient
 from .scpi_client import ScpiClient
 from .ssh_client import RedPitayaSshClient
@@ -167,17 +167,33 @@ class CustomFpgaRegisterWorker(QThread):
                 response = backend.update_p_lock(
                     kp=int(self.params["kp"]),
                     polarity=int(self.params["polarity"]),
+                    config_generation=int(self.params.get("config_generation", 0)),
                 )
             elif self.operation == "lock":
-                response = backend.lock_here(
-                    polarity=int(self.params["polarity"]),
-                    lock_limit_counts=int(self.params["lock_limit_counts"]),
-                    correction_limit_counts=int(self.params.get("correction_limit_counts", 128)),
-                    settle_s=float(self.params.get("settle_s", 0.5)),
-                    target_out2_counts=self.params.get("target_out2_counts"),
+                target = build_acquisition_target_config(
+                    target_out2_counts=int(self.params["target_out2_counts"]),
+                    target_error_setpoint_counts=int(self.params["target_error_setpoint_counts"]),
                     target_window_counts=int(self.params.get("target_window_counts", 64)),
-                    target_timeout_s=float(self.params.get("target_timeout_s", 5.0)),
+                    required_scan_direction=int(self.params["required_scan_direction"]),
+                    required_error_crossing_direction=int(
+                        self.params["required_error_crossing_direction"]
+                    ),
+                    initial_polarity_suggestion=int(
+                        self.params.get("initial_polarity_suggestion", 0)
+                    ),
+                    correction_limit_counts=int(
+                        self.params.get("correction_limit_counts", 128)
+                    ),
+                    absolute_limit_counts=int(self.params["absolute_limit_counts"]),
+                    safe_min_counts=int(self.params.get("safe_min_counts", -8191)),
+                    safe_max_counts=int(self.params.get("safe_max_counts", 8191)),
+                    config_generation=int(self.params["config_generation"]),
                 )
+                response = backend.arm_lock_target(target)
+            elif self.operation == "abort-acquisition":
+                response = backend.abort_acquisition()
+            elif self.operation == "clear-acquisition-event":
+                response = backend.clear_acquisition_event()
             elif self.operation == "pi-lock":
                 response = backend.set_mode_pi_lock(
                     kp=int(self.params["kp"]),

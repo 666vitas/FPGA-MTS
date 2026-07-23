@@ -1,36 +1,40 @@
 # STATUS
 
-## 2026-07-23 v3LOCK-D1 Deterministic FPGA Lock Acquisition Design
+## 2026-07-23 v3LOCK-D1 Deterministic FPGA Lock Acquisition Implementation
 
 ### Stage
 
-`v3LOCK-D1 / Deterministic FPGA Lock Acquisition Design`
+`v3LOCK-D1 / Deterministic FPGA Lock Acquisition`
 
 ### Current Gate
 
-`Gate D1-A / Freeze the deterministic lock-acquisition interface`
+`Gate D1-D / Integrated software/RTL verification and hardware SOP`
 
 ### Current Blocker
 
-- [IMPLEMENTED] 当前 GUI 能从历史 capture 选取并确认 `target_out2_counts`，但 `LOCK HERE` 仍由 Red Pitaya Linux 轮询 `OUT2_MONITOR`，再写 `CAPTURE_LOCK_POINT`。
-- [NOT VERIFIED] GUI 保存的 `ramp_direction` 尚未成为 FPGA 实时触发条件。
-- [NOT VERIFIED] 尚无独立的 ERROR crossing direction 配置与 FPGA 判定。
-- [NOT VERIFIED] 尚无 FPGA `ARM/ARMED/TRIGGERED/LOCK_ACTIVE/FAULT` 状态契约。
-- [NOT VERIFIED] 尚无包含实际触发 OUT2、ERROR、方向、配置代次和 FPGA 时间戳的触发事件 readback。
-- [NOT VERIFIED] 通信延迟尚未退出实时触发链路；Linux 轮询和寄存器写入时刻仍决定当前切换发生在哪一个扫描点。
+- [NOT VERIFIED] 尚未由用户在 Vivado 中执行 synthesis/implementation、确认 125 MHz timing、生成或烧录新 bitstream。
+- [NOT VERIFIED] 新 acquisition 尚未在真实板卡上验证寄存器 readback、ARM、实际触发点、Kp=0 无扰切换和 OUT2/PZT 行为。
+- [NOT VERIFIED] 尚未执行新的硬件 SOP；最小非零 Kp 与基础 P-only 仍必须等待用户真实硬件结果。
 
 ### Verified
 
 #### SOFTWARE / RTL IMPLEMENTED
 
-- [IMPLEMENTED] 当前 host 已实现 SCAN、四通道 capture、GUI ERROR 零交叉选取、confirmed target 和 Kp=0 `LOCK HERE` 命令路径。
-- [IMPLEMENTED] 当前 `CAPTURE_LOCK_POINT` 命令到达 FPGA 后，会在同一 `clk_i` 域捕获当时的 `ERROR_MONITOR` 与 `OUT2_MONITOR`，将 Kp/Ki 清零并进入 `MODE=3 P_LOCK`。
-- [IMPLEMENTED] 当前 RTL 已有 P-only 数据路径、correction limit、absolute limit、SAFE/SCAN/HOLD/P_LOCK 基础模式和 saturation readback；这些实现不等于确定性 acquisition 已完成。
+- [IMPLEMENTED] `custom_register_bank` 已增加 D1 shadow/config、written mask、W1P `ARM/ABORT/CLEAR_EVENT`、状态、sticky coherent event、active readback 与 fault/reject readback，`VERSION=0x00030100`。
+- [IMPLEMENTED] 独立 `deterministic_lock_acquisition` 在 `adc_clk` 域根据实际 `selected_out2` 相邻值生成 scan direction，并以 active target window 和原始 `laser_error` crossing 产生一次性 trigger。
+- [IMPLEMENTED] 合法 ARM 同拍完成 shadow-to-active snapshot；ARM 后 shadow 修改不影响当前 transaction。trigger 同拍捕获实际 OUT2 为 `LOCK_BIAS`、应用 active `ERROR_SETPOINT`/limits，并原子进入 `MODE=3`、Kp=0、Ki=0。
+- [IMPLEMENTED] `out2_lock_controller` 明确实现 `ABORT/FAULT > TRIGGER > normal` 输出优先级；trigger 拍保持当前 OUT2，P pipeline 填充期间输出捕获 bias。
+- [IMPLEMENTED] Python backend、Linux helper、CLI 和最小 GUI 已切换正常路径为完整 shadow preload + 单次 ARM；实时触发不再由 host target polling 或 `CAPTURE_LOCK_POINT` 决定。
+- [IMPLEMENTED] GUI confirmed target 显示 scan direction、ERROR crossing direction、polarity suggestion（仅显示、不自动应用）和 `config_generation`；只有匹配 generation 的 sticky `TRIGGERED` event 才允许 Apply P。
+- [IMPLEMENTED] legacy `lock-here` / `CAPTURE_LOCK_POINT` 保留为显式 diagnostic 路径，不是 GUI 正常 acquisition 路径。
 
 #### AUTOMATED VERIFIED RECORDS
 
-- [AUTOMATED VERIFIED] 最近完整 software test 记录为 `137 passed`；本轮只修改文档，没有重跑 Python 测试。
-- [AUTOMATED VERIFIED] 最近独立 XSim 记录为 custom register bank `83/83`、OUT2 controller `29/29`；本轮没有修改 RTL，也没有重跑 RTL 仿真。
+- [AUTOMATED VERIFIED] 正式 host 测试文件 `tests/test_custom_fpga_backend.py`、`tests/test_operator_voltage_diagnostics.py`、`tests/test_custom_fpga_workflow.py`、`tests/test_waveform_preview.py` 合计 `142 passed`。
+- [AUTOMATED VERIFIED] XSim `tb_custom_register_bank_basic` 为 `136/136 PASS`，覆盖地址、signed readback、partial/complete config、invalid ARM、multi-command、snapshot、sticky event、generation、CLEAR_EVENT、Apply P 和 ABORT。
+- [AUTOMATED VERIFIED] XSim `tb_out2_lock_controller` 为 `35/35 PASS`，覆盖 SAFE/SCAN/HOLD/P_LOCK、trigger hold、ABORT/FAULT、P pipeline、correction/absolute saturation。
+- [AUTOMATED VERIFIED] XSim `tb_deterministic_lock_acquisition` 为 `32/32 PASS`，覆盖 RISING/FALLING/相等 sample/端点反转、方向或窗口不匹配、两种 crossing、同拍 ABORT、runtime fault 和集成 trigger。
+- [AUTOMATED VERIFIED] 集成仿真记录 `out2_before=100`、`out2_trigger=100`、`captured_bias=100`、首拍及后续 Kp=0 OUT2 均为 `100`，数字命令跳变为 `0 counts`。
 
 #### USER HARDWARE OBSERVATIONS
 
@@ -40,8 +44,8 @@
 
 ### Not Verified
 
-- [NOT VERIFIED] FPGA deterministic acquisition interface、寄存器契约、FSM RTL 和仿真验收尚未实现。
-- [NOT VERIFIED] Kp=0 scan-to-lock 是否无扰。
+- [NOT VERIFIED] Vivado synthesis/implementation 与 125 MHz timing closure；本轮行为级仿真不等于 timing closed。
+- [NOT VERIFIED] 真实板卡 Kp=0 scan-to-lock 是否无扰；`0 counts` 仅为 RTL 数字命令证据，不包含 DAC 模拟瞬态、PZT 或激光动态。
 - [NOT VERIFIED] 最小非零 Kp 是否形成负反馈。
 - [NOT VERIFIED] 基础 P-only 是否能够持续锁定。
 - [NOT VERIFIED] 所有真实硬件锁定、自动重锁和长期稳频结果。
@@ -58,6 +62,6 @@
 - Gate L0 现标记为 `historical / superseded diagnostic path`。用户已明确授权先修复数字获取架构，暂缓 HOLD/LOCK HERE 硬件 A/B；待软件与 RTL 仿真通过后再制定新的硬件 Gate。
 - 原 L0 结果仍可作为偏移现象与安全边界的历史证据，但不再是当前唯一 blocker。
 
-### Unique Next Action
+### Unique Next Experiment
 
-完成 FPGA deterministic lock acquisition 的接口设计、寄存器契约、状态机行为和软件/RTL 仿真验收标准；当前设计基线见 `software/redpitaya_lock_host/docs/FPGA_DETERMINISTIC_LOCK_ACQUISITION.md`。
+由用户在 Vivado 中确认现有 `custom_register_bank.sv` 已作为工程 source，运行 synthesis/implementation 并检查 125 MHz timing；通过后再生成 bitstream，并按新的单项硬件 SOP 先验证身份、SAFE、SCAN、ARM/event 与 Kp=0 OUT2，无真实结果不得进入 Gate D2。

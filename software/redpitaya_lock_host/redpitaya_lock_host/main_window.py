@@ -610,6 +610,11 @@ def resolve_direct_error_zero_crossing(
     zero_index = float(crossing.index)
     target_out2_float = float(crossing.out2_counts)
     target_out2_counts = int(round(target_out2_float))
+    crossing_left = max(0, min(count - 2, int(np.floor(zero_index))))
+    error_crossing_direction = (
+        "neg_to_pos" if float(error[crossing_left]) < float(error[crossing_left + 1])
+        else "pos_to_neg"
+    )
     crossing_time_s = (
         _interpolate_capture_value(time_s, zero_index)
         if time_s is not None
@@ -632,6 +637,7 @@ def resolve_direct_error_zero_crossing(
         "error_residual_counts": float(crossing.error_residual_counts),
         "slope": float(crossing.slope),
         "ramp_direction": direction,
+        "error_crossing_direction": error_crossing_direction,
         "target_window_counts": int(max(1, target_window_counts)),
         "safe_min_counts": int(safe_min_counts),
         "safe_max_counts": int(safe_max_counts),
@@ -789,6 +795,12 @@ def resolve_lock_point_selection(
     _, _, _, crossing, direction = min(candidates, key=lambda item: (item[0], item[1], item[2]))
     zero_index = float(crossing.index)
     target_out2 = float(crossing.out2_counts)
+    crossing_left = max(0, min(count - 2, int(np.floor(zero_index))))
+    error_crossing_direction = (
+        "neg_to_pos"
+        if float(error[crossing_left] - setpoint) < float(error[crossing_left + 1] - setpoint)
+        else "pos_to_neg"
+    )
     crossing_time_s = (
         _interpolate_capture_value(time_s, zero_index)
         if time_s is not None
@@ -811,6 +823,7 @@ def resolve_lock_point_selection(
         "error_residual_counts": float(crossing.error_residual_counts),
         "slope": float(crossing.slope),
         "ramp_direction": direction,
+        "error_crossing_direction": error_crossing_direction,
         "target_window_counts": int(max(1, target_window_counts)),
         "safe_min_counts": int(safe_min_counts),
         "safe_max_counts": int(safe_max_counts),
@@ -947,6 +960,7 @@ class MainWindow(QMainWindow):
         self._updating_scope_display_controls = False
         self.custom_last_capture_payload: dict[str, Any] = {}
         self.custom_capture_generation = 0
+        self.acquisition_config_generation = 0
         self.selected_lock_point: dict[str, int | float] | None = None
         self.pending_lock_point: dict[str, int | float] | None = None
         self.pending_target_peak: dict[str, int | float] | None = None
@@ -958,6 +972,7 @@ class MainWindow(QMainWindow):
         self.capture_in_flight = False
         self.lock_error_over_threshold_count = 0
         self.p_lock_ready = False
+        self.acquisition_state = 0
         self.applied_kp = 0
         self.applied_polarity_index = 0
         self.basic_lock_active = False
@@ -969,6 +984,8 @@ class MainWindow(QMainWindow):
         self.system_identity_matched = False
         self.system_identity_communication_ok = False
         self.system_identity_saturated = False
+        self.p_lock_ready = False
+        self.acquisition_state = 0
         self.last_identity_probe_time: datetime | None = None
         self.host_code_revision = local_host_commit()
         self.worker: (
@@ -1177,6 +1194,7 @@ class MainWindow(QMainWindow):
         self.system_identity_matched = False
         self.system_identity_communication_ok = False
         self.system_identity_saturated = False
+        self.p_lock_ready = False
         self.system_connection_value.setText(connection)
         self.system_fpga_version_value.setText("--")
         self.system_identity_value.setText("Unknown")
@@ -1327,7 +1345,7 @@ class MainWindow(QMainWindow):
         self.custom_pick_lock_button.setCheckable(True)
         self._style_button(self.custom_pick_lock_button)
         self.custom_confirm_lock_point_button.setText("CONFIRM")
-        self.custom_lock_button.setText("LOCK HERE")
+        self.custom_lock_button.setText("ARM LOCK")
         self.custom_safe_button.setText("SAFE")
         self.custom_safe_button.setStyleSheet("font-weight: 700; color: #ffffff; background: #a32020;")
         for button in (
@@ -1990,11 +2008,15 @@ class MainWindow(QMainWindow):
         self.custom_kp.setToolTip("Manual P-only gain step; allowed values are 0, 4, 8, 16, 32.")
         self.custom_polarity.setToolTip("Feedback polarity. Change polarity only after APPLY P with Kp=0.")
         self.custom_correction_limit_counts.setToolTip("Maximum P correction amplitude around LOCK_BIAS, in counts.")
-        self.custom_zero_threshold_counts.setToolTip("LOCK HERE waits until OUT2 is within this count window of the confirmed target.")
+        self.custom_zero_threshold_counts.setToolTip(
+            "FPGA trigger requires OUT2 inside this target window while scan and raw-error crossing directions match."
+        )
         self.custom_capture_length.setToolTip("Number of custom_debug_capture samples.")
         self.custom_capture_decimation.setToolTip("FPGA capture decimation; display-only scope timing, not physical gain.")
         self.captured_bias_label = QLabel("captured lock_bias: -- counts / -- V calibrated")
-        self.captured_bias_label.setToolTip("LOCK_BIAS is captured by FPGA from OUT2_MONITOR at LOCK HERE.")
+        self.captured_bias_label.setToolTip(
+            "LOCK_BIAS is captured atomically by FPGA from OUT2_MONITOR on the deterministic trigger."
+        )
         self.captured_bias_label.setWordWrap(True)
         for widget in (self.basic_pzt_min_v, self.basic_pzt_max_v):
             self._style_field(widget)
@@ -2021,7 +2043,7 @@ class MainWindow(QMainWindow):
         form.addRow("captured bias", self.captured_bias_label)
         self.selected_lock_label = QLabel("selected lock point: click current scan waveform first")
         self.selected_lock_label.setToolTip(
-            "ERROR_SETPOINT is captured by FPGA as ERROR_MONITOR at LOCK HERE; LOCK_ERROR is ERROR_MONITOR - ERROR_SETPOINT."
+            "The confirmed ERROR_SETPOINT is copied into the FPGA active snapshot at ARM; raw laser_error crossing triggers capture."
         )
         self.selected_lock_label.setWordWrap(True)
         form.addRow("selected point", self.selected_lock_label)
@@ -2037,7 +2059,7 @@ class MainWindow(QMainWindow):
         self.custom_p_lock_button = QPushButton("P_LOCK")
         self.custom_pi_lock_button = QPushButton("PI_LOCK")
         self.custom_capture_bias_button = QPushButton("Capture Bias")
-        self.custom_lock_button = QPushButton("LOCK HERE")
+        self.custom_lock_button = QPushButton("ARM LOCK")
         self.custom_apply_p_button = QPushButton("APPLY P")
         self.custom_arm_auto_lock_button = QPushButton("LOCK HERE")
         self.custom_abort_auto_lock_button = QPushButton("ABORT / SAFE")
@@ -2101,10 +2123,10 @@ class MainWindow(QMainWindow):
         self.custom_warning_text.setReadOnly(True)
         self.custom_warning_text.setMinimumHeight(90)
         self.custom_warning_text.setPlainText(
-            "First enter SCAN and capture the current waveform. Click the desired zero point, then press LOCK HERE. "
-            "FPGA CAPTURE_LOCK_POINT latches ERROR_SETPOINT and LOCK_BIAS in the same clk_i domain, then enters "
-            "MODE=3 P_LOCK with Kp=0/Ki=0. Use APPLY P for 0/4/8/16/32 manual gain steps without recapturing "
-            "LOCK_BIAS or ERROR_SETPOINT. Change polarity only after APPLY P with Kp=0. Historical CSV values are not used as lock parameters."
+            "First enter SCAN and capture the current waveform. Click and confirm the desired zero crossing, then press ARM LOCK. "
+            "The host writes a complete shadow target and one ARM command. FPGA checks scan direction, target window, and raw "
+            "laser_error crossing direction, then atomically enters MODE=3 P_LOCK with Kp=0/Ki=0. Use APPLY P for "
+            "0/4/8/16/32 manual gain steps. The legacy CAPTURE_LOCK_POINT path remains diagnostic-only."
         )
 
         advanced_body_layout.addLayout(form)
@@ -2157,7 +2179,7 @@ class MainWindow(QMainWindow):
             "D2-125 Error Input -> FPGA mixer + LPF -> laser_error\n"
             "D2-125 Servo Output -> do not parallel with Red Pitaya OUT2\n"
             "SCAN -> GUI writes custom_register_bank/ramp_generator for OUT2 triangle\n"
-            "Click current waveform target -> LOCK HERE -> FPGA captures ERROR_SETPOINT and LOCK_BIAS, then enters MODE=3 P_LOCK"
+            "Click/confirm current waveform target -> ARM LOCK -> FPGA direction/window/crossing trigger -> atomic MODE=3 P_LOCK Kp=0"
         )
         mapping.setWordWrap(True)
         layout.addWidget(QLabel("Lock Workflow Step"))
@@ -2602,7 +2624,9 @@ class MainWindow(QMainWindow):
         self.custom_capture_bias_button.clicked.connect(lambda: self._start_custom_fpga_operation("capture-bias"))
         self.custom_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("lock"))
         self.custom_apply_p_button.clicked.connect(lambda: self._start_custom_fpga_operation("update-p-lock"))
-        self.custom_abort_auto_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
+        self.custom_abort_auto_lock_button.clicked.connect(
+            lambda: self._start_custom_fpga_operation("abort-acquisition")
+        )
         self.custom_unlock_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
         self.custom_capture_waveform_button.clicked.connect(lambda: self._start_custom_fpga_operation("capture"))
         self.custom_capture_once_button.clicked.connect(self._capture_once)
@@ -2954,13 +2978,14 @@ class MainWindow(QMainWindow):
         if operation == "capture" and self.capture_in_flight:
             self.statusBar().showMessage("Capture already in flight; skipped")
             return
-        if operation == "safe" and not preserve_basic:
-            self._stop_live_capture("SAFE requested; Live stopped")
-            self._mark_diagnostics_not_live(stale=False, reason="SAFE requested")
-        if operation == "safe" and not preserve_basic:
+        if operation in {"safe", "abort-acquisition"} and not preserve_basic:
+            reason = "SAFE requested" if operation == "safe" else "acquisition ABORT requested"
+            self._stop_live_capture(f"{reason}; Live stopped")
+            self._mark_diagnostics_not_live(stale=False, reason=reason)
             self.basic_lock_active = False
             self.basic_lock_queue = []
             self.p_lock_ready = False
+            self.acquisition_state = 0
             self.applied_kp = 0
             self.operator_state_label.setText("SAFE")
             self.operator_scan_state_label.setText("SAFE")
@@ -3030,15 +3055,31 @@ class MainWindow(QMainWindow):
                 "correction_limit_counts": self.custom_correction_limit_counts.value(),
             }
         elif operation == "update-p-lock":
-            if int(self.custom_kp.currentText()) != 0 and not self.p_lock_ready:
-                message = "APPLY P requires a successful LOCK HERE at Kp=0"
+            requested_kp = int(self.custom_kp.currentText())
+            if not self.p_lock_ready:
+                message = "APPLY P requires FPGA P_LOCK_KP0 with a matching TRIGGERED generation"
+                self.operator_alert_label.setText(message)
+                self.custom_warning_text.setPlainText(message)
+                self.statusBar().showMessage(message)
+                return
+            if requested_kp != 0 and self.acquisition_state != 4:
+                message = "Nonzero APPLY P is allowed only from FPGA state P_LOCK_KP0"
+                self.operator_alert_label.setText(message)
+                self.custom_warning_text.setPlainText(message)
+                self.statusBar().showMessage(message)
+                return
+            if requested_kp == 0 and self.acquisition_state not in (4, 5):
+                message = "Kp=0 APPLY P requires FPGA state P_LOCK_KP0 or P_LOCK_ACTIVE"
                 self.operator_alert_label.setText(message)
                 self.custom_warning_text.setPlainText(message)
                 self.statusBar().showMessage(message)
                 return
             params = {
-                "kp": int(self.custom_kp.currentText()),
+                "kp": requested_kp,
                 "polarity": 1 if self._polarity_inverted() else 0,
+                "config_generation": int(
+                    (self.selected_lock_point or {}).get("config_generation", 0)
+                ),
             }
         elif operation == "lock":
             if self.selected_lock_point is None:
@@ -3056,13 +3097,33 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(message)
                 return
             params = {
-                "polarity": 1 if self._polarity_inverted() else 0,
-                "lock_limit_counts": self.custom_lock_limit_counts.value(),
-                "correction_limit_counts": self.custom_correction_limit_counts.value(),
-                "settle_s": 0.5,
                 "target_out2_counts": int(self.selected_lock_point["out2_counts"]),
+                "target_error_setpoint_counts": int(
+                    self.selected_lock_point["error_setpoint_counts"]
+                ),
                 "target_window_counts": self.custom_zero_threshold_counts.value(),
-                "target_timeout_s": 5.0,
+                "required_scan_direction": (
+                    1 if self.selected_lock_point["ramp_direction"] == "rising" else 2
+                ),
+                "required_error_crossing_direction": (
+                    1
+                    if self.selected_lock_point["error_crossing_direction"] == "neg_to_pos"
+                    else 2
+                ),
+                "initial_polarity_suggestion": int(
+                    self.selected_lock_point["initial_polarity_suggestion"]
+                ),
+                "correction_limit_counts": self.custom_correction_limit_counts.value(),
+                "absolute_limit_counts": min(
+                    self.custom_lock_limit_counts.value(),
+                    max(
+                        abs(int(self.selected_lock_point.get("safe_min_counts", -8191))),
+                        abs(int(self.selected_lock_point.get("safe_max_counts", 8191))),
+                    ),
+                ),
+                "safe_min_counts": int(self.selected_lock_point.get("safe_min_counts", -8191)),
+                "safe_max_counts": int(self.selected_lock_point.get("safe_max_counts", 8191)),
+                "config_generation": int(self.selected_lock_point["config_generation"]),
             }
         elif operation == "capture":
             self._update_capture_time_window_label()
@@ -3078,7 +3139,8 @@ class MainWindow(QMainWindow):
             "safe": "SAFE requested",
             "scan": "PZT scan requested",
             "capture": "Capture requested",
-            "lock": "LOCK HERE requested",
+            "lock": "FPGA deterministic acquisition ARM requested",
+            "abort-acquisition": "FPGA acquisition ABORT requested",
             "hold-selected-count": "Exact-count HOLD diagnostic requested",
             "update-p-lock": "P gain update requested",
         }.get(operation, f"{operation} requested")
@@ -3153,7 +3215,7 @@ class MainWindow(QMainWindow):
             "safe": "SAFE",
             "scan": "SCAN",
             "capture": "CAPTURE_WAVEFORM",
-            "lock": "CAPTURE_LOCK_POINT",
+            "lock": "ARMED",
             "update-p-lock": "P_LOCK",
         }
         self.basic_status_label.setText(f"state: {state_labels.get(next_operation, next_operation.upper())}")
@@ -3196,7 +3258,6 @@ class MainWindow(QMainWindow):
         self._continue_basic_lock()
 
     def _continue_basic_lock_after_success(self, operation: str, payload: dict[str, Any]) -> None:
-        del payload
         if not self.basic_lock_active:
             return
         if operation == "capture":
@@ -3213,9 +3274,15 @@ class MainWindow(QMainWindow):
             self.basic_lock_active = False
             self.basic_lock_queue = []
             self.custom_kp.setCurrentText("0")
-            self.basic_status_label.setText(
-                "state: P_LOCK | LOCK HERE captured with Kp=0; use APPLY P manually"
-            )
+            acquisition_state = int(payload.get("acquisition_state", -1))
+            if acquisition_state == 4 and self.p_lock_ready:
+                self.basic_status_label.setText(
+                    "state: P_LOCK_KP0 | FPGA trigger captured; use APPLY P manually"
+                )
+            else:
+                self.basic_status_label.setText(
+                    "state: ARMED | FPGA waits for direction/window/raw-error crossing"
+                )
             return
         if operation == "update-p-lock":
             self.basic_lock_active = False
@@ -3704,6 +3771,18 @@ class MainWindow(QMainWindow):
             self.operator_alert_label.setText("Lock point not confirmed")
             return
         self.selected_lock_point = dict(self.pending_lock_point)
+        self.acquisition_config_generation += 1
+        self.selected_lock_point["config_generation"] = self.acquisition_config_generation
+        self.selected_lock_point["initial_polarity_suggestion"] = (
+            1 if float(self.selected_lock_point["slope"]) > 0.0 else 0
+        )
+        if "error_crossing_direction" not in self.selected_lock_point:
+            error_rises_in_time = (
+                float(self.selected_lock_point["slope"]) > 0.0
+            ) == (self.selected_lock_point["ramp_direction"] == "rising")
+            self.selected_lock_point["error_crossing_direction"] = (
+                "neg_to_pos" if error_rises_in_time else "pos_to_neg"
+            )
         self.selected_lock_point["lock_index"] = float(
             self.selected_lock_point.get("lock_index", self.selected_lock_point["zero_crossing_index"])
         )
@@ -3735,7 +3814,11 @@ class MainWindow(QMainWindow):
             f"ERROR_SETPOINT {int(self.selected_lock_point['error_setpoint_counts'])}, "
             f"residual {float(self.selected_lock_point['error_residual_counts']):.6g} counts, "
             f"slope {float(self.selected_lock_point['slope']):.6g}, "
-            f"ramp {self.selected_lock_point['ramp_direction']}"
+            f"scan {self.selected_lock_point['ramp_direction']}, "
+            f"ERROR crossing {self.selected_lock_point['error_crossing_direction']}, "
+            f"polarity suggestion "
+            f"{'invert' if int(self.selected_lock_point['initial_polarity_suggestion']) else 'normal'} "
+            f"(not applied), generation {int(self.selected_lock_point['config_generation'])}"
         )
         selected_diagnostics = build_lock_transition_diagnostics(self.selected_lock_point, None)
         self._refresh_operator_lock_diagnostics(selected_diagnostics)
@@ -4102,54 +4185,92 @@ class MainWindow(QMainWindow):
                 request_safe_after = bool(self.system_identity_communication_ok)
                 self._refresh_operator_lock_diagnostics()
         elif operation == "lock":
+            event = payload.get("acquisition_event")
+            event = event if isinstance(event, dict) else {}
+            if bool(event.get("valid")) and int(event.get("event_type", 0)) == 2:
+                payload["captured_lock_bias_counts"] = int(event["out2_counts"])
+                payload["captured_error_setpoint_counts"] = int(
+                    payload.get("error_setpoint_counts", 0)
+                )
+                payload["current_kp"] = int(payload.get("kp", 0))
             lock_diagnostics = build_lock_transition_diagnostics(self.selected_lock_point, payload)
-            lock_diagnostics["state_label"] = "LOCK HERE result / Kp=0"
+            lock_diagnostics["state_label"] = "FPGA deterministic acquisition"
             self.last_lock_transition_diagnostics = lock_diagnostics
             self.last_hold_selected_diagnostics = None
             self._record_operator_diagnostic_event(
-                "lock-here",
+                "arm-lock",
                 selected=self.selected_lock_point,
                 payload=payload,
                 lock_diagnostics=lock_diagnostics,
             )
             self._refresh_operator_lock_diagnostics(lock_diagnostics)
-            captured_available = (
-                lock_diagnostics.get("captured_lock_bias_counts") is not None
-                and lock_diagnostics.get("captured_error_setpoint_counts") is not None
+            selected_generation = int(
+                (self.selected_lock_point or {}).get("config_generation", 0)
             )
-            lock_readback_ok = (
+            state = int(payload.get("acquisition_state", -1))
+            self.acquisition_state = state
+            triggered = (
                 operation_verified
-                and _optional_int(payload, "mode") == 3
-                and _optional_int(payload, "enable") == 1
-                and _optional_int(payload, "current_kp") == 0
-                and captured_available
-                and lock_diagnostics.get("target_wait_matched") is True
+                and state == 4
+                and bool(event.get("valid"))
+                and int(event.get("event_type", 0)) == 2
+                and int(event.get("config_generation", 0)) == selected_generation
             )
-            self.p_lock_ready = bool(lock_readback_ok)
+            self.p_lock_ready = bool(triggered)
             self.applied_kp = 0
-            self.applied_polarity_index = self.custom_polarity.currentIndex()
-            self.operator_state_label.setText("P_LOCK Kp=0" if lock_readback_ok else "LOCK HERE DIAGNOSTIC WARNING")
-            error_delta_v = lock_diagnostics.get("delta_error_setpoint_ideal_voltage")
-            error_delta_mv = None if error_delta_v is None else abs(float(error_delta_v) * 1000.0)
-            warning = ""
-            if not captured_available:
-                warning = "LOCK HERE captured values are unavailable; lock-point accuracy is not established"
-            elif error_delta_mv is not None and error_delta_mv >= ERROR_RESIDUAL_WARNING_MV:
-                warning = "Selected and FPGA-captured ERROR_SETPOINT differ; lock-point accuracy is not established"
-            elif not lock_readback_ok:
-                warning = "LOCK HERE readback did not satisfy MODE/ENABLE/Kp/target-wait diagnostics"
-            self.operator_alert_label.setText(warning)
-            self.custom_warning_text.append(
-                "Selected -> captured delta is a host diagnostic; it is not the true FPGA clock-level transition jump."
-            )
-            if _optional_int(payload, "mode") != 3 or _optional_int(payload, "enable") != 1 or bool(payload.get("saturated", False)):
+            if triggered:
+                self.applied_polarity_index = self.custom_polarity.currentIndex()
+                self.operator_state_label.setText("P_LOCK Kp=0 / FPGA TRIGGERED")
+                self.operator_alert_label.setText("")
+                self.custom_warning_text.append(
+                    "FPGA sticky TRIGGERED event matches the confirmed target generation; APPLY P is enabled."
+                )
+            elif state in (2, 3):
+                self.operator_state_label.setText(
+                    "ARMED" if state == 2 else "TRIGGER_CAPTURE"
+                )
+                self.operator_alert_label.setText("")
+                self.custom_warning_text.append(
+                    "FPGA is armed; the host does not poll or command the real-time transition."
+                )
+            else:
+                self.operator_state_label.setText("ACQUISITION WARNING")
+                self.operator_alert_label.setText(
+                    "FPGA did not report ARMED or a matching TRIGGERED event"
+                )
+            if state == 6 or bool(payload.get("saturated", False)):
                 request_safe_after = bool(self.system_identity_communication_ok)
         elif operation == "update-p-lock" and operation_verified:
             kp = int(self.custom_kp.currentText())
+            self.acquisition_state = int(
+                payload.get("acquisition_state", 4 if kp == 0 else 5)
+            )
             self.applied_kp = kp
             self.applied_polarity_index = self.custom_polarity.currentIndex()
             self.operator_state_label.setText("P_LOCK Kp=0" if kp == 0 else "P_LOCK ACTIVE")
             self.operator_alert_label.setText("")
+        elif operation == "status" and operation_verified:
+            event = payload.get("acquisition_event")
+            event = event if isinstance(event, dict) else {}
+            selected_generation = int(
+                (self.selected_lock_point or {}).get("config_generation", 0)
+            )
+            state = int(payload.get("acquisition_state", -1))
+            self.acquisition_state = state
+            matching_trigger = (
+                state in (4, 5)
+                and bool(event.get("valid"))
+                and int(event.get("event_type", 0)) == 2
+                and selected_generation > 0
+                and int(event.get("config_generation", 0)) == selected_generation
+            )
+            self.p_lock_ready = bool(matching_trigger)
+            if matching_trigger:
+                self.operator_state_label.setText(
+                    "P_LOCK Kp=0 / FPGA TRIGGERED"
+                    if state == 4
+                    else "P_LOCK ACTIVE / FPGA TRIGGERED"
+                )
         if operation == "status" and not self.system_identity_communication_ok:
             error_text = self.system_identity_error_label.text() or "Register read failed"
             self.connection_state = ERROR
@@ -4308,7 +4429,15 @@ class MainWindow(QMainWindow):
             f"MAGIC {magic} | VERSION {version} | MODE {mode} | ENABLE {enable} | "
             f"STATUS {status} | OUT2 {out2_counts} counts / {out2_volts_text}"
         )
+        event = payload.get("acquisition_event")
+        event = event if isinstance(event, dict) else {}
         captured_counts = payload.get("captured_lock_bias_counts")
+        if (
+            captured_counts is None
+            and bool(event.get("valid"))
+            and int(event.get("event_type", 0)) == 2
+        ):
+            captured_counts = event.get("out2_counts")
         if captured_counts is not None:
             try:
                 captured_volts = out2_counts_to_voltage(int(captured_counts))
@@ -4330,9 +4459,22 @@ class MainWindow(QMainWindow):
             f"CONTROL_MONITOR: {control_counts} counts / {control_volts_text}",
         ]
         if captured_counts is not None:
-            lines.append(f"LOCK_BIAS source: FPGA CAPTURE_LOCK_POINT captured OUT2_MONITOR = {captured_counts} counts")
-            captured_setpoint = payload.get("captured_error_setpoint_counts", error_setpoint_counts)
-            lines.append(f"ERROR_SETPOINT source: FPGA CAPTURE_LOCK_POINT captured ERROR_MONITOR = {captured_setpoint} counts")
+            if event:
+                captured_setpoint = event.get("error_counts", error_setpoint_counts)
+                lines.append(
+                    f"LOCK_BIAS source: FPGA deterministic trigger captured OUT2_MONITOR = {captured_counts} counts"
+                )
+                lines.append(
+                    f"trigger laser_error sample: {captured_setpoint} counts; active ERROR_SETPOINT remains {error_setpoint_counts} counts"
+                )
+            else:
+                captured_setpoint = payload.get("captured_error_setpoint_counts", error_setpoint_counts)
+                lines.append(
+                    f"LOCK_BIAS source: diagnostic CAPTURE_LOCK_POINT captured OUT2_MONITOR = {captured_counts} counts"
+                )
+                lines.append(
+                    f"ERROR_SETPOINT source: diagnostic CAPTURE_LOCK_POINT captured ERROR_MONITOR = {captured_setpoint} counts"
+                )
             lines.append("Calibrated OUT2 volts are software estimates; oscilloscope measurement is the DAC truth.")
         if operation in {"p-lock", "update-p-lock", "pi-lock", "lock"}:
             lines.append("Current LOCK path is P-only; Ki/PI is disabled in the timing-friendly RTL.")
@@ -4344,10 +4486,14 @@ class MainWindow(QMainWindow):
             lines.append(f"preserved ERROR_SETPOINT: {payload.get('error_setpoint_preserved_counts', error_setpoint_counts)} counts")
             lines.append(f"preserved LOCK_BIAS: {payload.get('lock_bias_preserved_counts', payload.get('lock_bias_counts', '--'))} counts")
         if operation == "lock":
-            lines.append(f"LOCK HERE state: {payload.get('lock_state', '--')}")
-            lines.append(f"target wait matched: {payload.get('target_wait_matched', '--')}")
-            lines.append(f"current Kp: {payload.get('current_kp', '--')}")
-            lines.append(f"current correction limit: {payload.get('correction_limit_counts', '--')}")
+            lines.append(f"FPGA acquisition state: {payload.get('acquisition_state_name', '--')}")
+            lines.append(f"config generation: {payload.get('config_generation', '--')}")
+            lines.append(
+                f"sticky event: {event.get('event_type_name', '--')} / generation {event.get('config_generation', '--')}"
+            )
+            lines.append(
+                "Real-time trigger source: FPGA scan direction + target window + raw laser_error crossing; no host polling."
+            )
         if stderr.strip():
             lines.append("")
             lines.append(stderr.strip())
