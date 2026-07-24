@@ -129,6 +129,24 @@ module custom_register_bank (
     logic clear_event_pulse_w;
     logic command_reject_pulse_w;
     logic apply_p_pulse_w;
+    logic write_cycle_active_q;
+    logic arm_command_q;
+    logic abort_command_q;
+    logic clear_event_command_q;
+    logic invalid_command_q;
+    logic apply_p_command_q;
+    logic signed [13:0] apply_p_kp_q;
+
+    // Separate registered ARM-start replicas keep each snapshot CE domain at
+    // no more than 64 register bits. MAX_FANOUT also prevents implementation
+    // from rebuilding one 327-load control net from equivalent pulse sources.
+    (* max_fanout = 64 *) logic arm_snapshot_target_values_en_q;
+    (* max_fanout = 64 *) logic arm_snapshot_window_en_q;
+    (* max_fanout = 64 *) logic arm_snapshot_limits_en_q;
+    (* max_fanout = 64 *) logic arm_snapshot_metadata_en_q;
+    (* max_fanout = 64 *) logic arm_snapshot_mask_en_q;
+    (* max_fanout = 64 *) logic arm_snapshot_runtime_sample_en_q;
+    (* max_fanout = 64 *) logic arm_snapshot_runtime_timestamp_en_q;
 
     logic [31:0] config_validation_w;
     logic [31:0] acq_state_w;
@@ -163,7 +181,64 @@ module custom_register_bank (
                                     (bus.wdata != 32'h0000_0002) &&
                                     (bus.wdata != 32'h0000_0004);
     assign apply_p_pulse_w = bus.wen && (reg_addr_w == REG_KP);
-    assign acq_abort_o = abort_pulse_w;
+    assign acq_abort_o = abort_command_q;
+
+    // Registered W1P command mailbox. write_cycle_active_q suppresses a
+    // repeated command if the sys_bus master holds wen until the registered
+    // acknowledge returns.
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
+            write_cycle_active_q                 <= 1'b0;
+            arm_command_q                        <= 1'b0;
+            abort_command_q                      <= 1'b0;
+            clear_event_command_q                <= 1'b0;
+            invalid_command_q                    <= 1'b0;
+            apply_p_command_q                    <= 1'b0;
+            apply_p_kp_q                         <= 14'sd0;
+            arm_snapshot_target_values_en_q      <= 1'b0;
+            arm_snapshot_window_en_q             <= 1'b0;
+            arm_snapshot_limits_en_q             <= 1'b0;
+            arm_snapshot_metadata_en_q           <= 1'b0;
+            arm_snapshot_mask_en_q               <= 1'b0;
+            arm_snapshot_runtime_sample_en_q     <= 1'b0;
+            arm_snapshot_runtime_timestamp_en_q  <= 1'b0;
+        end else begin
+            write_cycle_active_q <= bus.wen;
+            arm_command_q <= 1'b0;
+            abort_command_q <= 1'b0;
+            clear_event_command_q <= 1'b0;
+            invalid_command_q <= 1'b0;
+            apply_p_command_q <= 1'b0;
+            arm_snapshot_target_values_en_q <= 1'b0;
+            arm_snapshot_window_en_q <= 1'b0;
+            arm_snapshot_limits_en_q <= 1'b0;
+            arm_snapshot_metadata_en_q <= 1'b0;
+            arm_snapshot_mask_en_q <= 1'b0;
+            arm_snapshot_runtime_sample_en_q <= 1'b0;
+            arm_snapshot_runtime_timestamp_en_q <= 1'b0;
+
+            if (!write_cycle_active_q) begin
+                arm_command_q <= arm_pulse_w;
+                abort_command_q <= abort_pulse_w;
+                clear_event_command_q <= clear_event_pulse_w;
+                invalid_command_q <= command_reject_pulse_w;
+                apply_p_command_q <= apply_p_pulse_w;
+
+                if (arm_pulse_w) begin
+                    arm_snapshot_target_values_en_q <= 1'b1;
+                    arm_snapshot_window_en_q <= 1'b1;
+                    arm_snapshot_limits_en_q <= 1'b1;
+                    arm_snapshot_metadata_en_q <= 1'b1;
+                    arm_snapshot_mask_en_q <= 1'b1;
+                    arm_snapshot_runtime_sample_en_q <= 1'b1;
+                    arm_snapshot_runtime_timestamp_en_q <= 1'b1;
+                end
+
+                if (apply_p_pulse_w)
+                    apply_p_kp_q <= bus.wdata[13:0];
+            end
+        end
+    end
 
     deterministic_lock_acquisition i_deterministic_lock_acquisition (
         .clk_i(clk_i),
@@ -181,12 +256,19 @@ module custom_register_bank (
         .shadow_absolute_limit_i(absolute_limit_shadow_q),
         .shadow_generation_i(config_generation_shadow_q),
         .shadow_written_mask_i(shadow_written_mask_q),
-        .arm_pulse_i(arm_pulse_w),
-        .abort_pulse_i(abort_pulse_w),
-        .clear_event_pulse_i(clear_event_pulse_w),
-        .command_reject_pulse_i(command_reject_pulse_w),
-        .apply_p_pulse_i(apply_p_pulse_w),
-        .apply_p_kp_i(bus.wdata[13:0]),
+        .arm_pulse_i(arm_command_q),
+        .arm_snapshot_target_values_en_i(arm_snapshot_target_values_en_q),
+        .arm_snapshot_window_en_i(arm_snapshot_window_en_q),
+        .arm_snapshot_limits_en_i(arm_snapshot_limits_en_q),
+        .arm_snapshot_metadata_en_i(arm_snapshot_metadata_en_q),
+        .arm_snapshot_mask_en_i(arm_snapshot_mask_en_q),
+        .arm_snapshot_runtime_sample_en_i(arm_snapshot_runtime_sample_en_q),
+        .arm_snapshot_runtime_timestamp_en_i(arm_snapshot_runtime_timestamp_en_q),
+        .abort_pulse_i(abort_command_q),
+        .clear_event_pulse_i(clear_event_command_q),
+        .command_reject_pulse_i(invalid_command_q),
+        .apply_p_pulse_i(apply_p_command_q),
+        .apply_p_kp_i(apply_p_kp_q),
         .trigger_o(acq_trigger_o),
         .hold_o(acq_hold_o),
         .fault_immediate_o(acq_fault_o),
@@ -513,6 +595,13 @@ module deterministic_lock_acquisition (
     input  logic        [31:0] shadow_generation_i,
     input  logic         [6:0] shadow_written_mask_i,
     input  logic               arm_pulse_i,
+    input  logic               arm_snapshot_target_values_en_i,
+    input  logic               arm_snapshot_window_en_i,
+    input  logic               arm_snapshot_limits_en_i,
+    input  logic               arm_snapshot_metadata_en_i,
+    input  logic               arm_snapshot_mask_en_i,
+    input  logic               arm_snapshot_runtime_sample_en_i,
+    input  logic               arm_snapshot_runtime_timestamp_en_i,
     input  logic               abort_pulse_i,
     input  logic               clear_event_pulse_i,
     input  logic               command_reject_pulse_i,
@@ -892,26 +981,84 @@ module deterministic_lock_acquisition (
         fault_detail_o = {fault_code_q, reject_code_q};
     end
 
-    // ARM transaction pipeline. Raw shadow data terminates at the snapshot
-    // registers. Validation, decision, and commit each consume only the
-    // preceding registered stage.
+    // ARM snapshot groups use independent registered mailbox enables. Every
+    // enable is produced by the same accepted sys_bus write, so all groups
+    // capture one atomic transaction without a shared 327-load CE.
     always_ff @(posedge clk_i) begin
         if (!rstn_i) begin
-            arm_phase_q <= ARM_IDLE;
             arm_target_out2_q <= 32'd0;
             arm_error_setpoint_q <= 32'd0;
+        end else if (arm_snapshot_target_values_en_i) begin
+            arm_target_out2_q <= shadow_target_out2_i;
+            arm_error_setpoint_q <= shadow_error_setpoint_i;
+        end
+    end
+
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
             arm_window_q <= 32'd0;
-            arm_requirements_q <= 32'd0;
+        end else if (arm_snapshot_window_en_i) begin
+            arm_window_q <= shadow_window_i;
+        end
+    end
+
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
             arm_correction_limit_q <= 32'd0;
             arm_absolute_limit_q <= 32'd0;
+        end else if (arm_snapshot_limits_en_i) begin
+            arm_correction_limit_q <= shadow_correction_limit_i;
+            arm_absolute_limit_q <= shadow_absolute_limit_i;
+        end
+    end
+
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
+            arm_requirements_q <= 32'd0;
             arm_generation_q <= 32'd0;
+        end else if (arm_snapshot_metadata_en_i) begin
+            arm_requirements_q <= shadow_requirements_i;
+            arm_generation_q <= shadow_generation_i;
+        end
+    end
+
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
             arm_written_mask_q <= 7'd0;
+        end else if (arm_snapshot_mask_en_i) begin
+            arm_written_mask_q <= shadow_written_mask_i;
+        end
+    end
+
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
             arm_request_scan_valid_q <= 1'b0;
             arm_request_saturated_q <= 1'b0;
             arm_request_out2_q <= 14'sd0;
             arm_request_error_q <= 14'sd0;
             arm_request_scan_direction_q <= 2'd0;
+        end else if (arm_snapshot_runtime_sample_en_i) begin
+            arm_request_scan_valid_q <= (fault_code_q == 16'd0);
+            arm_request_saturated_q <= saturated_i;
+            arm_request_out2_q <= out2_i;
+            arm_request_error_q <= error_i;
+            arm_request_scan_direction_q <= scan_direction_now_w;
+        end
+    end
+
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
             arm_request_timestamp_q <= 64'd0;
+        end else if (arm_snapshot_runtime_timestamp_en_i) begin
+            arm_request_timestamp_q <= cycle_counter_q;
+        end
+    end
+
+    // ARM validation, decision, and commit each consume only the preceding
+    // registered transaction stage.
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
+            arm_phase_q <= ARM_IDLE;
             arm_validation_bits_q <= 7'd0;
             arm_reject_code_q <= 16'd0;
             arm_target_low_q <= 16'sd0;
@@ -950,21 +1097,6 @@ module deterministic_lock_acquisition (
                     ARM_IDLE: begin
                         if (arm_pulse_i && (state_q == STATE_SCAN) &&
                             enable_i && (mode_i == MODE_SCAN)) begin
-                            arm_target_out2_q <= shadow_target_out2_i;
-                            arm_error_setpoint_q <= shadow_error_setpoint_i;
-                            arm_window_q <= shadow_window_i;
-                            arm_requirements_q <= shadow_requirements_i;
-                            arm_correction_limit_q <= shadow_correction_limit_i;
-                            arm_absolute_limit_q <= shadow_absolute_limit_i;
-                            arm_generation_q <= shadow_generation_i;
-                            arm_written_mask_q <= shadow_written_mask_i;
-                            arm_request_scan_valid_q <=
-                                (fault_code_q == 16'd0);
-                            arm_request_saturated_q <= saturated_i;
-                            arm_request_out2_q <= out2_i;
-                            arm_request_error_q <= error_i;
-                            arm_request_scan_direction_q <= scan_direction_now_w;
-                            arm_request_timestamp_q <= cycle_counter_q;
                             arm_phase_q <= ARM_VALIDATE;
                         end
                     end

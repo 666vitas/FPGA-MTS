@@ -138,6 +138,81 @@ module tb_custom_register_bank_basic;
         wait_cycles(1);
     endtask
 
+    task automatic command_write_and_check_registered_pulse(
+        input logic [31:0] data,
+        input string command_name
+    );
+        @(negedge clk);
+        bus.addr = {24'd0, REG_ACQ_COMMAND, 2'b00};
+        bus.wdata = data;
+        bus.wen = 1'b1;
+        bus.ren = 1'b0;
+        #1;
+        check(
+            $sformatf("%s raw bus write does not bypass mailbox", command_name),
+            !dut.arm_command_q &&
+            !dut.abort_command_q &&
+            !dut.clear_event_command_q &&
+            !dut.invalid_command_q
+        );
+        @(posedge clk);
+        #1;
+        unique case (data)
+            32'h0000_0002:
+                check(
+                    $sformatf("%s registered command is asserted", command_name),
+                    dut.abort_command_q
+                );
+            32'h0000_0004:
+                check(
+                    $sformatf("%s registered command is asserted", command_name),
+                    dut.clear_event_command_q
+                );
+            default:
+                check(
+                    $sformatf("%s registered command is asserted", command_name),
+                    dut.invalid_command_q
+                );
+        endcase
+        @(posedge clk);
+        #1;
+        check(
+            $sformatf("%s held bus.wen does not repeat command", command_name),
+            !dut.arm_command_q &&
+            !dut.abort_command_q &&
+            !dut.clear_event_command_q &&
+            !dut.invalid_command_q
+        );
+        @(negedge clk);
+        bus.wen = 1'b0;
+        bus.addr = 32'd0;
+        bus.wdata = 32'd0;
+    endtask
+
+    task automatic apply_p_and_check_registered_data(input logic signed [13:0] requested_kp);
+        @(negedge clk);
+        bus.addr = {24'd0, REG_KP, 2'b00};
+        bus.wdata = {{18{requested_kp[13]}}, requested_kp};
+        bus.wen = 1'b1;
+        bus.ren = 1'b0;
+        #1;
+        check("APPLY_P raw bus write does not bypass mailbox", !dut.apply_p_command_q);
+        @(posedge clk);
+        #1;
+        check("APPLY_P registered command is asserted", dut.apply_p_command_q);
+        check(
+            "APPLY_P registered Kp is aligned with command",
+            dut.apply_p_kp_q == requested_kp
+        );
+        @(negedge clk);
+        bus.wen = 1'b0;
+        bus.addr = 32'd0;
+        bus.wdata = 32'd0;
+        @(posedge clk);
+        #1;
+        check("APPLY_P registered command is exactly one cycle", !dut.apply_p_command_q);
+    endtask
+
     task automatic bus_read(input logic [5:0] reg_addr, output logic [31:0] data);
         @(negedge clk);
         bus.addr = {24'd0, reg_addr, 2'b00};
@@ -157,15 +232,46 @@ module tb_custom_register_bank_basic;
         bus.wdata = 32'h0000_0001;
         bus.wen = 1'b1;
         bus.ren = 1'b0;
+        #1;
+        check("ARM raw bus write does not bypass mailbox", !dut.arm_command_q);
         @(posedge clk);
         #1;
         check(
-            "ARM request cycle only snapshots and remains SCAN",
-            dut.i_deterministic_lock_acquisition.state_q == 3'd1
+            "ARM mailbox pulse is registered",
+            dut.arm_command_q
         );
         check(
-            "ARM request cycle does not update active target",
-            dut.i_deterministic_lock_acquisition.active_target_out2_o == 14'sd0
+            "ARM raw write cycle leaves acquisition phase idle",
+            dut.i_deterministic_lock_acquisition.arm_phase_q == 3'd0
+        );
+        @(posedge clk);
+        #1;
+        check(
+            "two-cycle bus.wen does not repeat ARM command",
+            !dut.arm_command_q
+        );
+        check(
+            "registered ARM command starts snapshot transaction",
+            dut.i_deterministic_lock_acquisition.arm_phase_q == 3'd1
+        );
+        check(
+            "all ARM snapshot fields use the same registered transaction",
+            (dut.i_deterministic_lock_acquisition.arm_target_out2_q ==
+                dut.target_out2_shadow_q) &&
+            (dut.i_deterministic_lock_acquisition.arm_error_setpoint_q ==
+                dut.target_error_setpoint_shadow_q) &&
+            (dut.i_deterministic_lock_acquisition.arm_window_q ==
+                dut.target_window_shadow_q) &&
+            (dut.i_deterministic_lock_acquisition.arm_requirements_q ==
+                dut.target_requirements_shadow_q) &&
+            (dut.i_deterministic_lock_acquisition.arm_correction_limit_q ==
+                dut.correction_limit_shadow_q) &&
+            (dut.i_deterministic_lock_acquisition.arm_absolute_limit_q ==
+                dut.absolute_limit_shadow_q) &&
+            (dut.i_deterministic_lock_acquisition.arm_generation_q ==
+                dut.config_generation_shadow_q) &&
+            (dut.i_deterministic_lock_acquisition.arm_written_mask_q ==
+                dut.shadow_written_mask_q)
         );
         @(negedge clk);
         bus.wen = 1'b0;
@@ -189,7 +295,7 @@ module tb_custom_register_bank_basic;
         );
         wait_cycles(1);
         check(
-            "ARM accepts at fixed four-cycle latency",
+            "ARM accepts at fixed five-cycle latency",
             dut.i_deterministic_lock_acquisition.state_q == 3'd2
         );
     endtask
@@ -459,7 +565,7 @@ module tb_custom_register_bank_basic;
         check("STATUS bit0 clears when disabled", read_data[0] == 1'b0);
         check("STATUS bit1 clears when not saturated", read_data[1] == 1'b0);
 
-        bus_write(REG_ACQ_COMMAND, 32'h2);
+        command_write_and_check_registered_pulse(32'h2, "ABORT");
         check("ABORT command forces MODE SAFE", mode == 32'd0);
         check("ABORT command clears ENABLE", enable == 1'b0);
         bus_read(REG_ACQ_COMMAND, read_data);
@@ -484,8 +590,9 @@ module tb_custom_register_bank_basic;
         bus_read(REG_FAULT_DETAIL, read_data);
         check("invalid ARM reports missing-field reject bit", read_data[0] == 1'b1);
 
-        bus_write(REG_ACQ_COMMAND, 32'h4);
-        bus_write(REG_ACQ_COMMAND, 32'h3);
+        command_write_and_check_registered_pulse(32'h4, "CLEAR_EVENT");
+        command_write_and_check_registered_pulse(32'h3, "INVALID");
+        wait_cycles(1);
         bus_read(REG_EVENT_INFO, read_data);
         check("multi-command is rejected atomically", read_data[3:1] == 3'd5);
         bus_read(REG_ACQ_STATE, read_data);
@@ -574,7 +681,7 @@ module tb_custom_register_bank_basic;
         check("CLEAR_EVENT clears sticky event only", (read_data[8] == 1'b0) && (read_data[2:0] == 3'd4));
         check("CLEAR_EVENT preserves P_LOCK mode", mode == 32'd3);
 
-        bus_write(REG_KP, 32'd4);
+        apply_p_and_check_registered_data(14'sd4);
         wait_cycles(2);
         bus_read(REG_ACQ_STATE, read_data);
         check("explicit nonzero Kp enters P_LOCK_ACTIVE", read_data[2:0] == 3'd5);
@@ -599,7 +706,7 @@ module tb_custom_register_bank_basic;
         out2_monitor = -14'sd90;
         error_monitor = 14'sd5;
         bus_write(REG_ACQ_COMMAND, 32'h1);
-        wait_cycles(3);
+        wait_cycles(4);
         bus_read(REG_ACTIVE_TARGET_OUT2, read_data);
         check("ARM snapshots negative active target with sign extension", $signed(read_data) == -32'sd100);
         bus_read(REG_ACTIVE_ERROR_SETPOINT, read_data);
