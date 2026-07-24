@@ -1,63 +1,83 @@
-# CURRENT_REVIEW_MANIFEST
+Status: ACTIVE
+Effective-Gate: LOCK-MVP-T0
+Authority: MANIFEST
+Last-Updated: 2026-07-24
+Supersedes: NONE
+Superseded-By: NONE
 
-本文件列出当前有效代码、测试和文档边界。它是四个活动规则入口之一，但不保存动态 Gate 结论。Development Mode 用它避免误读历史；只有用户明确输入 `@GitHub 审计` 或 `审查最新main` 时才允许访问 GitHub `main`，且只读不修改。
+# CURRENT REVIEW MANIFEST
 
-## 当前有效根目录
+Current Gate: `LOCK-MVP-T0 / Timing-Clean Minimal Build`
+
+本文件只定义当前强制读取集合、当前代码范围和默认排除范围，不保存动态 timing 结论。禁止按 Windows 修改日期、Git 时间或文件名日期推断权威性。
+
+## Mandatory
+
+按顺序读取：
+
+1. `AGENTS.md` — 唯一根入口与长期安全规则。
+2. `version/CURRENT_GATE.md` — 当前唯一 Gate、范围和验收条件。
+3. `version/STATUS.md` — 当前事实、blocker 和唯一下一动作。
+4. `version/CURRENT_REVIEW_MANIFEST.md` — 当前文件边界。
+5. `version/rules/20_FPGA_MTS_ENGINEERING_WORKFLOW.md` — 唯一 active 工程规则。
+6. `docs/architecture/FPGA_MTS_LINIEN_BASIC_LOCK_PROJECT_SPEC.md` — active architecture spec；权威低于 `CURRENT_GATE`。
+
+## Current code scope
+
+当前 Gate 只将以下代码/测试视为直接范围；本轮文档整理不修改它们：
 
 ```text
-Repository: 666vitas/FPGA-MTS
-Primary branch: main
-RTL: v0.94/rtl/**
-Simulation: v0.94/sim/**
-Vivado project: v0.94/project/redpitaya.xpr
-Host code: software/redpitaya_lock_host/redpitaya_lock_host/**
-Host scripts: software/redpitaya_lock_host/scripts/**
-Host tests: software/redpitaya_lock_host/tests/**
+v0.94/rtl/red_pitaya_top.sv
+v0.94/rtl/custom_register_bank.sv
+v0.94/rtl/ramp_generator.sv
+v0.94/sim/tb_custom_register_bank_basic.sv
+v0.94/sim/tb_deterministic_lock_acquisition.sv
+v0.94/sim/tb_out2_lock_controller.sv
+software/redpitaya_lock_host/tests/**
 ```
 
-只读取与当前 Gate 或问题直接相关的文件，不默认全仓审查。
+`out2_lock_controller` 和 `deterministic_lock_acquisition` 当前定义位置必须从实际 RTL source/file-set 核对，不能因旧文档中的独立文件名而假设存在单独 `.sv` 文件。
 
-## 活动规则 source of truth
+## Supporting
 
 ```text
-AGENTS.md
-version/STATUS.md
-version/rules/20_FPGA_MTS_ENGINEERING_WORKFLOW.md
-version/CURRENT_REVIEW_MANIFEST.md
+README.md
+docs/process/**
+docs/hardware/**
 ```
 
-## Supporting evidence and tools
+Supporting 文档可以提供操作背景、迁移方案和历史硬件证据，但不能覆盖 `CURRENT_GATE`、`STATUS` 或 active rule/spec。
+
+## Excluded by default
+
+只有用户明确要求历史追溯时才读取：
 
 ```text
-version/HARDWARE_VALIDATION.md
-software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md
-software/redpitaya_lock_host/docs/DEVELOPMENT_LOG.md
-scripts/verify.ps1
-```
-
-其他 SOP 或实现说明只有在 `version/STATUS.md` 明确指向或与当前问题直接相关时才读取。Supporting evidence 不能覆盖当前代码、最终信号路由或 `version/STATUS.md`。
-
-## 历史排除
-
-以下路径默认只能作为历史证据，不能决定当前 Stage、Gate、接线、参数或完成状态：
-
-```text
-v-weifang/**
-version-weifang/**
+version/history/**
 version/v1/**
 version/v2/**
 version/v3/**
-version/history/**
-**/old/**
+version/v4/**
+version/v5/**
+version/rules/00_*.md
+version/rules/01_*.md
+version/rules/02_*.md
+version/rules/03_*.md
+version/rules/04_*.md
+version/rules/05_*.md
+version/rules/06_*.md
+version/rules/RULE_*.md
+v0.94/redpitaya_laser_lock_project/docs/old/**
+*_PROPOSED.md
+*_PACKAGE.md
+*_RESTORED.md
 **/*.before_*
-**/*before*
+**/*backup*
+legacy review files
 ```
 
-`version/rules/` 中除 `20_FPGA_MTS_ENGINEERING_WORKFLOW.md` 外的文件均为 `HISTORICAL / NOT ACTIVE`。
+`version/v1` 至 `version/v5` 全部属于 `HISTORY`，默认任务禁止读取；文件时间、复制时间或名称中的日期不能使其重新成为 active。
 
-## Review Mode 完成边界
+## Review Mode boundary
 
-- 只报告 GitHub `main` 中实际取得的当前代码、测试和证据。
-- 自动化、GUI、硬件和闭环证据分别列出。
-- 无法确认的内容明确标记，不使用本地缓存冒充远端。
-- 只输出报告，不实施修复，不启动多轮或多角色审查。
+只有用户明确输入 `@GitHub 审计` 或 `审查最新main` 才允许访问 GitHub，并且只读。普通 Development Mode 不主动 fetch/pull/ls-remote，不用远端覆盖本地 current Gate。

@@ -1,4 +1,13 @@
+Status: SUPPORTING
+Effective-Gate: ALL
+Authority: SUPPORTING
+Last-Updated: 2026-07-24
+Supersedes: version/HARDWARE_VALIDATION.md
+Superseded-By: NONE
+
 # Hardware Validation Record
+
+> 本文件保存真实硬件校准、接线和旧 Gate 证据。正文中的“当前 Gate/下一步”是历史记录，不能覆盖 `version/CURRENT_GATE.md` 与 `version/STATUS.md`。
 
 ## 当前 Gate
 

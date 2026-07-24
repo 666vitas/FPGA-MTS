@@ -94,7 +94,7 @@ Hardware result: [USER HARDWARE VERIFIED] (user confirmation; exact measurement 
 3. 点击 `START SCAN`。软件预期写入 center `5734 counts`、amplitude `694 counts`；`OUT2_MONITOR` 应在约 `5040..6428 counts` 内变化且无 saturation。
 4. 示波器记录三角波 center、Vpp、frequency，以及 scope load、coupling、probe ratio。
 5. 测量完成后立即点击 `STOP / SAFE`，再点 `Status` 确认 `MODE=0`、`ENABLE=0` 且无 saturation。
-6. 将结果写入 `version/HARDWARE_VALIDATION.md`；未提供复测结果前保持 `[NOT VERIFIED]`。
+6. 将结果写入 `docs/hardware/HARDWARE_VALIDATION.md`；未提供复测结果前保持 `[NOT VERIFIED]`。
 
 ## PASS / FAIL
 

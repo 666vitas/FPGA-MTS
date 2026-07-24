@@ -1,40 +1,34 @@
 # FPGA-MTS
 
-Red Pitaya FPGA 激光频率锁定项目。当前唯一目标是在现有 SystemVerilog MTS 信号链上实现 Linien-style minimal manual lock：人工选择目标谱线和方向，FPGA 原子执行 scan-to-Kp=0 transition，再验证最小 P-only。基础 P-only 硬件通过前不开展 PI、自动锁定、自动重锁或 AI 优化。
+Red Pitaya FPGA 激光频率锁定项目。当前目标是先得到 timing-clean `LOCK_MVP_BUILD`，再完成真实、可重复的最小 P-only 锁定。deterministic ARM 源码和测试保留，但不作为第一次 P-only 锁定依赖。
 
-## 当前事实入口
+## 从这里开始
 
-按以下优先级判断项目状态：
+当前文档权威顺序：
 
-1. 当前代码、寄存器定义和最终信号路由。
-2. `version/STATUS.md` 顶部最新条目。
-3. 当前 Gate 的最新 SOP、实验记录及 `version/HARDWARE_VALIDATION.md` 有效记录。
-4. 本轮实际测试、README、历史日志和旧注释。
+1. [`AGENTS.md`](AGENTS.md) — 唯一 Codex/工程入口与永久安全边界。
+2. [`version/CURRENT_GATE.md`](version/CURRENT_GATE.md) — 当前唯一 Gate：`LOCK-MVP-T0`。
+3. [`version/STATUS.md`](version/STATUS.md) — 当前 timing、实现和硬件事实。
+4. [`version/CURRENT_REVIEW_MANIFEST.md`](version/CURRENT_REVIEW_MANIFEST.md) — 当前强制读取和排除范围。
+5. [`version/DOCUMENT_INDEX.md`](version/DOCUMENT_INDEX.md) — 文档类别、用途、移动和删除索引。
 
-软件存在、自动化测试、GUI 操作、真实硬件和闭环效果是不同证据，不得互相替代。
+长期架构说明见 [`docs/architecture/FPGA_MTS_LINIEN_BASIC_LOCK_PROJECT_SPEC.md`](docs/architecture/FPGA_MTS_LINIEN_BASIC_LOCK_PROJECT_SPEC.md)。它是 active spec，但权威低于 `CURRENT_GATE`。
 
-## 当前规则入口
+禁止依据 Windows 修改日期、Git 时间或文件名日期判断哪个文档最新。
 
-- `AGENTS.md`：单开发者角色、模式和安全边界。
-- `version/STATUS.md`：当前 Stage、唯一 Gate、blocker、证据和唯一实验。
-- `version/rules/20_FPGA_MTS_ENGINEERING_WORKFLOW.md`：Linien-style Gate 工作流和完成标准。
-- `version/CURRENT_REVIEW_MANIFEST.md`：当前有效代码、测试、文档根目录及历史排除。
+## 当前 Gate 摘要
 
-`software/redpitaya_lock_host/docs/HARDWARE_CALIBRATION_SOP.md`、`version/HARDWARE_VALIDATION.md` 和开发日志是 supporting evidence，不是规则 source of truth。其他旧 review、strict review、多角色和阶段规则均为 `HISTORICAL / NOT ACTIVE`。
+用户最新 Vivado implementation：
 
-## 一键验证
-
-在仓库根目录运行：
-
-```powershell
-.\scripts\verify.ps1
+```text
+WNS  = -0.387 ns
+TNS  = -5.015 ns
+setup failing endpoints = 19
+WHS  = +0.052 ns
+hold failing endpoints = 0
 ```
 
-默认检查活动规则并运行 host targeted verification。`-Scope Rules` 只查规则，`-Scope Host` 只查 host，`-FullHost` 追加完整 software tests。任一关键检查失败或超时都会返回非零退出码。
-
-## 文档语言
-
-项目说明、开发日志、实验记录、SOP 和 AI 审查默认使用中文。路径、命令、寄存器、模块、信号和模式名保留英文；引用英文资料或错误日志时补充中文解释。用户操作步骤应说明操作、预期现象、失败停止条件和 SAFE 条件。
+setup timing 当前为 `[FAILED]`，bitstream 不能标记为 timing-clean。下一步只做 `LOCK_MVP_BUILD` 编译期 ARM 隔离；详细范围和验收条件只看 `version/CURRENT_GATE.md`。
 
 ## 基础信号映射
 
@@ -42,34 +36,45 @@ Red Pitaya FPGA 激光频率锁定项目。当前唯一目标是在现有 System
 IN1 = PD
 IN2 = REF
 OUT1 = laser_error
-OUT2 = selected_out2
+OUT2 = selected_out2 -> laser dedicated PZT/Scan input
 MODE=0 SAFE
 MODE=1 SCAN
 MODE=2 HOLD
 MODE=3 P_LOCK
-MODE=4 PI_LOCK candidate（基础 P-only 通过前禁止开展）
-MAGIC = 0x4D545330
+MODE=4 PI_LOCK candidate
+MAGIC=0x4D545330
 ```
 
 `VERSION` 从当前 RTL、host 和实际 bitstream 记录核对，不在 README 写死。
 
+## 主要目录
+
+- `v0.94/rtl/` — 当前 RTL。
+- `v0.94/sim/` — RTL testbench。
+- `v0.94/project/redpitaya.xpr` — Vivado 工程。
+- `software/redpitaya_lock_host/` — Python / PySide6 host。
+- `docs/architecture/` — active spec 与长期架构。
+- `docs/process/` — supporting 流程与迁移方案。
+- `docs/hardware/` — 硬件 SOP 和验证记录。
+- `docs/experiment_logs/` — 真实实验日志。
+- `version/history/`、`version/v1/` 至 `version/v5/` — 默认排除的历史。
+
 ## 永久安全边界
 
 - OUT2 只能连接当前 Gate 明确授权的激光器专用 PZT/Scan 输入和测量设备。
-- 禁止 OUT2 连接激光器电流调制、D2-125 `Servo Output`、D2-125 `Aux Output` 或任何其他有源输出端；禁止有源输出并联。
-- 身份、通信、SAFE、范围、saturation、跳变、readback、反馈方向、接线或示波器条件异常时立即 SAFE 并停止。
-- Codex 不自动增加 Kp/Ki、翻转 polarity、放宽 limit、扩大 PZT safe range、再次 LOCK 或进入下一 Gate。
-- 软件、仿真、GUI 和硬件证据不能替代用户真实闭环验证。
+- 禁止连接激光器电流调制、D2-125 `Servo Output`、D2-125 `Aux Output` 或任何其他有源输出；禁止输出并联。
+- 身份、通信、SAFE、范围、saturation、跳变、readback、反馈方向或接线异常时立即 SAFE 并停止。
+- 软件、仿真、timing、GUI 和真实硬件证据不能互相替代。
 
-## 主要目录
+## 本地验证
 
-- `v0.94/rtl/`：当前 RTL。
-- `v0.94/project/redpitaya.xpr`：Vivado 工程。
-- `software/redpitaya_lock_host/`：Python / PySide6 上位机。
-- `software/redpitaya_lock_host/docs/`：上位机说明、SOP 和开发日志。
-- `version/`：状态、验证记录和长期规则。
+```powershell
+.\scripts\verify.ps1
+```
 
-## 上位机启动
+本命令不会替代用户 Vivado implementation 或真实硬件验证。
+
+## Host 启动
 
 ```powershell
 cd software\redpitaya_lock_host

@@ -1,4 +1,13 @@
+Status: HISTORY
+Effective-Gate: ALL
+Authority: SUPPORTING
+Last-Updated: 2026-07-24
+Supersedes: NONE
+Superseded-By: AGENTS.md
+
 # 项目目录与工作流规则
+
+> 有效的项目路径、角色、安全和读取优先级已合并到 `AGENTS.md`；本文件只作历史依据。
 
 ## 1. 项目目录边界
 

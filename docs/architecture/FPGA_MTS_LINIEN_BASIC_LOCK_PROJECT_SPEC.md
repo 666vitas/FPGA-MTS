@@ -1,3 +1,10 @@
+Status: ACTIVE
+Effective-Gate: ALL
+Authority: SPEC
+Last-Updated: 2026-07-24
+Supersedes: FPGA_MTS_Linien_Basic_Lock_Project_Spec.md
+Superseded-By: NONE
+
 # FPGA-MTS 最基础锁定项目说明书
 
 **项目名称：** MTS P-only Lock MVP（Linien-inspired）  

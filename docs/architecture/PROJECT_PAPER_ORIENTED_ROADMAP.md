@@ -1,4 +1,13 @@
+Status: HISTORY
+Effective-Gate: ALL
+Authority: SUPPORTING
+Last-Updated: 2026-07-24
+Supersedes: NONE
+Superseded-By: docs/architecture/FPGA_MTS_LINIEN_BASIC_LOCK_PROJECT_SPEC.md
+
 # 面向论文的项目路线图
+
+> 本文件保存论文长期路线与旧阶段判断；当前 Gate、短期步骤和硬件许可只看 `version/CURRENT_GATE.md` 与 `version/STATUS.md`。
 
 ## 0. 论文主线
 

@@ -1,4 +1,13 @@
+Status: HISTORY
+Effective-Gate: ALL
+Authority: SUPPORTING
+Last-Updated: 2026-07-24
+Supersedes: NONE
+Superseded-By: AGENTS.md
+
 # AI + FPGA 项目协作流程
+
+> 本文件保留旧协作流程和 AI/FPGA 分层依据；其中“当前阶段”和多角色固定循环均已 superseded，不控制当前任务。
 
 ## 0. 本文件作用
 
