@@ -151,6 +151,49 @@ module tb_custom_register_bank_basic;
         wait_cycles(1);
     endtask
 
+    task automatic arm_and_check_fixed_pipeline;
+        @(negedge clk);
+        bus.addr = {24'd0, REG_ACQ_COMMAND, 2'b00};
+        bus.wdata = 32'h0000_0001;
+        bus.wen = 1'b1;
+        bus.ren = 1'b0;
+        @(posedge clk);
+        #1;
+        check(
+            "ARM request cycle only snapshots and remains SCAN",
+            dut.i_deterministic_lock_acquisition.state_q == 3'd1
+        );
+        check(
+            "ARM request cycle does not update active target",
+            dut.i_deterministic_lock_acquisition.active_target_out2_o == 14'sd0
+        );
+        @(negedge clk);
+        bus.wen = 1'b0;
+        bus.addr = 32'd0;
+        bus.wdata = 32'd0;
+
+        wait_cycles(1);
+        check(
+            "ARM validate cycle remains SCAN",
+            dut.i_deterministic_lock_acquisition.state_q == 3'd1
+        );
+        wait_cycles(1);
+        check(
+            "ARM decide cycle remains SCAN",
+            dut.i_deterministic_lock_acquisition.state_q == 3'd1
+        );
+        wait_cycles(1);
+        check(
+            "ARM commit preparation remains SCAN",
+            dut.i_deterministic_lock_acquisition.state_q == 3'd1
+        );
+        wait_cycles(1);
+        check(
+            "ARM accepts at fixed four-cycle latency",
+            dut.i_deterministic_lock_acquisition.state_q == 3'd2
+        );
+    endtask
+
     task automatic bus_write_during_forced_acquisition(
         input logic [5:0] reg_addr,
         input logic [31:0] data,
@@ -433,6 +476,7 @@ module tb_custom_register_bank_basic;
         check("partial shadow write is incomplete", read_data[0] == 1'b0);
         check("partial shadow written mask records target only", read_data[14:8] == 7'b0000001);
         bus_write(REG_ACQ_COMMAND, 32'h1);
+        wait_cycles(3);
         bus_read(REG_ACQ_STATE, read_data);
         check("invalid ARM remains in SCAN", read_data[2:0] == 3'd1);
         bus_read(REG_EVENT_INFO, read_data);
@@ -463,7 +507,7 @@ module tb_custom_register_bank_basic;
         out2_monitor = 14'sd95;
         error_monitor = -14'sd10;
         wait_cycles(2);
-        bus_write(REG_ACQ_COMMAND, 32'h1);
+        arm_and_check_fixed_pipeline();
         bus_read(REG_ACQ_STATE, read_data);
         check("valid ARM enters ARMED", read_data[2:0] == 3'd2);
         check("valid ARM clears Kp", kp == 14'sd0);
@@ -555,6 +599,7 @@ module tb_custom_register_bank_basic;
         out2_monitor = -14'sd90;
         error_monitor = 14'sd5;
         bus_write(REG_ACQ_COMMAND, 32'h1);
+        wait_cycles(3);
         bus_read(REG_ACTIVE_TARGET_OUT2, read_data);
         check("ARM snapshots negative active target with sign extension", $signed(read_data) == -32'sd100);
         bus_read(REG_ACTIVE_ERROR_SETPOINT, read_data);

@@ -578,7 +578,16 @@ module deterministic_lock_acquisition (
     localparam logic [15:0] REJECT_COMMAND       = 16'h0100;
     localparam logic [15:0] FAULT_RUNTIME_SAFETY = 16'h0001;
 
+    typedef enum logic [2:0] {
+        ARM_IDLE,
+        ARM_VALIDATE,
+        ARM_DECIDE,
+        ARM_COMMIT,
+        ARM_FINISH
+    } arm_phase_t;
+
     logic [2:0] state_q;
+    arm_phase_t arm_phase_q;
     logic active_config_valid_q;
     logic [31:0] active_generation_q;
     logic signed [15:0] active_target_low_q;
@@ -607,6 +616,40 @@ module deterministic_lock_acquisition (
     logic [15:0] event_stage_reject_code_q;
     logic [15:0] event_stage_fault_code_q;
 
+    logic        [31:0] arm_target_out2_q;
+    logic        [31:0] arm_error_setpoint_q;
+    logic        [31:0] arm_window_q;
+    logic        [31:0] arm_requirements_q;
+    logic        [31:0] arm_correction_limit_q;
+    logic        [31:0] arm_absolute_limit_q;
+    logic        [31:0] arm_generation_q;
+    logic         [6:0] arm_written_mask_q;
+    logic               arm_request_scan_valid_q;
+    logic               arm_request_saturated_q;
+    logic signed [13:0] arm_request_out2_q;
+    logic signed [13:0] arm_request_error_q;
+    logic         [1:0] arm_request_scan_direction_q;
+    logic        [63:0] arm_request_timestamp_q;
+
+    logic         [6:0] arm_validation_bits_q;
+    logic        [15:0] arm_reject_code_q;
+    logic signed [15:0] arm_target_low_q;
+    logic signed [15:0] arm_target_high_q;
+    logic               arm_accept_decision_q;
+    logic               arm_reject_decision_q;
+    logic        [15:0] arm_decision_reject_code_q;
+
+    logic arm_commit_target_q;
+    logic arm_commit_boundary_q;
+    logic arm_commit_limits_q;
+    logic arm_commit_requirements_q;
+    logic arm_commit_generation_q;
+    logic arm_commit_control_q;
+    logic arm_commit_event_payload_q;
+    logic arm_commit_event_timestamp_q;
+    logic arm_commit_event_status_q;
+    logic arm_commit_reject_q;
+
     logic fields_complete_w;
     logic signed_fields_valid_w;
     logic directions_valid_w;
@@ -615,7 +658,6 @@ module deterministic_lock_acquisition (
     logic target_range_valid_w;
     logic state_ready_w;
     logic config_valid_w;
-    logic [15:0] config_reject_code_w;
 
     logic signed [15:0] shadow_target_ext_w;
     logic signed [15:0] shadow_window_ext_w;
@@ -633,6 +675,26 @@ module deterministic_lock_acquisition (
     logic direction_match_w;
     logic trigger_candidate_w;
     logic fault_candidate_w;
+
+    logic signed [15:0] arm_target_ext_w;
+    logic signed [15:0] arm_window_ext_w;
+    logic signed [15:0] arm_target_low_next_w;
+    logic signed [15:0] arm_target_high_next_w;
+    logic signed [15:0] arm_absolute_ext_w;
+    logic         [6:0] arm_validation_bits_next_w;
+    logic        [15:0] arm_reject_code_next_w;
+    logic               arm_current_runtime_valid_w;
+    logic        [15:0] arm_final_reject_code_w;
+    logic               arm_commit_runtime_ok_w;
+    logic               arm_commit_target_w;
+    logic               arm_commit_boundary_w;
+    logic               arm_commit_limits_w;
+    logic               arm_commit_requirements_w;
+    logic               arm_commit_generation_w;
+    logic               arm_commit_control_w;
+    logic               arm_commit_event_payload_w;
+    logic               arm_commit_event_timestamp_w;
+    logic               arm_commit_event_status_w;
 
     always_comb begin
         fields_complete_w = (shadow_written_mask_i == 7'h7F);
@@ -670,24 +732,53 @@ module deterministic_lock_acquisition (
         config_valid_w = fields_complete_w && signed_fields_valid_w &&
                          directions_valid_w && window_valid_w && limits_valid_w &&
                          target_range_valid_w && state_ready_w;
+    end
 
-        config_reject_code_w = 16'd0;
-        if (!fields_complete_w)
-            config_reject_code_w = config_reject_code_w | REJECT_MISSING_FIELD;
-        if (!signed_fields_valid_w)
-            config_reject_code_w = config_reject_code_w | REJECT_SIGNED_FIELD;
-        if (!directions_valid_w)
-            config_reject_code_w = config_reject_code_w | REJECT_DIRECTION;
-        if (!window_valid_w)
-            config_reject_code_w = config_reject_code_w | REJECT_WINDOW;
-        if (!limits_valid_w)
-            config_reject_code_w = config_reject_code_w | REJECT_LIMITS;
-        if (!target_range_valid_w)
-            config_reject_code_w = config_reject_code_w | REJECT_TARGET_RANGE;
-        if ((state_q != STATE_SCAN) || !enable_i || (mode_i != MODE_SCAN))
-            config_reject_code_w = config_reject_code_w | REJECT_STATE;
-        if (saturated_i)
-            config_reject_code_w = config_reject_code_w | REJECT_SATURATION;
+    // ARM validation is sourced only from the registered transaction snapshot.
+    // Each reject bit is an independent Boolean result; there is no accumulated
+    // priority chain from raw shadow inputs into active-register control.
+    always_comb begin
+        arm_target_ext_w = {{2{arm_target_out2_q[13]}}, arm_target_out2_q[13:0]};
+        arm_window_ext_w = {2'd0, arm_window_q[13:0]};
+        arm_target_low_next_w = arm_target_ext_w - arm_window_ext_w;
+        arm_target_high_next_w = arm_target_ext_w + arm_window_ext_w;
+        arm_absolute_ext_w = {2'd0, arm_absolute_limit_q[13:0]};
+
+        arm_validation_bits_next_w[0] = (arm_written_mask_q == 7'h7F);
+        arm_validation_bits_next_w[1] =
+            (arm_target_out2_q[31:14] == {18{arm_target_out2_q[13]}}) &&
+            (arm_error_setpoint_q[31:14] == {18{arm_error_setpoint_q[13]}});
+        arm_validation_bits_next_w[2] =
+            (arm_requirements_q[31:5] == 27'd0) &&
+            ((arm_requirements_q[1:0] == SCAN_DIR_RISING) ||
+             (arm_requirements_q[1:0] == SCAN_DIR_FALLING)) &&
+            ((arm_requirements_q[3:2] == ERROR_DIR_NEG_TO_POS) ||
+             (arm_requirements_q[3:2] == ERROR_DIR_POS_TO_NEG));
+        arm_validation_bits_next_w[3] =
+            (arm_window_q[31:14] == 18'd0) &&
+            (arm_window_q[13:0] != 14'd0) &&
+            (arm_window_q[13:0] <= 14'd8191);
+        arm_validation_bits_next_w[4] =
+            (arm_correction_limit_q[31:14] == 18'd0) &&
+            (arm_absolute_limit_q[31:14] == 18'd0) &&
+            (arm_correction_limit_q[13:0] <= arm_absolute_limit_q[13:0]) &&
+            (arm_absolute_limit_q[13:0] <= 14'd8191);
+        arm_validation_bits_next_w[5] =
+            (arm_target_low_next_w >= -16'sd8191) &&
+            (arm_target_high_next_w <= 16'sd8191) &&
+            (arm_target_low_next_w >= -arm_absolute_ext_w) &&
+            (arm_target_high_next_w <= arm_absolute_ext_w);
+        arm_validation_bits_next_w[6] = arm_request_scan_valid_q;
+
+        arm_reject_code_next_w = 16'd0;
+        arm_reject_code_next_w[0] = !arm_validation_bits_next_w[0];
+        arm_reject_code_next_w[1] = !arm_validation_bits_next_w[1];
+        arm_reject_code_next_w[2] = !arm_validation_bits_next_w[2];
+        arm_reject_code_next_w[3] = !arm_validation_bits_next_w[3];
+        arm_reject_code_next_w[4] = !arm_validation_bits_next_w[4];
+        arm_reject_code_next_w[5] = !arm_validation_bits_next_w[5];
+        arm_reject_code_next_w[6] = !arm_validation_bits_next_w[6];
+        arm_reject_code_next_w[7] = arm_request_saturated_q;
     end
 
     always_comb begin
@@ -730,7 +821,42 @@ module deterministic_lock_acquisition (
                                  inside_window_w &&
                                  required_crossing_w;
     assign hold_o = trigger_pending_q || trigger_o;
-    assign arm_accepted_o = arm_pulse_i && config_valid_w;
+
+    assign arm_current_runtime_valid_w =
+        (state_q == STATE_SCAN) && enable_i && (mode_i == MODE_SCAN) &&
+        !saturated_i && (fault_code_q == 16'd0) &&
+        !abort_pulse_i && !fault_candidate_w;
+
+    // Each qualified commit net has one local registered source and only drives
+    // its own active-register group. Runtime qualification is shallow and is
+    // replicated at the group boundary rather than broadcast as one CE.
+    assign arm_commit_runtime_ok_w = arm_current_runtime_valid_w;
+    assign arm_commit_target_w =
+        arm_commit_target_q && arm_commit_runtime_ok_w;
+    assign arm_commit_boundary_w =
+        arm_commit_boundary_q && arm_commit_runtime_ok_w;
+    assign arm_commit_limits_w =
+        arm_commit_limits_q && arm_commit_runtime_ok_w;
+    assign arm_commit_requirements_w =
+        arm_commit_requirements_q && arm_commit_runtime_ok_w;
+    assign arm_commit_generation_w =
+        arm_commit_generation_q && arm_commit_runtime_ok_w;
+    assign arm_commit_control_w =
+        arm_commit_control_q && arm_commit_runtime_ok_w;
+    assign arm_commit_event_payload_w = arm_commit_event_payload_q;
+    assign arm_commit_event_timestamp_w = arm_commit_event_timestamp_q;
+    assign arm_commit_event_status_w = arm_commit_event_status_q;
+    assign arm_accepted_o = arm_commit_control_w;
+
+    always_comb begin
+        arm_final_reject_code_w = arm_decision_reject_code_q;
+        arm_final_reject_code_w[6] =
+            arm_decision_reject_code_q[6] ||
+            (state_q != STATE_SCAN) || !enable_i || (mode_i != MODE_SCAN) ||
+            (fault_code_q != 16'd0);
+        arm_final_reject_code_w[7] =
+            arm_decision_reject_code_q[7] || saturated_i;
+    end
 
     always_comb begin
         config_validation_o = 32'd0;
@@ -766,21 +892,200 @@ module deterministic_lock_acquisition (
         fault_detail_o = {fault_code_q, reject_code_q};
     end
 
-    // Acquisition control and decision pipeline. The real-time comparator tree
-    // terminates at trigger_pending_q; only registered pulses leave the module.
+    // ARM transaction pipeline. Raw shadow data terminates at the snapshot
+    // registers. Validation, decision, and commit each consume only the
+    // preceding registered stage.
     always_ff @(posedge clk_i) begin
         if (!rstn_i) begin
-            state_q <= STATE_SAFE;
-            active_config_valid_q <= 1'b0;
-            active_generation_q <= 32'd0;
+            arm_phase_q <= ARM_IDLE;
+            arm_target_out2_q <= 32'd0;
+            arm_error_setpoint_q <= 32'd0;
+            arm_window_q <= 32'd0;
+            arm_requirements_q <= 32'd0;
+            arm_correction_limit_q <= 32'd0;
+            arm_absolute_limit_q <= 32'd0;
+            arm_generation_q <= 32'd0;
+            arm_written_mask_q <= 7'd0;
+            arm_request_scan_valid_q <= 1'b0;
+            arm_request_saturated_q <= 1'b0;
+            arm_request_out2_q <= 14'sd0;
+            arm_request_error_q <= 14'sd0;
+            arm_request_scan_direction_q <= 2'd0;
+            arm_request_timestamp_q <= 64'd0;
+            arm_validation_bits_q <= 7'd0;
+            arm_reject_code_q <= 16'd0;
+            arm_target_low_q <= 16'sd0;
+            arm_target_high_q <= 16'sd0;
+            arm_accept_decision_q <= 1'b0;
+            arm_reject_decision_q <= 1'b0;
+            arm_decision_reject_code_q <= 16'd0;
+            arm_commit_target_q <= 1'b0;
+            arm_commit_boundary_q <= 1'b0;
+            arm_commit_limits_q <= 1'b0;
+            arm_commit_requirements_q <= 1'b0;
+            arm_commit_generation_q <= 1'b0;
+            arm_commit_control_q <= 1'b0;
+            arm_commit_event_payload_q <= 1'b0;
+            arm_commit_event_timestamp_q <= 1'b0;
+            arm_commit_event_status_q <= 1'b0;
+            arm_commit_reject_q <= 1'b0;
+        end else begin
+            arm_commit_target_q <= 1'b0;
+            arm_commit_boundary_q <= 1'b0;
+            arm_commit_limits_q <= 1'b0;
+            arm_commit_requirements_q <= 1'b0;
+            arm_commit_generation_q <= 1'b0;
+            arm_commit_control_q <= 1'b0;
+            arm_commit_event_payload_q <= 1'b0;
+            arm_commit_event_timestamp_q <= 1'b0;
+            arm_commit_event_status_q <= 1'b0;
+            arm_commit_reject_q <= 1'b0;
+
+            if (abort_pulse_i || fault_candidate_w) begin
+                arm_phase_q <= ARM_IDLE;
+                arm_accept_decision_q <= 1'b0;
+                arm_reject_decision_q <= 1'b0;
+            end else begin
+                unique case (arm_phase_q)
+                    ARM_IDLE: begin
+                        if (arm_pulse_i && (state_q == STATE_SCAN) &&
+                            enable_i && (mode_i == MODE_SCAN)) begin
+                            arm_target_out2_q <= shadow_target_out2_i;
+                            arm_error_setpoint_q <= shadow_error_setpoint_i;
+                            arm_window_q <= shadow_window_i;
+                            arm_requirements_q <= shadow_requirements_i;
+                            arm_correction_limit_q <= shadow_correction_limit_i;
+                            arm_absolute_limit_q <= shadow_absolute_limit_i;
+                            arm_generation_q <= shadow_generation_i;
+                            arm_written_mask_q <= shadow_written_mask_i;
+                            arm_request_scan_valid_q <=
+                                (fault_code_q == 16'd0);
+                            arm_request_saturated_q <= saturated_i;
+                            arm_request_out2_q <= out2_i;
+                            arm_request_error_q <= error_i;
+                            arm_request_scan_direction_q <= scan_direction_now_w;
+                            arm_request_timestamp_q <= cycle_counter_q;
+                            arm_phase_q <= ARM_VALIDATE;
+                        end
+                    end
+                    ARM_VALIDATE: begin
+                        arm_validation_bits_q <= arm_validation_bits_next_w;
+                        arm_reject_code_q <= arm_reject_code_next_w;
+                        arm_target_low_q <= arm_target_low_next_w;
+                        arm_target_high_q <= arm_target_high_next_w;
+                        arm_phase_q <= ARM_DECIDE;
+                    end
+                    ARM_DECIDE: begin
+                        arm_accept_decision_q <=
+                            (&arm_validation_bits_q) &&
+                            !arm_request_saturated_q &&
+                            arm_current_runtime_valid_w;
+                        arm_reject_decision_q <=
+                            !((&arm_validation_bits_q) &&
+                              !arm_request_saturated_q &&
+                              arm_current_runtime_valid_w);
+                        arm_decision_reject_code_q <= arm_reject_code_q;
+                        arm_decision_reject_code_q[6] <=
+                            arm_reject_code_q[6] ||
+                            (state_q != STATE_SCAN) || !enable_i ||
+                            (mode_i != MODE_SCAN) || (fault_code_q != 16'd0);
+                        arm_decision_reject_code_q[7] <=
+                            arm_reject_code_q[7] || saturated_i;
+                        arm_phase_q <= ARM_COMMIT;
+                    end
+                    ARM_COMMIT: begin
+                        if (arm_accept_decision_q &&
+                            arm_current_runtime_valid_w) begin
+                            arm_commit_target_q <= 1'b1;
+                            arm_commit_boundary_q <= 1'b1;
+                            arm_commit_limits_q <= 1'b1;
+                            arm_commit_requirements_q <= 1'b1;
+                            arm_commit_generation_q <= 1'b1;
+                            arm_commit_control_q <= 1'b1;
+                        end else begin
+                            arm_commit_reject_q <= 1'b1;
+                        end
+                        arm_commit_event_payload_q <= 1'b1;
+                        arm_commit_event_timestamp_q <= 1'b1;
+                        arm_commit_event_status_q <= 1'b1;
+                        arm_phase_q <= ARM_FINISH;
+                    end
+                    ARM_FINISH: begin
+                        arm_phase_q <= ARM_IDLE;
+                        arm_accept_decision_q <= 1'b0;
+                        arm_reject_decision_q <= 1'b0;
+                    end
+                    default: arm_phase_q <= ARM_IDLE;
+                endcase
+            end
+        end
+    end
+
+    // Active target group: 42 register bits, one local commit pulse.
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
             active_target_out2_o <= 14'sd0;
             active_error_setpoint_o <= 14'sd0;
             active_window_o <= 14'd0;
-            active_requirements_o <= 32'd0;
-            active_correction_limit_o <= 14'd0;
-            active_absolute_limit_o <= 14'd0;
+        end else if (arm_commit_target_w) begin
+            active_target_out2_o <= arm_target_out2_q[13:0];
+            active_error_setpoint_o <= arm_error_setpoint_q[13:0];
+            active_window_o <= arm_window_q[13:0];
+        end
+    end
+
+    // Precomputed signed boundaries: 32 register bits.
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
             active_target_low_q <= 16'sd0;
             active_target_high_q <= 16'sd0;
+        end else if (arm_commit_boundary_w) begin
+            active_target_low_q <= arm_target_low_q;
+            active_target_high_q <= arm_target_high_q;
+        end
+    end
+
+    // Active limit group: 28 register bits.
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
+            active_correction_limit_o <= 14'd0;
+            active_absolute_limit_o <= 14'd0;
+        end else if (arm_commit_limits_w) begin
+            active_correction_limit_o <= arm_correction_limit_q[13:0];
+            active_absolute_limit_o <= arm_absolute_limit_q[13:0];
+        end
+    end
+
+    // Requirements metadata: 32 register bits.
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
+            active_requirements_o <= 32'd0;
+        end else if (arm_commit_requirements_w) begin
+            active_requirements_o <= arm_requirements_q;
+        end
+    end
+
+    // Generation/valid metadata: 33 register bits.
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
+            active_generation_q <= 32'd0;
+            active_config_valid_q <= 1'b0;
+        end else if (abort_pulse_i || fault_candidate_w) begin
+            active_config_valid_q <= 1'b0;
+        end else if (arm_commit_generation_w) begin
+            active_generation_q <= arm_generation_q;
+            active_config_valid_q <= 1'b1;
+        end else if ((state_q == STATE_SAFE) || (state_q == STATE_FAULT) ||
+                     !enable_i || (mode_i == MODE_SAFE)) begin
+            active_config_valid_q <= 1'b0;
+        end
+    end
+
+    // Acquisition state, trigger pipeline, and non-ARM event sources. The
+    // real-time comparator tree terminates at trigger_pending_q.
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
+            state_q <= STATE_SAFE;
             previous_error_q <= 14'sd0;
             previous_error_valid_q <= 1'b0;
             previous_out2_q <= 14'sd0;
@@ -816,7 +1121,6 @@ module deterministic_lock_acquisition (
 
             if (abort_pulse_i) begin
                 state_q <= STATE_SAFE;
-                active_config_valid_q <= 1'b0;
                 previous_error_valid_q <= 1'b0;
                 trigger_pending_q <= 1'b0;
                 event_commit_pulse_q <= 1'b1;
@@ -831,7 +1135,6 @@ module deterministic_lock_acquisition (
                 event_stage_fault_code_q <= fault_code_q;
             end else if (fault_candidate_w) begin
                 state_q <= STATE_FAULT;
-                active_config_valid_q <= 1'b0;
                 previous_error_valid_q <= 1'b0;
                 trigger_pending_q <= 1'b0;
                 fault_immediate_o <= 1'b1;
@@ -845,13 +1148,47 @@ module deterministic_lock_acquisition (
                 event_stage_timestamp_q <= cycle_counter_q;
                 event_stage_reject_code_q <= reject_code_q;
                 event_stage_fault_code_q <= FAULT_RUNTIME_SAFETY;
+            end else if (arm_commit_event_status_w) begin
+                event_commit_pulse_q <= 1'b1;
+                if (arm_commit_event_payload_w) begin
+                    event_stage_type_q <= arm_commit_control_w
+                                        ? EVENT_ARMED
+                                        : EVENT_CONFIG_REJECTED;
+                    event_stage_out2_q <= arm_request_out2_q;
+                    event_stage_error_q <= arm_request_error_q;
+                    event_stage_generation_q <= arm_generation_q;
+                end
+                if (arm_commit_event_timestamp_w)
+                    event_stage_timestamp_q <= arm_request_timestamp_q;
+                event_stage_scan_direction_q <= arm_request_scan_direction_q;
+                event_stage_error_direction_q <= arm_requirements_q[3:2];
+                event_stage_reject_code_q <= arm_commit_control_w
+                                           ? 16'd0
+                                           : arm_final_reject_code_w;
+                event_stage_fault_code_q <= fault_code_q;
+
+                previous_error_valid_q <= 1'b0;
+                trigger_pending_q <= 1'b0;
+                if (arm_commit_control_w) begin
+                    previous_error_q <= arm_request_error_q[13:0];
+                    state_q <= STATE_ARMED;
+                end else if (!enable_i || (mode_i == MODE_SAFE)) begin
+                    state_q <= STATE_SAFE;
+                end else if (mode_i == MODE_P_LOCK) begin
+                    if (apply_p_kp_i == 14'sd0)
+                        state_q <= STATE_P_LOCK_KP0;
+                    else
+                        state_q <= STATE_P_LOCK_ACTIVE;
+                end else begin
+                    state_q <= STATE_SCAN;
+                end
             end else begin
                 unique case (state_q)
                     STATE_SAFE: begin
-                        active_config_valid_q <= 1'b0;
                         previous_error_valid_q <= 1'b0;
                         trigger_pending_q <= 1'b0;
-                        if (enable_i && (mode_i == MODE_SCAN) && (fault_code_q == 16'd0))
+                        if (enable_i && (mode_i == MODE_SCAN) &&
+                            (fault_code_q == 16'd0))
                             state_q <= STATE_SCAN;
                     end
                     STATE_SCAN: begin
@@ -859,7 +1196,6 @@ module deterministic_lock_acquisition (
                         trigger_pending_q <= 1'b0;
                         if (!enable_i || (mode_i == MODE_SAFE)) begin
                             state_q <= STATE_SAFE;
-                            active_config_valid_q <= 1'b0;
                         end else if (mode_i == MODE_P_LOCK) begin
                             if (apply_p_kp_i == 14'sd0)
                                 state_q <= STATE_P_LOCK_KP0;
@@ -876,35 +1212,6 @@ module deterministic_lock_acquisition (
                             event_stage_timestamp_q <= cycle_counter_q;
                             event_stage_reject_code_q <= REJECT_COMMAND;
                             event_stage_fault_code_q <= fault_code_q;
-                        end else if (arm_pulse_i) begin
-                            event_commit_pulse_q <= 1'b1;
-                            event_stage_out2_q <= out2_i;
-                            event_stage_error_q <= error_i;
-                            event_stage_generation_q <= shadow_generation_i;
-                            event_stage_scan_direction_q <= scan_direction_now_w;
-                            event_stage_error_direction_q <= shadow_requirements_i[3:2];
-                            event_stage_timestamp_q <= cycle_counter_q;
-                            event_stage_fault_code_q <= fault_code_q;
-                            if (config_valid_w) begin
-                                active_target_out2_o <= shadow_target_out2_i[13:0];
-                                active_error_setpoint_o <= shadow_error_setpoint_i[13:0];
-                                active_window_o <= shadow_window_i[13:0];
-                                active_requirements_o <= shadow_requirements_i;
-                                active_correction_limit_o <= shadow_correction_limit_i[13:0];
-                                active_absolute_limit_o <= shadow_absolute_limit_i[13:0];
-                                active_generation_q <= shadow_generation_i;
-                                active_target_low_q <= shadow_target_low_w;
-                                active_target_high_q <= shadow_target_high_w;
-                                active_config_valid_q <= 1'b1;
-                                previous_error_q <= error_i;
-                                previous_error_valid_q <= 1'b0;
-                                state_q <= STATE_ARMED;
-                                event_stage_type_q <= EVENT_ARMED;
-                                event_stage_reject_code_q <= 16'd0;
-                            end else begin
-                                event_stage_type_q <= EVENT_CONFIG_REJECTED;
-                                event_stage_reject_code_q <= config_reject_code_w;
-                            end
                         end
                     end
                     STATE_ARMED: begin
@@ -969,21 +1276,20 @@ module deterministic_lock_acquisition (
                     STATE_P_LOCK_KP0: begin
                         if (!enable_i || (mode_i == MODE_SAFE)) begin
                             state_q <= STATE_SAFE;
-                            active_config_valid_q <= 1'b0;
-                        end else if (apply_p_pulse_i && (apply_p_kp_i != 14'sd0)) begin
+                        end else if (apply_p_pulse_i &&
+                                     (apply_p_kp_i != 14'sd0)) begin
                             state_q <= STATE_P_LOCK_ACTIVE;
                         end
                     end
                     STATE_P_LOCK_ACTIVE: begin
                         if (!enable_i || (mode_i == MODE_SAFE)) begin
                             state_q <= STATE_SAFE;
-                            active_config_valid_q <= 1'b0;
-                        end else if (apply_p_pulse_i && (apply_p_kp_i == 14'sd0)) begin
+                        end else if (apply_p_pulse_i &&
+                                     (apply_p_kp_i == 14'sd0)) begin
                             state_q <= STATE_P_LOCK_KP0;
                         end
                     end
                     STATE_FAULT: begin
-                        active_config_valid_q <= 1'b0;
                         previous_error_valid_q <= 1'b0;
                         trigger_pending_q <= 1'b0;
                         if (!enable_i && (mode_i == MODE_SAFE) && !event_valid_q)
@@ -991,7 +1297,6 @@ module deterministic_lock_acquisition (
                     end
                     default: begin
                         state_q <= STATE_FAULT;
-                        active_config_valid_q <= 1'b0;
                         trigger_pending_q <= 1'b0;
                     end
                 endcase
