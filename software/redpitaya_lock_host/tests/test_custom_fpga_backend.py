@@ -192,8 +192,10 @@ def test_status_payload_accepts_expected_magic_string() -> None:
 
 def test_system_identity_formats_version_and_requires_magic_and_version() -> None:
     assert format_fpga_version("0x00030100") == "v3.1.0"
+    assert format_fpga_version("0x00030200") == "v3.2.0"
     assert format_fpga_version("--") == "--"
     assert identity_payload_matches(make_identity_payload())
+    assert identity_payload_matches(make_identity_payload(version="0x00030200"))
     assert not identity_payload_matches(make_identity_payload(magic="0x00000000"))
     assert not identity_payload_matches(make_identity_payload(version="0x00030000"))
 
@@ -345,7 +347,7 @@ def test_update_p_lock_keeps_captured_lock_point_registers_untouched() -> None:
     normal_body = run_body[normal_start:normal_end]
 
     assert "require_magic(regs)" in run_body
-    assert "EXPECTED_VERSION" in run_body
+    assert "SUPPORTED_VERSIONS" in run_body
     assert "MODE=3" in run_body
     assert "ENABLE=1" in run_body
     assert "saturation" in run_body
@@ -508,7 +510,8 @@ def test_cli_and_worker_normal_lock_path_route_only_to_fpga_arm() -> None:
     lock_start = worker_source.index('elif self.operation == "lock":')
     lock_end = worker_source.index('elif self.operation == "abort-acquisition":', lock_start)
     lock_body = worker_source[lock_start:lock_end]
-    assert "backend.arm_lock_target(target)" in lock_body
+    assert "local_client.arm_basic_lock(" in lock_body
+    assert "backend.arm_lock_target" not in lock_body
     assert "backend.lock_here" not in lock_body
 
 
@@ -991,7 +994,7 @@ def test_main_window_constructs_without_legacy_scpi_output_controls() -> None:
         assert window.basic_lock_button.text() == "BASIC LOCK"
         assert window.basic_safe_button.text() == "SAFE"
         assert not window.custom_advanced_body.isVisible()
-        assert window.custom_lock_button.text() == "ARM LOCK"
+        assert window.custom_lock_button.text() == "ARM BASIC LOCK"
         assert window.custom_apply_p_button.text() == "APPLY P"
         assert [window.custom_kp.itemText(index) for index in range(window.custom_kp.count())] == ["0", "4", "8", "16", "32"]
         assert window.custom_correction_limit_counts.value() == 128
@@ -2377,7 +2380,7 @@ def test_project_scope_defaults_hide_counts_and_engineer_details() -> None:
         )
         assert "counts" not in main_text.lower()
         assert "Advanced / Engineer Details" not in main_text
-        assert "BASIC LOCK" not in main_text
+        assert "ARM BASIC LOCK" in main_text
         assert "CH1 Peak Assisted" not in main_text
     finally:
         window.close()
@@ -2628,7 +2631,7 @@ def test_direct_zero_crossing_rejects_single_sample_noise_reversal() -> None:
         )
 
 
-def test_lock_here_requires_confirmed_point_and_kp_zero() -> None:
+def test_arm_basic_lock_accepts_only_kp_zero_or_four() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from PySide6.QtWidgets import QApplication
@@ -2640,12 +2643,12 @@ def test_lock_here_requires_confirmed_point_and_kp_zero() -> None:
     window = MainWindow({}, start_mock=True)
     try:
         window.selected_lock_point = {"out2_counts": 7000}
-        window.custom_kp.setCurrentText("4")
+        window.custom_kp.setCurrentText("8")
 
         window._start_custom_fpga_operation("lock")
 
         assert window.current_custom_operation is None
-        assert "requires Kp=0" in window.custom_warning_text.toPlainText()
+        assert "Kp choice of 0 or 4" in window.custom_warning_text.toPlainText()
         assert not window.p_lock_ready
     finally:
         window.close()

@@ -1,7 +1,7 @@
 Status: ACTIVE
-Effective-Gate: LOCK-MVP-T0
+Effective-Gate: LOCK-MVP-L0
 Authority: STATUS
-Last-Updated: 2026-07-24
+Last-Updated: 2026-07-25
 Supersedes: version/history/STATUS_HISTORY_D1_THROUGH_2026-07-24.md
 Superseded-By: NONE
 
@@ -9,34 +9,40 @@ Superseded-By: NONE
 
 ## Current Stage
 
-`LOCK-MVP / Timing-Clean Minimal P-only Build`
+`LOCK-MVP / Linien-like Simple Scan-to-P-Lock`
 
 ## Current Gate
 
-`LOCK-MVP-T0 / Timing-Clean Minimal Build`
+`LOCK-MVP-L0 / Linien-like Simple Scan-to-P-Lock`
 
 ## Current Facts
 
-- [FAILED] 用户最新 Vivado implementation：WNS `-0.387 ns`、TNS `-5.015 ns`、`19` setup failing endpoints；setup timing 未通过。
-- [TIMING PASSED] 用户报告 WHS `+0.052 ns`、hold failing endpoints `0`；hold timing 通过不能抵消 setup failure。
-- [FAILED] 当前 bitstream 不能标记为 timing-clean，也不能作为第一次 P-only 锁定的合格 build。
-- [IMPLEMENTED] deterministic ARM acquisition 源码、寄存器路径、host 路径和测试已经存在，必须保留。
-- [RTL SIMULATED] D1 历史记录包含 register bank、OUT2 controller、deterministic acquisition 和 host 自动验证；完整证据已归档到 `version/history/STATUS_HISTORY_D1_THROUGH_2026-07-24.md`。
-- [NOT VERIFIED] `LOCK_MVP_BUILD` 的编译期 ARM 隔离、对应 RTL/testbench 和 timing closure 尚未完成。
-- [NOT VERIFIED] ARM 不作为第一次 P-only 锁定依赖；这不表示 ARM 被删除、失败或不再开发。
-- [NOT VERIFIED] 真实板卡 Kp=0 无扰切换、最小非零 Kp、基础 P-only 和持续锁定仍未通过。
+- [FAILED] 用户上一份 D1 构建报告为 WNS `-0.387 ns`、TNS `-5.015 ns`、`19` 个 setup failing endpoints；该旧 build 未 timing closure。
+- [IMPLEMENTED] `LOCK_ACQ_IMPL=0/1/2` 从 `red_pitaya_top` 传播到唯一的 `custom_register_bank`；正式顶层默认 SIMPLE。
+- [IMPLEMENTED] SIMPLE 只保留 request、运行前置条件、scan direction、target window、abort、注册单拍 trigger、trigger sample 和 ARMED/P_LOCK/FAULT readback。
+- [IMPLEMENTED] SIMPLE trigger 同一 fast-control transaction 写入 bias、setpoint、limits、MODE、ENABLE 和 integral reset；不强制 Kp 清零。
+- [IMPLEMENTED] D1 完整源码、atomic snapshot、event/timestamp 和 Kp=0 语义保留。
+- [IMPLEMENTED] SIMPLE/D1 VERSION 分别为 `0x00030200`/`0x00030100`，Host 识别并显示 capability。
+- [IMPLEMENTED] GUI ARM 路径经 `LocalClient → LockService → CustomFpgaBackend`；target 与 capture id 绑定，stale target 拒绝，readback mismatch 请求 SAFE。
+- [RTL SIMULATED] `tb_simple_lock_acquisition` 24/24、`tb_custom_register_bank_basic` 166/166、`tb_deterministic_lock_acquisition` 50/50、`tb_out2_lock_controller` 35/35。
+- [UNIT TESTED] `software/redpitaya_lock_host/tests/**` 共 146 个测试通过。
+- [NOT VERIFIED] 本轮未运行 Vivado；SIMPLE build 的 WNS/TNS、high fanout、utilization 和 unconstrained paths 未验证。
+- [NOT VERIFIED] 未生成或烧录 bitstream，未连接板卡；真实 Kp=0/Kp=4、模拟无扰和持续锁定均未验证。
 
 ## Current Blocker
 
-当前 blocker 是带完整 deterministic ARM 综合路径的 build 未通过 125 MHz setup timing。先建立 `LOCK_MVP_BUILD`，在编译期关闭 ARM acquisition 的复杂综合实例/运行路径，同时保留 mixer/LPF、SCAN、HOLD、P_LOCK、capture、readback、limits 和 SAFE。
+唯一 blocker 是缺少用户对默认 SIMPLE build 的新 Vivado implementation 报告。
+旧 D1 timing 报告不能用来判断 SIMPLE 是否收敛；旧报告的最差路径已位于 LPF，
+因此 SIMPLE 降低 acquisition 负担后仍可能存在独立 LPF setup violation。
 
 ## Forbidden Scope
 
-- 当前 Gate 不删除 ARM 源码、寄存器定义或测试。
-- 不新增 PI/Ki、自动重锁、AI、IQ 或新的锁定算法。
-- 不重写 GUI，不改变 IN1/IN2/OUT1/OUT2 语义。
-- 没有新的用户 Vivado 报告前，不声称 timing passed、bitstream 合格、烧录成功或真实锁定通过。
+- 没有新 timing 报告前不继续 LPF 或其他大规模 RTL 重构。
+- 不新增 PI/Ki、自动重锁、AI、IQ，不删除 D1。
+- 不声称 timing、bitstream、烧录或真实硬件锁定通过。
 
 ## Unique Next Action
 
-按 `version/CURRENT_GATE.md` 实现并验证 `LOCK_MVP_BUILD` 的编译期 ARM 隔离；随后由用户重新运行 Vivado implementation，并按 Gate 验收 WNS/TNS/WHS/THS、failing endpoints 和 unconstrained paths。
+用户保持 `red_pitaya_top.LOCK_ACQ_IMPL=1`，运行 Vivado implementation，并返回
+完整 timing summary、最差 setup path、failing endpoints、high fanout、utilization
+和 unconstrained paths。

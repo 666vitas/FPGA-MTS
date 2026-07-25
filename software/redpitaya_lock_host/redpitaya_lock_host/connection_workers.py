@@ -5,7 +5,11 @@ from __future__ import annotations
 from PySide6.QtCore import QThread, Signal
 
 from .connection_probe import ProbeResult, probe_redpitaya, test_port
-from .custom_fpga_backend import CustomFpgaBackend, build_acquisition_target_config
+from .client.local_client import LocalClient
+from .common.lock_models import BasicLockRequest, LockTarget
+from .core.acquisition_service import AcquisitionService
+from .core.lock_service import LockService
+from .custom_fpga_backend import CustomFpgaBackend
 from .rp_scpi_client import RedPitayaScpiClient
 from .scpi_client import ScpiClient
 from .ssh_client import RedPitayaSshClient
@@ -131,6 +135,8 @@ class CustomFpgaRegisterWorker(QThread):
                 self.password,
                 base_addr=self.base_addr,
             )
+            acquisition_service = AcquisitionService(backend)
+            local_client = LocalClient(LockService(backend, acquisition_service))
             if self.operation == "probe":
                 response = backend.probe_registers()
             elif self.operation == "status":
@@ -138,9 +144,9 @@ class CustomFpgaRegisterWorker(QThread):
             elif self.operation == "capture-bias":
                 response = backend.capture_bias()
             elif self.operation == "safe":
-                response = backend.set_mode_safe()
+                response = local_client.safe()
             elif self.operation == "scan":
-                response = backend.set_mode_scan(
+                response = local_client.start_scan(
                     offset_v=float(self.params["offset_v"]),
                     amp_v=float(self.params["amp_v"]),
                     freq_hz=float(self.params["freq_hz"]),
@@ -164,32 +170,40 @@ class CustomFpgaRegisterWorker(QThread):
                     correction_limit_counts=int(self.params.get("correction_limit_counts", 128)),
                 )
             elif self.operation == "update-p-lock":
-                response = backend.update_p_lock(
+                response = local_client.apply_p(
                     kp=int(self.params["kp"]),
                     polarity=int(self.params["polarity"]),
                     config_generation=int(self.params.get("config_generation", 0)),
                 )
             elif self.operation == "lock":
-                target = build_acquisition_target_config(
+                capture_id = int(self.params["capture_id"])
+                acquisition_service.adopt_capture_id(capture_id)
+                target = LockTarget(
+                    capture_id=capture_id,
+                    config_generation=int(self.params["config_generation"]),
                     target_out2_counts=int(self.params["target_out2_counts"]),
-                    target_error_setpoint_counts=int(self.params["target_error_setpoint_counts"]),
+                    error_setpoint_counts=int(self.params["target_error_setpoint_counts"]),
                     target_window_counts=int(self.params.get("target_window_counts", 64)),
-                    required_scan_direction=int(self.params["required_scan_direction"]),
-                    required_error_crossing_direction=int(
+                    scan_direction=int(self.params["required_scan_direction"]),
+                    error_crossing_direction=int(
                         self.params["required_error_crossing_direction"]
                     ),
-                    initial_polarity_suggestion=int(
-                        self.params.get("initial_polarity_suggestion", 0)
-                    ),
-                    correction_limit_counts=int(
-                        self.params.get("correction_limit_counts", 128)
-                    ),
-                    absolute_limit_counts=int(self.params["absolute_limit_counts"]),
+                    slope=float(self.params["slope"]),
+                    polarity_suggestion=int(self.params.get("initial_polarity_suggestion", 0)),
                     safe_min_counts=int(self.params.get("safe_min_counts", -8191)),
                     safe_max_counts=int(self.params.get("safe_max_counts", 8191)),
-                    config_generation=int(self.params["config_generation"]),
                 )
-                response = backend.arm_lock_target(target)
+                response = local_client.arm_basic_lock(
+                    BasicLockRequest(
+                        target=target,
+                        kp=int(self.params["kp"]),
+                        polarity=int(self.params["polarity"]),
+                        correction_limit_counts=int(
+                            self.params.get("correction_limit_counts", 128)
+                        ),
+                        absolute_limit_counts=int(self.params["absolute_limit_counts"]),
+                    )
+                )
             elif self.operation == "abort-acquisition":
                 response = backend.abort_acquisition()
             elif self.operation == "clear-acquisition-event":
@@ -204,7 +218,7 @@ class CustomFpgaRegisterWorker(QThread):
                     correction_limit_counts=int(self.params.get("correction_limit_counts", 128)),
                 )
             elif self.operation == "capture":
-                response = backend.capture_waveform(
+                response = local_client.capture(
                     capture_length=int(self.params["capture_length"]),
                     capture_decimation=int(self.params["capture_decimation"]),
                 )

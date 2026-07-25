@@ -242,7 +242,7 @@ module tb_custom_register_bank_basic;
         );
         check(
             "ARM raw write cycle leaves acquisition phase idle",
-            dut.i_deterministic_lock_acquisition.arm_phase_q == 3'd0
+            dut.g_lock_acq_d1.i_deterministic_lock_acquisition.arm_phase_q == 3'd0
         );
         @(posedge clk);
         #1;
@@ -252,25 +252,25 @@ module tb_custom_register_bank_basic;
         );
         check(
             "registered ARM command starts snapshot transaction",
-            dut.i_deterministic_lock_acquisition.arm_phase_q == 3'd1
+            dut.g_lock_acq_d1.i_deterministic_lock_acquisition.arm_phase_q == 3'd1
         );
         check(
             "all ARM snapshot fields use the same registered transaction",
-            (dut.i_deterministic_lock_acquisition.arm_target_out2_q ==
+            (dut.g_lock_acq_d1.i_deterministic_lock_acquisition.arm_target_out2_q ==
                 dut.target_out2_shadow_q) &&
-            (dut.i_deterministic_lock_acquisition.arm_error_setpoint_q ==
+            (dut.g_lock_acq_d1.i_deterministic_lock_acquisition.arm_error_setpoint_q ==
                 dut.target_error_setpoint_shadow_q) &&
-            (dut.i_deterministic_lock_acquisition.arm_window_q ==
+            (dut.g_lock_acq_d1.i_deterministic_lock_acquisition.arm_window_q ==
                 dut.target_window_shadow_q) &&
-            (dut.i_deterministic_lock_acquisition.arm_requirements_q ==
+            (dut.g_lock_acq_d1.i_deterministic_lock_acquisition.arm_requirements_q ==
                 dut.target_requirements_shadow_q) &&
-            (dut.i_deterministic_lock_acquisition.arm_correction_limit_q ==
+            (dut.g_lock_acq_d1.i_deterministic_lock_acquisition.arm_correction_limit_q ==
                 dut.correction_limit_shadow_q) &&
-            (dut.i_deterministic_lock_acquisition.arm_absolute_limit_q ==
+            (dut.g_lock_acq_d1.i_deterministic_lock_acquisition.arm_absolute_limit_q ==
                 dut.absolute_limit_shadow_q) &&
-            (dut.i_deterministic_lock_acquisition.arm_generation_q ==
+            (dut.g_lock_acq_d1.i_deterministic_lock_acquisition.arm_generation_q ==
                 dut.config_generation_shadow_q) &&
-            (dut.i_deterministic_lock_acquisition.arm_written_mask_q ==
+            (dut.g_lock_acq_d1.i_deterministic_lock_acquisition.arm_written_mask_q ==
                 dut.shadow_written_mask_q)
         );
         @(negedge clk);
@@ -281,22 +281,22 @@ module tb_custom_register_bank_basic;
         wait_cycles(1);
         check(
             "ARM validate cycle remains SCAN",
-            dut.i_deterministic_lock_acquisition.state_q == 3'd1
+            dut.g_lock_acq_d1.i_deterministic_lock_acquisition.state_q == 3'd1
         );
         wait_cycles(1);
         check(
             "ARM decide cycle remains SCAN",
-            dut.i_deterministic_lock_acquisition.state_q == 3'd1
+            dut.g_lock_acq_d1.i_deterministic_lock_acquisition.state_q == 3'd1
         );
         wait_cycles(1);
         check(
             "ARM commit preparation remains SCAN",
-            dut.i_deterministic_lock_acquisition.state_q == 3'd1
+            dut.g_lock_acq_d1.i_deterministic_lock_acquisition.state_q == 3'd1
         );
         wait_cycles(1);
         check(
             "ARM accepts at fixed five-cycle latency",
-            dut.i_deterministic_lock_acquisition.state_q == 3'd2
+            dut.g_lock_acq_d1.i_deterministic_lock_acquisition.state_q == 3'd2
         );
     endtask
 
@@ -712,9 +712,9 @@ module tb_custom_register_bank_basic;
         bus_read(REG_ACTIVE_ERROR_SETPOINT, read_data);
         check("ARM snapshots negative active error setpoint with sign extension", $signed(read_data) == -32'sd7);
         check("ARM precomputes signed negative target low boundary",
-              dut.i_deterministic_lock_acquisition.active_target_low_q == -16'sd110);
+              dut.g_lock_acq_d1.i_deterministic_lock_acquisition.active_target_low_q == -16'sd110);
         check("ARM precomputes signed negative target high boundary",
-              dut.i_deterministic_lock_acquisition.active_target_high_q == -16'sd90);
+              dut.g_lock_acq_d1.i_deterministic_lock_acquisition.active_target_high_q == -16'sd90);
         bus_write(REG_CONFIG_GENERATION_SHADOW, 32'd99);
         bus_write(REG_ACQ_COMMAND, 32'h2);
         bus_read(REG_EVENT_CONFIG_GENERATION, read_data);

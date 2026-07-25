@@ -58,12 +58,12 @@ module red_pitaya_top #(
   parameter DWE_Z10 = 8,
   parameter DWE_Z20 = 11,
 `ifdef Z20_14
-  parameter DWE=DWE_Z20
+  parameter DWE=DWE_Z20,
 `else
-  parameter DWE=DWE_Z10
+  parameter DWE=DWE_Z10,
 `endif
-
-
+  // 0=NONE, 1=SIMPLE (LOCK-MVP default), 2=D1 diagnostics.
+  parameter integer LOCK_ACQ_IMPL = 1
 )(
   // PS connections
   inout  logic [54-1:0] FIXED_IO_mio     ,
@@ -499,7 +499,9 @@ laser_lock_core #(
   .control_o (laser_control)
 );
 
-custom_register_bank i_custom_register_bank (
+custom_register_bank #(
+  .LOCK_ACQ_IMPL(LOCK_ACQ_IMPL)
+) i_custom_register_bank (
   .clk_i           (adc_clk        ),
   .rstn_i          (adc_rstn       ),
   .out2_monitor_i  (selected_out2  ),
@@ -624,8 +626,8 @@ assign dac_b_sum_laser    = {selected_out2[13], selected_out2};
 //   DAC B / OUT2 shows selected_out2 from SAFE/SCAN/HOLD/P_LOCK.
 // Scope meaning after bitstream is manually generated and loaded:
 //   OUT1 remains the mixer+LPF error observation.
-//   OUT2 is selected by custom_mode; deterministic acquisition changes from
-//   SCAN to P_LOCK_KP0 without a digital command jump.
+//   OUT2 is selected by custom_mode; the selected compile-time acquisition
+//   implementation changes from SCAN to P_LOCK using the captured OUT2 bias.
 //   This routing is not proof of timing closure or real laser locking.
 assign dac_a_sum = USE_LASER_LOCK_CORE ? dac_a_sum_laser : dac_a_sum_official;
 assign dac_b_sum = USE_LASER_LOCK_CORE ? dac_b_sum_laser : dac_b_sum_official;

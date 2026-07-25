@@ -34,6 +34,9 @@ except ModuleNotFoundError:
 DEFAULT_CLK_HZ = 125_000_000.0
 DEFAULT_BASE_ADDR = 0x4060_0000
 ALLOWED_UPDATE_KP = (0, 4, 8, 16, 32)
+EXPECTED_VERSION = 0x00030100
+SIMPLE_VERSION = 0x00030200
+SUPPORTED_VERSIONS = {EXPECTED_VERSION, SIMPLE_VERSION}
 
 REGISTERS = {
     "MAGIC": 0x00,
@@ -167,6 +170,8 @@ REGISTERS = {
 
 EXPECTED_MAGIC = 0x4D545330
 EXPECTED_VERSION = 0x00030100
+SIMPLE_VERSION = 0x00030200
+SUPPORTED_VERSIONS = {EXPECTED_VERSION, SIMPLE_VERSION}
 ALLOWED_UPDATE_KP = {0, 4, 8, 16, 32}
 PROBE_BASE_ADDRS = [
     0x40000000,
@@ -309,6 +314,11 @@ def read_status(regs):
     return {
         "magic": f"0x{magic:08X}",
         "version": f"0x{version:08X}",
+        "build_capability": (
+            "SIMPLE" if version == SIMPLE_VERSION
+            else "D1" if version == EXPECTED_VERSION
+            else "UNKNOWN"
+        ),
         "mode": regs.read(REGISTERS["MODE"]),
         "enable": regs.read(REGISTERS["ENABLE"]) & 1,
         "status_raw": f"0x{status:08X}",
@@ -397,14 +407,22 @@ def write_acquisition_shadow(regs, args):
 def run_preload_acquisition(regs, args, arm):
     require_magic(regs)
     before = read_status(regs)
-    if before["version"] != f"0x{EXPECTED_VERSION:08X}":
+    if int(before["version"], 0) not in SUPPORTED_VERSIONS:
         raise SystemExit(
-            f"VERSION mismatch: expected 0x{EXPECTED_VERSION:08X}, got {before['version']}"
+            "VERSION mismatch: expected D1 0x00030100 or SIMPLE 0x00030200, "
+            f"got {before['version']}"
         )
     if int(before["mode"]) != 1 or int(before["enable"]) != 1:
         raise SystemExit("FPGA acquisition requires MODE=1 SCAN and ENABLE=1")
     if bool(before["saturated"]):
         raise SystemExit("FPGA acquisition refused because STATUS reports saturation")
+    if int(before["acquisition_state"]) == 2:
+        raise SystemExit("target configuration writes are forbidden while acquisition is ARMED")
+    if before["build_capability"] == "SIMPLE":
+        if int(args.preloaded_kp) not in (0, 4):
+            raise SystemExit("SIMPLE basic lock requires preloaded Kp 0 or 4")
+        regs.write(REGISTERS["KP"], int(args.preloaded_kp))
+        regs.write(REGISTERS["POLARITY"], int(args.preloaded_polarity) & 1)
     write_acquisition_shadow(regs, args)
     validation = regs.read(REGISTERS["CONFIG_VALIDATION"])
     if not (validation & (1 << 7)):
@@ -422,9 +440,9 @@ def run_preload_acquisition(regs, args, arm):
         args.required_error_crossing_direction
     )
     result["initial_polarity_suggestion"] = int(args.initial_polarity_suggestion)
-    if arm and int(result["acquisition_state"]) not in (2, 3, 4):
+    if arm and int(result["acquisition_state"]) not in (2, 3, 4, 5):
         raise SystemExit(
-            "ARM command was written once, but FPGA did not report ARMED/TRIGGER_CAPTURE/P_LOCK_KP0"
+            "ARM command was written once, but FPGA did not report ARMED or P_LOCK"
         )
     result["lock_state"] = result["acquisition_state_name"]
     return result
@@ -466,8 +484,8 @@ def capture_waveform(regs, length, decimation):
 def run_lock_here(regs, args):
     require_magic(regs)
     status = read_status(regs)
-    if status["version"] != f"0x{EXPECTED_VERSION:08X}":
-        raise SystemExit(f"VERSION mismatch: expected 0x{EXPECTED_VERSION:08X}, got {status['version']}")
+    if int(status["version"], 0) not in SUPPORTED_VERSIONS:
+        raise SystemExit(f"VERSION mismatch: unsupported build {status['version']}")
     if int(status["mode"]) != 1:
         raise SystemExit("LOCK HERE requires MODE=1 SCAN first")
     if int(status["enable"]) != 1:
@@ -552,8 +570,8 @@ def run_update_p_lock(regs, args):
     requested_generation = int(args.config_generation)
     event = before["acquisition_event"]
 
-    if before["version"] != f"0x{EXPECTED_VERSION:08X}":
-        safe_exit(regs, f"VERSION mismatch: expected 0x{EXPECTED_VERSION:08X}, got {before['version']}")
+    if int(before["version"], 0) not in SUPPORTED_VERSIONS:
+        safe_exit(regs, f"VERSION mismatch: unsupported build {before['version']}")
     if before_mode != 3:
         safe_exit(regs, f"MODE=3 P_LOCK is required, got MODE={before_mode}")
     if before_enable != 1:
@@ -712,6 +730,8 @@ def main():
     parser.add_argument("--initial-polarity-suggestion", type=int, choices=[0, 1], default=0)
     parser.add_argument("--absolute-limit-counts", type=int, default=8191)
     parser.add_argument("--config-generation", type=int, default=0)
+    parser.add_argument("--preloaded-kp", type=int, choices=[0, 4], default=0)
+    parser.add_argument("--preloaded-polarity", type=int, choices=[0, 1], default=0)
     parser.add_argument("--target-timeout-s", type=float, default=5.0)
     parser.add_argument("--target-poll-s", type=float, default=0.005)
     args = parser.parse_args()
@@ -860,6 +880,8 @@ class AcquisitionTargetConfig:
     correction_limit_counts: int
     absolute_limit_counts: int
     config_generation: int
+    preloaded_kp: int = 0
+    preloaded_polarity: int = 0
 
 
 def volts_to_counts(volts: float) -> int:
@@ -937,6 +959,8 @@ def build_acquisition_target_config(args: argparse.Namespace) -> AcquisitionTarg
         correction_limit_counts=correction,
         absolute_limit_counts=absolute,
         config_generation=int(args.config_generation),
+        preloaded_kp=int(args.preloaded_kp),
+        preloaded_polarity=int(args.preloaded_polarity),
     )
 
 
@@ -1014,6 +1038,10 @@ def remote_command(
             str(config.absolute_limit_counts),
             "--config-generation",
             str(config.config_generation),
+            "--preloaded-kp",
+            str(config.preloaded_kp),
+            "--preloaded-polarity",
+            str(config.preloaded_polarity),
         ]
     elif op == "capture":
         remote_args += [
@@ -1119,6 +1147,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         command_parser.add_argument("--correction-limit-counts", type=int, default=128)
         command_parser.add_argument("--absolute-limit-counts", type=int, default=8191)
         command_parser.add_argument("--config-generation", type=int, required=True)
+        command_parser.add_argument("--preloaded-kp", type=int, choices=[0, 4], default=0)
+        command_parser.add_argument("--preloaded-polarity", type=int, choices=[0, 1], default=0)
 
     preload_acq_parser = subparsers.add_parser(
         "preload-acquisition",

@@ -53,6 +53,7 @@ from .custom_fpga_backend import (
     COUNTS_PER_VOLT,
     EXPECTED_MAGIC,
     EXPECTED_VERSION,
+    SUPPORTED_VERSIONS,
     BasicLockConfig,
     CustomFpgaBackendError,
     build_basic_lock_config,
@@ -175,7 +176,7 @@ def format_fpga_version(value: object) -> str:
 def identity_payload_matches(payload: dict[str, Any]) -> bool:
     return (
         parse_register_value(payload.get("magic")) == EXPECTED_MAGIC
-        and parse_register_value(payload.get("version")) == EXPECTED_VERSION
+        and parse_register_value(payload.get("version")) in SUPPORTED_VERSIONS
     )
 
 
@@ -1232,6 +1233,12 @@ class MainWindow(QMainWindow):
         enable = int(parse_register_value(payload["enable"]))
         status = int(parse_register_value(payload["status_raw"]))
         saturated = bool(payload.get("saturated", bool(status & 0x2)))
+        build_capability = str(
+            payload.get(
+                "build_capability",
+                "SIMPLE" if version == 0x00030200 else "D1" if version == 0x00030100 else "UNKNOWN",
+            )
+        )
 
         self.system_identity_communication_ok = True
         self.system_identity_matched = identity_payload_matches(payload)
@@ -1258,6 +1265,7 @@ class MainWindow(QMainWindow):
         details = (
             f"MAGIC   0x{magic:08X}\n"
             f"VERSION 0x{version:08X}\n"
+            f"ACQ     {build_capability}\n"
             f"MODE    {mode}\n"
             f"ENABLE  {enable}\n"
             f"STATUS  0x{status:08X}"
@@ -1345,7 +1353,7 @@ class MainWindow(QMainWindow):
         self.custom_pick_lock_button.setCheckable(True)
         self._style_button(self.custom_pick_lock_button)
         self.custom_confirm_lock_point_button.setText("CONFIRM")
-        self.custom_lock_button.setText("ARM LOCK")
+        self.custom_lock_button.setText("ARM BASIC LOCK")
         self.custom_safe_button.setText("SAFE")
         self.custom_safe_button.setStyleSheet("font-weight: 700; color: #ffffff; background: #a32020;")
         for button in (
@@ -2059,7 +2067,7 @@ class MainWindow(QMainWindow):
         self.custom_p_lock_button = QPushButton("P_LOCK")
         self.custom_pi_lock_button = QPushButton("PI_LOCK")
         self.custom_capture_bias_button = QPushButton("Capture Bias")
-        self.custom_lock_button = QPushButton("ARM LOCK")
+        self.custom_lock_button = QPushButton("ARM BASIC LOCK")
         self.custom_apply_p_button = QPushButton("APPLY P")
         self.custom_arm_auto_lock_button = QPushButton("LOCK HERE")
         self.custom_abort_auto_lock_button = QPushButton("ABORT / SAFE")
@@ -2123,9 +2131,10 @@ class MainWindow(QMainWindow):
         self.custom_warning_text.setReadOnly(True)
         self.custom_warning_text.setMinimumHeight(90)
         self.custom_warning_text.setPlainText(
-            "First enter SCAN and capture the current waveform. Click and confirm the desired zero crossing, then press ARM LOCK. "
-            "The host writes a complete shadow target and one ARM command. FPGA checks scan direction, target window, and raw "
-            "laser_error crossing direction, then atomically enters MODE=3 P_LOCK with Kp=0/Ki=0. Use APPLY P for "
+            "First enter SCAN and capture the current waveform. Click and confirm the desired zero crossing, then press ARM BASIC LOCK. "
+            "The host preloads the selected Kp/polarity/limits, writes a complete target, and sends one request. The SIMPLE FPGA "
+            "checks scan direction and target window, then atomically enters MODE=3 P_LOCK without forcing Kp to zero. "
+            "D1 retains its raw-error crossing and Kp=0 diagnostic contract. Use APPLY P for "
             "0/4/8/16/32 manual gain steps. The legacy CAPTURE_LOCK_POINT path remains diagnostic-only."
         )
 
@@ -3090,13 +3099,17 @@ class MainWindow(QMainWindow):
                 self.operator_alert_label.setText("Lock point not confirmed")
                 self.statusBar().showMessage("LOCK HERE blocked: no waveform point selected")
                 return
-            if int(self.custom_kp.currentText()) != 0:
-                message = "LOCK HERE requires Kp=0"
+            requested_kp = int(self.custom_kp.currentText())
+            if requested_kp not in (0, 4):
+                message = "ARM BASIC LOCK requires an explicit Kp choice of 0 or 4"
                 self.operator_alert_label.setText(message)
                 self.custom_warning_text.setPlainText(message)
                 self.statusBar().showMessage(message)
                 return
             params = {
+                "capture_id": int(self.selected_lock_point["capture_generation"]),
+                "kp": requested_kp,
+                "polarity": 1 if self._polarity_inverted() else 0,
                 "target_out2_counts": int(self.selected_lock_point["out2_counts"]),
                 "target_error_setpoint_counts": int(
                     self.selected_lock_point["error_setpoint_counts"]
@@ -3113,6 +3126,7 @@ class MainWindow(QMainWindow):
                 "initial_polarity_suggestion": int(
                     self.selected_lock_point["initial_polarity_suggestion"]
                 ),
+                "slope": float(self.selected_lock_point["slope"]),
                 "correction_limit_counts": self.custom_correction_limit_counts.value(),
                 "absolute_limit_counts": min(
                     self.custom_lock_limit_counts.value(),
@@ -4209,22 +4223,32 @@ class MainWindow(QMainWindow):
             )
             state = int(payload.get("acquisition_state", -1))
             self.acquisition_state = state
+            triggered_kp = int(payload.get("kp", self.custom_kp.currentText()))
             triggered = (
                 operation_verified
-                and state == 4
+                and state in (4, 5)
                 and bool(event.get("valid"))
                 and int(event.get("event_type", 0)) == 2
                 and int(event.get("config_generation", 0)) == selected_generation
             )
-            self.p_lock_ready = bool(triggered)
-            self.applied_kp = 0
+            self.p_lock_ready = bool(triggered and state == 4)
+            self.applied_kp = triggered_kp if triggered else 0
             if triggered:
                 self.applied_polarity_index = self.custom_polarity.currentIndex()
-                self.operator_state_label.setText("P_LOCK Kp=0 / FPGA TRIGGERED")
-                self.operator_alert_label.setText("")
-                self.custom_warning_text.append(
-                    "FPGA sticky TRIGGERED event matches the confirmed target generation; APPLY P is enabled."
+                self.operator_state_label.setText(
+                    "P_LOCK Kp=0 / FPGA TRIGGERED"
+                    if state == 4
+                    else "P_LOCK ACTIVE / FPGA TRIGGERED"
                 )
+                self.operator_alert_label.setText("")
+                if state == 4:
+                    self.custom_warning_text.append(
+                        "FPGA TRIGGERED matches the target generation; APPLY P is enabled."
+                    )
+                else:
+                    self.custom_warning_text.append(
+                        "SIMPLE FPGA TRIGGERED with the user-preloaded Kp=4; monitor lock health."
+                    )
             elif state in (2, 3):
                 self.operator_state_label.setText(
                     "ARMED" if state == 2 else "TRIGGER_CAPTURE"
@@ -4395,12 +4419,13 @@ class MainWindow(QMainWindow):
             return
 
         version = str(payload.get("version", "--"))
-        if parse_register_value(version) != EXPECTED_VERSION:
+        if parse_register_value(version) not in SUPPORTED_VERSIONS:
             self.custom_register_summary.setText(
-                f"FPGA identity mismatch | VERSION {version} | expected 0x{EXPECTED_VERSION:08X}"
+                f"FPGA identity mismatch | VERSION {version} | expected D1 or SIMPLE build"
             )
             self.custom_warning_text.setPlainText(
-                f"VERSION mismatch: expected 0x{EXPECTED_VERSION:08X}, got {version}."
+                f"VERSION mismatch: supported builds are 0x00030100 (D1) and "
+                f"0x00030200 (SIMPLE), got {version}."
             )
             self.operator_alert_label.setText("FPGA identity mismatch")
             return

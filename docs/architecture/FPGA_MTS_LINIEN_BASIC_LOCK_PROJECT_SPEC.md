@@ -1,7 +1,7 @@
 Status: ACTIVE
 Effective-Gate: ALL
 Authority: SPEC
-Last-Updated: 2026-07-24
+Last-Updated: 2026-07-25
 Supersedes: FPGA_MTS_Linien_Basic_Lock_Project_Spec.md
 Superseded-By: NONE
 
@@ -10,7 +10,7 @@ Superseded-By: NONE
 **项目名称：** MTS P-only Lock MVP（Linien-inspired）  
 **目标硬件：** Red Pitaya STEMlab 125-14  
 **当前信号约定：** IN1=PD，IN2=REF，OUT1=MTS error，OUT2=PZT/Scan  
-**文档版本：** 1.0  
+**文档版本：** 1.1
 **核心目标：** 在不重写整个项目的前提下，实现一次真实、可重复、无明显谱峰偏移的 P-only 激光锁定，并建立可逐步演进为 Linien 式系统的软件边界。
 
 ---
@@ -34,10 +34,10 @@ Superseded-By: NONE
 SCAN
 → 获取真实且对齐的 PD / ERROR / OUT2
 → 选择零交叉
-→ 精确 HOLD
-→ 补偿扫描转静态后的迟滞与漂移
-→ P_LOCK Kp=0 无扰切换
-→ 最小非零 Kp 验证负反馈方向
+→ Host 预装 target / limits / polarity / Kp(0 或 4)
+→ FPGA SIMPLE acquisition 在扫描中等待方向和窗口命中
+→ 同一 trigger 原子切换 P_LOCK
+→ 验证 Kp=0 无扰或 Kp=4 负反馈方向
 → 连续保持锁定
 → 异常 SAFE
 ```
@@ -46,8 +46,8 @@ SCAN
 
 ```text
 保留现有 FPGA 实时数据通路
-+ 冻结复杂 ARM 获取逻辑
-+ 建立最小统一控制服务
++ 以 LOCK_ACQ_IMPL 选择 SIMPLE 或保留的 D1 acquisition
++ 建立 LocalClient / LockService / AcquisitionService 分层
 + 完成真实 P-only 硬件闭环
 + 再把控制服务迁移到 Red Pitaya 常驻进程
 ```
@@ -58,16 +58,16 @@ SCAN
 
 ### 2.1 P0：当前新 RTL 尚未 timing closure
 
-当前 deterministic acquisition 版本仍存在 setup timing failure。行为仿真通过不代表该 bitstream 可以可靠运行在 125 MHz 实际硬件上。
+当前 deterministic acquisition 版本仍存在 setup timing failure。旧报告中的 ARM 高扇出路径已经改善，但当前最差路径转移到 LPF；行为仿真通过不代表该 bitstream 可以可靠运行在 125 MHz 实际硬件上。
 
 **处理原则：**
 
-- 创建 `LOCK_MVP_BUILD`；
-- deterministic ARM 不参与该构建；
-- 只保留 mixer/LPF、SCAN、HOLD、P_LOCK、capture、limits、SAFE；
+- 使用唯一参数 `LOCK_ACQ_IMPL`：`0=NONE`、`1=SIMPLE`、`2=D1`；
+- `red_pitaya_top` 默认 `SIMPLE`，D1 源码和回归测试继续保留；
+- SIMPLE 只保留请求锁存、前置条件、方向/窗口判断、abort、注册单拍 trigger、最小状态和触发样本；
 - 必须先达到 WNS≥0、TNS=0、WHS≥0、无 unconstrained path，才烧录上板。
 
-ARM 源码和测试保留在 `D1_ARM_BUILD`，但不再阻塞第一次真实锁定。
+D1 ARM 源码和测试保留在同一 RTL 的 `LOCK_ACQ_IMPL=2` 分支，但不再阻塞第一次真实锁定。
 
 ### 2.2 P0：没有真实闭环证据
 
@@ -92,7 +92,7 @@ ARM 源码和测试保留在 `D1_ARM_BUILD`，但不再阻塞第一次真实锁�
 - 激光器热漂移或模式跳变；
 - error signal 偏置、噪声或线形变化。
 
-因此，不能把“扫描时选中的 OUT2 count”直接等同于“静态锁定时的正确 bias”。必须加入 HOLD 后的软件慢速 approach。
+因此，不能把“扫描时选中的 OUT2 count”直接等同于任意时刻的静态工作点。正式 SIMPLE 路径在同一扫描方向和目标窗口命中时直接捕获真实 OUT2/error，并原子切换 P_LOCK，避免先停止扫描造成的偏移。HOLD 后软件慢速 approach 仅作为真实硬件仍显示偏移时的诊断回退，不是正式请求锁定路径。
 
 ### 2.4 P0：带负载 OUT2 校准不完整
 
@@ -358,28 +358,22 @@ last_failure_reason
 
 ---
 
-## 7. 状态机
+## 7. LockService 状态机
 
 ```text
-DISCONNECTED
-    ↓ connect
 SAFE
     ↓ start_scan
 SCANNING
-    ↓ select_target
+    ↓ capture + confirm_target
 TARGET_SELECTED
-    ↓ enter_hold
-HOLDING
-    ↓ approach_target
-APPROACHING
-    ↓ target stable
-READY_TO_LOCK
-    ↓ enter_p_lock_kp0
+    ↓ request_basic_lock
+ARMED
+    ↓ FPGA target hit (Kp=0)
 P_LOCK_KP0
-    ↓ apply_kp(4)
+    ↓ apply_kp(4)，或 FPGA target hit (Kp=4)
 P_LOCK_ACTIVE
 
-任何状态 ──通信异常/饱和/越界/超时──> FAILED ──> SAFE
+任何状态 ──通信异常/饱和/越界/readback mismatch──> FAILED；服务先执行 best-effort SAFE
 ```
 
 ### 7.1 合法命令
@@ -387,13 +381,12 @@ P_LOCK_ACTIVE
 | 当前状态 | 合法命令 |
 |---|---|
 | SAFE | `start_scan()` |
-| SCANNING | `capture_once()`、`select_target()`、`safe()` |
-| TARGET_SELECTED | `enter_hold()`、`start_scan()`、`safe()` |
-| HOLDING | `approach_target()`、`start_scan()`、`safe()` |
-| APPROACHING | 内部 step、`abort()` |
-| READY_TO_LOCK | `enter_p_lock_kp0()`、`safe()` |
+| SCANNING | `capture_once()`、`confirm_target()`、`safe()` |
+| TARGET_SELECTED | `request_basic_lock()`、`start_scan()`、`safe()` |
+| ARMED | `safe()`；禁止修改 acquisition 配置 |
 | P_LOCK_KP0 | `apply_kp(4)`、`safe()` |
-| P_LOCK_ACTIVE | `apply_next_kp()`、`safe()` |
+| P_LOCK_ACTIVE | `safe()` |
+| FAILED | `safe()`、`start_scan()`（重新验证后） |
 
 任何非法状态调用必须返回结构化错误，不得偷偷写寄存器。
 
@@ -544,26 +537,22 @@ capture 至少覆盖 1.2 个扫描周期，推荐 1.5～2 个周期。必须获�
 - OUT2 在安全范围；
 - 记录 rising/falling 方向。
 
-### 9.6 HOLD
+### 9.6 REQUEST BASIC LOCK
 
-写入精确选中 OUT2 count：
+`LocalClient` 将请求交给唯一状态所有者 `LockService`。服务验证最新 `capture_id`、扫描状态、未饱和、Kp 只为 0 或 4，并按选点 slope 建议 polarity。Host 在 ARM 前预装：
 
-```text
-ENABLE=0
-HOLD_VALUE=selected_out2_counts
-MODE=HOLD
-ENABLE=1
-```
+- target OUT2/error、window、direction requirements；
+- correction/absolute limits；
+- polarity；
+- Kp=0（无扰验证）或 Kp=4（最小 P-only）。
 
-等待 PZT/激光器稳定，再读取：
+SIMPLE build 的配置在 `ARMED` 期间只读，Host 不得修改。FPGA 在指定扫描方向和窗口命中时保存真实 trigger OUT2/error，并用同一个注册 trigger 原子更新 bias、setpoint、limits、MODE=P_LOCK、ENABLE 和 integral reset。SIMPLE 不强制 Kp 清零；D1 继续保持原有 Kp=0 语义。
 
-- OUT2；
-- ERROR mean/std/RMS；
-- saturation。
+### 9.7 HOLD（诊断回退）
 
-HOLD readback 与目标 count 不一致时立即 SAFE。
+若真实硬件证据显示 SIMPLE target-hit 后仍有不可接受的静态偏移，可返回 SAFE 后用 exact-count HOLD 定位偏差。HOLD 不是正式 `request_basic_lock()` 路径，不得在 ARMED 期间插入。
 
-### 9.7 软件慢速 APPROACH
+### 9.8 软件慢速 APPROACH（诊断回退）
 
 这是解决“扫描 cursor 与静态谱峰偏移”的关键步骤。
 
@@ -589,9 +578,9 @@ abs(error_mean - setpoint)
 
 并连续保持 200～500 ms。
 
-### 9.8 P_LOCK Kp=0 无扰切换
+### 9.9 P_LOCK Kp=0 无扰验证
 
-使用 approach 最终实际 OUT2 作为 `LOCK_BIAS`，使用目标 error 作为 `ERROR_SETPOINT`：
+SIMPLE 使用 trigger 时保存的真实 OUT2 作为 `LOCK_BIAS`，使用触发样本对应的目标 error 作为 `ERROR_SETPOINT`：
 
 ```text
 KP=0
@@ -614,7 +603,7 @@ readback 检查：
 - saturation=0；
 - OUT2 数字命令跳变在允许范围内。
 
-### 9.9 最小非零 Kp 和符号验证
+### 9.10 最小非零 Kp 和符号验证
 
 第一步只允许 Kp=4。
 
@@ -695,38 +684,27 @@ correction_limit = min(left_margin, right_margin, user_limit)
 
 ## 11. FPGA 构建要求
 
-### 11.1 LOCK_MVP_BUILD
+### 11.1 单 RTL 构建选择
 
-必须包含：
+`LOCK_ACQ_IMPL` 是 acquisition 实现的唯一编译期选择：
 
-- `laser_lock_core` mixer/LPF；
-- `ramp_generator`；
-- `out2_lock_controller`；
-- `custom_debug_capture`；
-- SAFE/SCAN/HOLD/P_LOCK；
-- Kp、polarity、bias、setpoint；
-- correction/absolute limit；
-- monitor/readback；
-- MAGIC/VERSION。
+| 值 | 实现 | 用途 | VERSION |
+|---:|---|---|---:|
+| 0 | NONE | 不实例化 acquisition | `0x00030000` |
+| 1 | SIMPLE | 默认最基础锁定路径 | `0x00030200` |
+| 2 | D1 | 保留 deterministic acquisition 与原测试 | `0x00030100` |
 
-必须关闭：
+`red_pitaya_top` 默认值必须为 SIMPLE。Host 同时识别 SIMPLE 与 D1，能力判断来自 VERSION，不用 GUI 隐藏副本猜测。
 
-- deterministic acquisition ARM；
-- shadow target snapshot；
-- sticky acquisition event；
-- ARM 相关高 fanout 与复杂决策路径；
-- PI/Ki 功能入口（寄存器可保留但必须固定为0）。
+### 11.2 SIMPLE 边界
 
-### 11.2 D1_ARM_BUILD
+SIMPLE 只实现请求锁存、SCAN/ENABLE/未饱和前置条件、扫描方向、目标窗口、abort、注册单拍 trigger、最小状态、trigger sample 和最小 sticky event。它不包含 timestamp、多阶段 event、七组 snapshot enable 或大型 active 配置。
 
-- 保留现有完整 ARM 源码和测试；
-- 与 LOCK_MVP_BUILD 分开综合；
-- 不作为第一次真实锁定依赖；
-- 基础锁定通过后再恢复开发。
+sys_bus 配置只允许在 ARM 前写入；实时判断只读取稳定 CSR。触发时快速控制更新保持原子性，且不强制 Kp 清零。D1 源码、行为和测试保留，不因 SIMPLE 默认构建而删除。
 
 ### 11.3 时序 Gate
 
-LOCK_MVP_BUILD 上板前必须满足：
+SIMPLE build 上板前必须满足：
 
 ```text
 WNS >= 0 ns
@@ -785,21 +763,18 @@ error = slope * (out2 - target) + noise
 
 ### 12.3 RTL 测试
 
-LOCK_MVP_BUILD：
+SIMPLE：
 
-- SAFE 输出；
-- triangle scan；
-- HOLD exact count；
-- P_LOCK Kp=0；
-- P correction sign；
-- correction limit；
-- absolute limit；
-- capture alignment；
-- mode transition。
+- 非 SCAN、ENABLE=0、饱和、方向错误和窗口外均不得触发；
+- abort 清除；
+- trigger 为注册单拍，trigger OUT2/error 与真实触发样本一致；
+- target hit 原子进入 P_LOCK，Kp=0 保持零、Kp=4 保持四；
+- limits、polarity、event generation 和状态 readback 正确；
+- elaboration 不包含 D1 acquisition。
 
-D1_ARM_BUILD：
+D1：
 
-- 原测试保持通过，但不要求本轮 timing closure。
+- 原 deterministic acquisition、custom register bank 和 OUT2 controller 测试保持通过。
 
 ---
 
@@ -869,11 +844,12 @@ Kp=4 后：
 - 明确唯一寄存器版本；
 - 暂停 ARM、PI、AI 和 GUI 扩展。
 
-### 阶段 1：LOCK_MVP_BUILD
+### 阶段 1：SIMPLE BUILD
 
 交付：
 
-- ARM 可在构建时关闭；
+- `LOCK_ACQ_IMPL` 可选择 NONE/SIMPLE/D1，top 默认 SIMPLE；
+- SIMPLE acquisition 与 D1 隔离；
 - timing closure；
 - XSim 与 host tests 通过；
 - 新 bitstream/version 记录。
@@ -882,22 +858,22 @@ Kp=4 后：
 
 交付：
 
-- `models.py`；
-- `register_mapper.py`；
+- `common/lock_models.py`；
 - `acquisition_service.py`；
 - `lock_service.py`；
-- GUI 的 START SCAN、SAFE 先迁移到 LocalClient；
+- GUI 的 acquisition 操作迁移到 LocalClient；
 - 现有 backend 继续使用，不删除。
 
-### 阶段 3：HOLD + APPROACH
+### 阶段 3：SIMPLE TARGET-HIT 硬件验证
 
 交付：
 
 - target 与 capture generation 绑定；
-- exact-count HOLD；
-- 慢速 approach；
-- 超时和越界 SAFE；
-- 硬件 Gate H1/H2。
+- 扫描方向和窗口命中；
+- trigger sample 与原子 P_LOCK；
+- Kp=0 数字/模拟无扰；
+- 必要时才启用 HOLD/approach 诊断回退；
+- 硬件 Gate H1/H2/H3。
 
 ### 阶段 4：P_LOCK
 
@@ -946,7 +922,7 @@ Kp=4 后：
 1. LOCK_MVP_BUILD timing closed；
 2. 真实 capture 可用并与 OUT2 对齐；
 3. 目标选择绑定有效 capture；
-4. HOLD 后通过 approach 消除扫描转静态偏差；
+4. SIMPLE 在扫描目标命中时捕获真实样本并原子切换，或由硬件证据证明需要且通过 HOLD/approach 诊断回退消除偏差；
 5. Kp=0 切换无不可接受跳变；
 6. Kp=4 明确形成负反馈；
 7. error RMS 下降且不饱和；

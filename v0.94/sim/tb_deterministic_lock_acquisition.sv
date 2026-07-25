@@ -282,9 +282,9 @@ module tb_deterministic_lock_acquisition;
         bus_read(REG_ACQ_STATE, read_data);
         check("rising transaction enters ARMED", read_data[2:0] == 3'd2);
         check("ARM precomputes positive target low boundary",
-              i_register_bank.i_deterministic_lock_acquisition.active_target_low_q == 16'sd94);
+              i_register_bank.g_lock_acq_d1.i_deterministic_lock_acquisition.active_target_low_q == 16'sd94);
         check("ARM precomputes positive target high boundary",
-              i_register_bank.i_deterministic_lock_acquisition.active_target_high_q == 16'sd106);
+              i_register_bank.g_lock_acq_d1.i_deterministic_lock_acquisition.active_target_high_q == 16'sd106);
 
         scan_command = 14'sd90;
         laser_error = -14'sd5;

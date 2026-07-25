@@ -26,6 +26,8 @@ from .ssh_client import RedPitayaSshClient, SshCommandResult
 
 EXPECTED_MAGIC = 0x4D545330
 EXPECTED_VERSION = 0x00030100
+SIMPLE_VERSION = 0x00030200
+SUPPORTED_VERSIONS = (EXPECTED_VERSION, SIMPLE_VERSION)
 DEFAULT_BASE_ADDR = 0x4060_0000
 DEFAULT_CLK_HZ = 125_000_000.0
 ALLOWED_UPDATE_KP = (0, 4, 8, 16, 32)
@@ -110,6 +112,8 @@ class AcquisitionTargetConfig:
     correction_limit_counts: int
     absolute_limit_counts: int
     config_generation: int
+    preloaded_kp: int = 0
+    preloaded_polarity: int = 0
 
 
 @dataclass(frozen=True)
@@ -212,6 +216,19 @@ def counts_to_volts(counts: int) -> float:
     return float(int(counts)) / COUNTS_PER_VOLT
 
 
+def acquisition_capability_for_version(version: int | str) -> str:
+    """Return the compile-time acquisition implementation advertised by VERSION."""
+    if isinstance(version, str):
+        value = int(version, 0)
+    else:
+        value = int(version)
+    if value == SIMPLE_VERSION:
+        return "SIMPLE"
+    if value == EXPECTED_VERSION:
+        return "D1"
+    return "UNKNOWN"
+
+
 def encode_signed14_word(value: int) -> int:
     counts = int(value)
     if counts < -8191 or counts > 8191:
@@ -237,6 +254,8 @@ def build_acquisition_target_config(
     config_generation: int,
     safe_min_counts: int,
     safe_max_counts: int,
+    preloaded_kp: int = 0,
+    preloaded_polarity: int | None = None,
 ) -> AcquisitionTargetConfig:
     target = int(target_out2_counts)
     setpoint = int(target_error_setpoint_counts)
@@ -292,6 +311,14 @@ def build_acquisition_target_config(
     generation = int(config_generation)
     if generation <= 0 or generation > 0xFFFFFFFF:
         raise CustomFpgaBackendError("config generation must be within 1..0xFFFFFFFF")
+    preload_kp = int(preloaded_kp)
+    if preload_kp not in (0, 4):
+        raise CustomFpgaBackendError("basic lock preload Kp must be 0 or 4")
+    preload_polarity = (
+        int(initial_polarity_suggestion)
+        if preloaded_polarity is None
+        else int(preloaded_polarity)
+    )
     return AcquisitionTargetConfig(
         target_out2_counts=target,
         target_error_setpoint_counts=setpoint,
@@ -302,6 +329,8 @@ def build_acquisition_target_config(
         correction_limit_counts=correction,
         absolute_limit_counts=absolute,
         config_generation=generation,
+        preloaded_kp=preload_kp,
+        preloaded_polarity=1 if preload_polarity else 0,
     )
 
 
@@ -806,6 +835,10 @@ def _remote_python_command(
             str(config.absolute_limit_counts),
             "--config-generation",
             str(config.config_generation),
+            "--preloaded-kp",
+            str(config.preloaded_kp),
+            "--preloaded-polarity",
+            str(config.preloaded_polarity),
         ]
     elif isinstance(config, CaptureConfig):
         remote_args += [

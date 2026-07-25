@@ -1,6 +1,12 @@
 `timescale 1ns/1ps
+`include "simple_lock_acquisition.sv"
 
-module custom_register_bank (
+module custom_register_bank #(
+    // Standalone register-bank simulations retain the full D1 implementation.
+    // The production red_pitaya_top explicitly selects the timing-light SIMPLE
+    // implementation.
+    parameter integer LOCK_ACQ_IMPL = 2
+) (
     input  logic               clk_i,
     input  logic               rstn_i,
     input  logic signed [13:0] out2_monitor_i,
@@ -41,8 +47,15 @@ module custom_register_bank (
     sys_bus_if.s               bus
 );
 
-    localparam logic [31:0] REG_MAGIC_VALUE   = 32'h4D545330;
-    localparam logic [31:0] REG_VERSION_VALUE = 32'h00030100;
+    localparam integer LOCK_ACQ_NONE   = 0;
+    localparam integer LOCK_ACQ_SIMPLE = 1;
+    localparam integer LOCK_ACQ_D1     = 2;
+
+    localparam logic [31:0] REG_MAGIC_VALUE = 32'h4D545330;
+    localparam logic [31:0] REG_VERSION_VALUE =
+        (LOCK_ACQ_IMPL == LOCK_ACQ_SIMPLE) ? 32'h00030200 :
+        (LOCK_ACQ_IMPL == LOCK_ACQ_D1)     ? 32'h00030100 :
+                                             32'h00030000;
 
     localparam logic [5:0] REG_MAGIC           = 6'h00;
     localparam logic [5:0] REG_VERSION         = 6'h01;
@@ -137,9 +150,9 @@ module custom_register_bank (
     logic apply_p_command_q;
     logic signed [13:0] apply_p_kp_q;
 
-    // Separate registered ARM-start replicas keep each snapshot CE domain at
-    // no more than 64 register bits. MAX_FANOUT also prevents implementation
-    // from rebuilding one 327-load control net from equivalent pulse sources.
+    // These signals are registers only in the D1 generate branch. In SIMPLE
+    // they are compile-time constants, so the seven snapshot pulse trees do
+    // not exist in the production netlist.
     (* max_fanout = 64 *) logic arm_snapshot_target_values_en_q;
     (* max_fanout = 64 *) logic arm_snapshot_window_en_q;
     (* max_fanout = 64 *) logic arm_snapshot_limits_en_q;
@@ -195,13 +208,6 @@ module custom_register_bank (
             invalid_command_q                    <= 1'b0;
             apply_p_command_q                    <= 1'b0;
             apply_p_kp_q                         <= 14'sd0;
-            arm_snapshot_target_values_en_q      <= 1'b0;
-            arm_snapshot_window_en_q             <= 1'b0;
-            arm_snapshot_limits_en_q             <= 1'b0;
-            arm_snapshot_metadata_en_q           <= 1'b0;
-            arm_snapshot_mask_en_q               <= 1'b0;
-            arm_snapshot_runtime_sample_en_q     <= 1'b0;
-            arm_snapshot_runtime_timestamp_en_q  <= 1'b0;
         end else begin
             write_cycle_active_q <= bus.wen;
             arm_command_q <= 1'b0;
@@ -209,13 +215,6 @@ module custom_register_bank (
             clear_event_command_q <= 1'b0;
             invalid_command_q <= 1'b0;
             apply_p_command_q <= 1'b0;
-            arm_snapshot_target_values_en_q <= 1'b0;
-            arm_snapshot_window_en_q <= 1'b0;
-            arm_snapshot_limits_en_q <= 1'b0;
-            arm_snapshot_metadata_en_q <= 1'b0;
-            arm_snapshot_mask_en_q <= 1'b0;
-            arm_snapshot_runtime_sample_en_q <= 1'b0;
-            arm_snapshot_runtime_timestamp_en_q <= 1'b0;
 
             if (!write_cycle_active_q) begin
                 arm_command_q <= arm_pulse_w;
@@ -224,74 +223,181 @@ module custom_register_bank (
                 invalid_command_q <= command_reject_pulse_w;
                 apply_p_command_q <= apply_p_pulse_w;
 
-                if (arm_pulse_w) begin
-                    arm_snapshot_target_values_en_q <= 1'b1;
-                    arm_snapshot_window_en_q <= 1'b1;
-                    arm_snapshot_limits_en_q <= 1'b1;
-                    arm_snapshot_metadata_en_q <= 1'b1;
-                    arm_snapshot_mask_en_q <= 1'b1;
-                    arm_snapshot_runtime_sample_en_q <= 1'b1;
-                    arm_snapshot_runtime_timestamp_en_q <= 1'b1;
-                end
-
                 if (apply_p_pulse_w)
                     apply_p_kp_q <= bus.wdata[13:0];
             end
         end
     end
 
-    deterministic_lock_acquisition i_deterministic_lock_acquisition (
-        .clk_i(clk_i),
-        .rstn_i(rstn_i),
-        .mode_i(mode_o),
-        .enable_i(enable_o),
-        .saturated_i(saturated_i),
-        .out2_i(out2_monitor_i),
-        .error_i(error_monitor_i),
-        .shadow_target_out2_i(target_out2_shadow_q),
-        .shadow_error_setpoint_i(target_error_setpoint_shadow_q),
-        .shadow_window_i(target_window_shadow_q),
-        .shadow_requirements_i(target_requirements_shadow_q),
-        .shadow_correction_limit_i(correction_limit_shadow_q),
-        .shadow_absolute_limit_i(absolute_limit_shadow_q),
-        .shadow_generation_i(config_generation_shadow_q),
-        .shadow_written_mask_i(shadow_written_mask_q),
-        .arm_pulse_i(arm_command_q),
-        .arm_snapshot_target_values_en_i(arm_snapshot_target_values_en_q),
-        .arm_snapshot_window_en_i(arm_snapshot_window_en_q),
-        .arm_snapshot_limits_en_i(arm_snapshot_limits_en_q),
-        .arm_snapshot_metadata_en_i(arm_snapshot_metadata_en_q),
-        .arm_snapshot_mask_en_i(arm_snapshot_mask_en_q),
-        .arm_snapshot_runtime_sample_en_i(arm_snapshot_runtime_sample_en_q),
-        .arm_snapshot_runtime_timestamp_en_i(arm_snapshot_runtime_timestamp_en_q),
-        .abort_pulse_i(abort_command_q),
-        .clear_event_pulse_i(clear_event_command_q),
-        .command_reject_pulse_i(invalid_command_q),
-        .apply_p_pulse_i(apply_p_command_q),
-        .apply_p_kp_i(apply_p_kp_q),
-        .trigger_o(acq_trigger_o),
-        .hold_o(acq_hold_o),
-        .fault_immediate_o(acq_fault_o),
-        .arm_accepted_o(arm_accepted_w),
-        .trigger_out2_sample_o(trigger_out2_sample_w),
-        .trigger_error_sample_o(trigger_error_sample_w),
-        .config_validation_o(config_validation_w),
-        .state_readback_o(acq_state_w),
-        .active_target_out2_o(active_target_out2_w),
-        .active_error_setpoint_o(active_error_setpoint_w),
-        .active_window_o(active_window_w),
-        .active_requirements_o(active_requirements_w),
-        .active_correction_limit_o(active_correction_limit_w),
-        .active_absolute_limit_o(active_absolute_limit_w),
-        .event_sequence_o(event_sequence_w),
-        .event_out2_o(event_out2_w),
-        .event_error_o(event_error_w),
-        .event_config_generation_o(event_config_generation_w),
-        .event_info_o(event_info_w),
-        .event_timestamp_lo_o(event_timestamp_lo_w),
-        .event_timestamp_hi_o(event_timestamp_hi_w),
-        .fault_detail_o(fault_detail_w)
-    );
+    generate
+        if (LOCK_ACQ_IMPL == LOCK_ACQ_D1) begin : g_lock_acq_d1
+            // D1 alone owns the snapshot start replicas. They preserve the
+            // existing atomic D1 transaction and its legacy test hierarchy.
+            always_ff @(posedge clk_i) begin
+                if (!rstn_i) begin
+                    arm_snapshot_target_values_en_q     <= 1'b0;
+                    arm_snapshot_window_en_q            <= 1'b0;
+                    arm_snapshot_limits_en_q            <= 1'b0;
+                    arm_snapshot_metadata_en_q          <= 1'b0;
+                    arm_snapshot_mask_en_q              <= 1'b0;
+                    arm_snapshot_runtime_sample_en_q    <= 1'b0;
+                    arm_snapshot_runtime_timestamp_en_q <= 1'b0;
+                end else begin
+                    arm_snapshot_target_values_en_q     <= 1'b0;
+                    arm_snapshot_window_en_q            <= 1'b0;
+                    arm_snapshot_limits_en_q            <= 1'b0;
+                    arm_snapshot_metadata_en_q          <= 1'b0;
+                    arm_snapshot_mask_en_q              <= 1'b0;
+                    arm_snapshot_runtime_sample_en_q    <= 1'b0;
+                    arm_snapshot_runtime_timestamp_en_q <= 1'b0;
+                    if (!write_cycle_active_q && arm_pulse_w) begin
+                        arm_snapshot_target_values_en_q     <= 1'b1;
+                        arm_snapshot_window_en_q            <= 1'b1;
+                        arm_snapshot_limits_en_q            <= 1'b1;
+                        arm_snapshot_metadata_en_q          <= 1'b1;
+                        arm_snapshot_mask_en_q              <= 1'b1;
+                        arm_snapshot_runtime_sample_en_q    <= 1'b1;
+                        arm_snapshot_runtime_timestamp_en_q <= 1'b1;
+                    end
+                end
+            end
+
+            deterministic_lock_acquisition i_deterministic_lock_acquisition (
+                .clk_i(clk_i),
+                .rstn_i(rstn_i),
+                .mode_i(mode_o),
+                .enable_i(enable_o),
+                .saturated_i(saturated_i),
+                .out2_i(out2_monitor_i),
+                .error_i(error_monitor_i),
+                .shadow_target_out2_i(target_out2_shadow_q),
+                .shadow_error_setpoint_i(target_error_setpoint_shadow_q),
+                .shadow_window_i(target_window_shadow_q),
+                .shadow_requirements_i(target_requirements_shadow_q),
+                .shadow_correction_limit_i(correction_limit_shadow_q),
+                .shadow_absolute_limit_i(absolute_limit_shadow_q),
+                .shadow_generation_i(config_generation_shadow_q),
+                .shadow_written_mask_i(shadow_written_mask_q),
+                .arm_pulse_i(arm_command_q),
+                .arm_snapshot_target_values_en_i(arm_snapshot_target_values_en_q),
+                .arm_snapshot_window_en_i(arm_snapshot_window_en_q),
+                .arm_snapshot_limits_en_i(arm_snapshot_limits_en_q),
+                .arm_snapshot_metadata_en_i(arm_snapshot_metadata_en_q),
+                .arm_snapshot_mask_en_i(arm_snapshot_mask_en_q),
+                .arm_snapshot_runtime_sample_en_i(arm_snapshot_runtime_sample_en_q),
+                .arm_snapshot_runtime_timestamp_en_i(arm_snapshot_runtime_timestamp_en_q),
+                .abort_pulse_i(abort_command_q),
+                .clear_event_pulse_i(clear_event_command_q),
+                .command_reject_pulse_i(invalid_command_q),
+                .apply_p_pulse_i(apply_p_command_q),
+                .apply_p_kp_i(apply_p_kp_q),
+                .trigger_o(acq_trigger_o),
+                .hold_o(acq_hold_o),
+                .fault_immediate_o(acq_fault_o),
+                .arm_accepted_o(arm_accepted_w),
+                .trigger_out2_sample_o(trigger_out2_sample_w),
+                .trigger_error_sample_o(trigger_error_sample_w),
+                .config_validation_o(config_validation_w),
+                .state_readback_o(acq_state_w),
+                .active_target_out2_o(active_target_out2_w),
+                .active_error_setpoint_o(active_error_setpoint_w),
+                .active_window_o(active_window_w),
+                .active_requirements_o(active_requirements_w),
+                .active_correction_limit_o(active_correction_limit_w),
+                .active_absolute_limit_o(active_absolute_limit_w),
+                .event_sequence_o(event_sequence_w),
+                .event_out2_o(event_out2_w),
+                .event_error_o(event_error_w),
+                .event_config_generation_o(event_config_generation_w),
+                .event_info_o(event_info_w),
+                .event_timestamp_lo_o(event_timestamp_lo_w),
+                .event_timestamp_hi_o(event_timestamp_hi_w),
+                .fault_detail_o(fault_detail_w)
+            );
+        end else if (LOCK_ACQ_IMPL == LOCK_ACQ_SIMPLE) begin : g_lock_acq_simple
+            assign arm_snapshot_target_values_en_q = 1'b0;
+            assign arm_snapshot_window_en_q = 1'b0;
+            assign arm_snapshot_limits_en_q = 1'b0;
+            assign arm_snapshot_metadata_en_q = 1'b0;
+            assign arm_snapshot_mask_en_q = 1'b0;
+            assign arm_snapshot_runtime_sample_en_q = 1'b0;
+            assign arm_snapshot_runtime_timestamp_en_q = 1'b0;
+
+            simple_lock_acquisition i_simple_lock_acquisition (
+                .clk_i(clk_i),
+                .rstn_i(rstn_i),
+                .mode_i(mode_o),
+                .enable_i(enable_o),
+                .saturated_i(saturated_i),
+                .out2_i(out2_monitor_i),
+                .error_i(error_monitor_i),
+                .kp_i(kp_o),
+                .target_out2_i(target_out2_shadow_q),
+                .target_error_setpoint_i(target_error_setpoint_shadow_q),
+                .target_window_i(target_window_shadow_q),
+                .target_requirements_i(target_requirements_shadow_q),
+                .correction_limit_i(correction_limit_shadow_q),
+                .absolute_limit_i(absolute_limit_shadow_q),
+                .config_generation_i(config_generation_shadow_q),
+                .config_written_mask_i(shadow_written_mask_q),
+                .request_i(arm_command_q),
+                .abort_i(abort_command_q),
+                .clear_event_i(clear_event_command_q),
+                .trigger_o(acq_trigger_o),
+                .hold_o(acq_hold_o),
+                .fault_immediate_o(acq_fault_o),
+                .request_accepted_o(arm_accepted_w),
+                .trigger_out2_sample_o(trigger_out2_sample_w),
+                .trigger_error_sample_o(trigger_error_sample_w),
+                .config_validation_o(config_validation_w),
+                .state_readback_o(acq_state_w),
+                .active_target_out2_o(active_target_out2_w),
+                .active_error_setpoint_o(active_error_setpoint_w),
+                .active_window_o(active_window_w),
+                .active_requirements_o(active_requirements_w),
+                .active_correction_limit_o(active_correction_limit_w),
+                .active_absolute_limit_o(active_absolute_limit_w),
+                .event_sequence_o(event_sequence_w),
+                .event_out2_o(event_out2_w),
+                .event_error_o(event_error_w),
+                .event_config_generation_o(event_config_generation_w),
+                .event_info_o(event_info_w),
+                .event_timestamp_lo_o(event_timestamp_lo_w),
+                .event_timestamp_hi_o(event_timestamp_hi_w),
+                .fault_detail_o(fault_detail_w)
+            );
+        end else begin : g_lock_acq_none
+            assign arm_snapshot_target_values_en_q = 1'b0;
+            assign arm_snapshot_window_en_q = 1'b0;
+            assign arm_snapshot_limits_en_q = 1'b0;
+            assign arm_snapshot_metadata_en_q = 1'b0;
+            assign arm_snapshot_mask_en_q = 1'b0;
+            assign arm_snapshot_runtime_sample_en_q = 1'b0;
+            assign arm_snapshot_runtime_timestamp_en_q = 1'b0;
+            assign acq_trigger_o = 1'b0;
+            assign acq_hold_o = 1'b0;
+            assign acq_fault_o = 1'b0;
+            assign arm_accepted_w = 1'b0;
+            assign trigger_out2_sample_w = 14'sd0;
+            assign trigger_error_sample_w = 14'sd0;
+            assign config_validation_w = 32'd0;
+            assign acq_state_w = 32'd0;
+            assign active_target_out2_w = 14'sd0;
+            assign active_error_setpoint_w = 14'sd0;
+            assign active_window_w = 14'd0;
+            assign active_requirements_w = 32'd0;
+            assign active_correction_limit_w = 14'd0;
+            assign active_absolute_limit_w = 14'd0;
+            assign event_sequence_w = 32'd0;
+            assign event_out2_w = 32'd0;
+            assign event_error_w = 32'd0;
+            assign event_config_generation_w = 32'd0;
+            assign event_info_w = 32'd0;
+            assign event_timestamp_lo_w = 32'd0;
+            assign event_timestamp_hi_w = 32'd0;
+            assign fault_detail_w = 32'd0;
+        end
+    endgenerate
 
     // Acquisition fast-control registers are the only register group whose
     // clock enables depend on the real-time acquisition decisions.
@@ -320,15 +426,18 @@ module custom_register_bank (
                 error_setpoint_o  <= active_error_setpoint_w;
                 lock_correction_limit_o <= $signed({1'b0, active_correction_limit_w[12:0]});
                 lock_limit_o      <= $signed({1'b0, active_absolute_limit_w[12:0]});
-                kp_o              <= 14'sd0;
                 ki_o              <= 14'sd0;
                 integral_reset_o  <= 1'b1;
                 mode_o            <= MODE_P_LOCK;
                 enable_o          <= 1'b1;
+                if (LOCK_ACQ_IMPL == LOCK_ACQ_D1)
+                    kp_o <= 14'sd0;
             end else if (arm_accepted_w) begin
-                kp_o             <= 14'sd0;
-                ki_o             <= 14'sd0;
-                integral_reset_o <= 1'b1;
+                if (LOCK_ACQ_IMPL == LOCK_ACQ_D1) begin
+                    kp_o             <= 14'sd0;
+                    ki_o             <= 14'sd0;
+                    integral_reset_o <= 1'b1;
+                end
             end else if (bus.wen) begin
                 unique case (reg_addr_w)
                     REG_MODE: begin
