@@ -15,7 +15,6 @@ module ramp_generator (
 
     localparam logic signed [13:0] SAFE_VALUE = 14'sd0;
     localparam logic signed [14:0] DAC_POS_LIMIT = 15'sd8191;
-    localparam logic signed [14:0] DAC_NEG_LIMIT = -15'sd8191;
 
     logic [31:0] update_cnt_q;
     logic signed [14:0] pos_q;
@@ -33,12 +32,14 @@ module ramp_generator (
     logic signed [14:0] step_q;
     logic        [31:0] update_div_q;
     logic        [31:0] update_div_m1_q;
-    logic signed [14:0] limit_q;
+    logic signed [14:0] limit_pos_q;
+    logic signed [14:0] limit_neg_q;
 
     logic signed [14:0] amp_next_w;
     logic signed [14:0] step_next_w;
     logic        [31:0] update_div_next_w;
-    logic signed [14:0] limit_next_w;
+    logic signed [14:0] limit_pos_next_w;
+    logic signed [14:0] limit_neg_next_w;
     logic signed [14:0] raw_scan_w;
     logic signed [14:0] limited_scan_w;
     logic saturated_w;
@@ -63,33 +64,26 @@ module ramp_generator (
 
         update_div_next_w = (update_div_i <= 32'd1) ? 32'd1 : update_div_i;
 
-        limit_next_w = {limit_i[13], limit_i};
-        if (limit_next_w < 15'sd0) begin
-            limit_next_w = -limit_next_w;
+        limit_pos_next_w = {limit_i[13], limit_i};
+        if (limit_pos_next_w < 15'sd0) begin
+            limit_pos_next_w = -limit_pos_next_w;
         end
-        if (limit_next_w > DAC_POS_LIMIT) begin
-            limit_next_w = DAC_POS_LIMIT;
+        if (limit_pos_next_w > DAC_POS_LIMIT) begin
+            limit_pos_next_w = DAC_POS_LIMIT;
         end
+        limit_neg_next_w = -limit_pos_next_w;
 
         raw_scan_w = {offset_q[13], offset_q} + pos_q;
 
-        if (raw_scan_w > limit_q) begin
-            limited_scan_w = limit_q;
+        if (raw_scan_w > limit_pos_q) begin
+            limited_scan_w = limit_pos_q;
             saturated_w = 1'b1;
-        end else if (raw_scan_w < -limit_q) begin
-            limited_scan_w = -limit_q;
+        end else if (raw_scan_w < limit_neg_q) begin
+            limited_scan_w = limit_neg_q;
             saturated_w = 1'b1;
         end else begin
             limited_scan_w = raw_scan_w;
             saturated_w = 1'b0;
-        end
-
-        if (limited_scan_w > DAC_POS_LIMIT) begin
-            limited_scan_w = DAC_POS_LIMIT;
-            saturated_w = 1'b1;
-        end else if (limited_scan_w < DAC_NEG_LIMIT) begin
-            limited_scan_w = DAC_NEG_LIMIT;
-            saturated_w = 1'b1;
         end
     end
 
@@ -102,7 +96,8 @@ module ramp_generator (
             step_q         <= 15'sd1;
             update_div_q   <= 32'd1524;
             update_div_m1_q <= 32'd1523;
-            limit_q        <= 15'sd8191;
+            limit_pos_q    <= 15'sd8191;
+            limit_neg_q    <= -15'sd8191;
             update_cnt_q   <= 32'd0;
             pos_q          <= 15'sd0;
             direction_up_q <= 1'b1;
@@ -117,7 +112,8 @@ module ramp_generator (
             step_q         <= step_next_w;
             update_div_q   <= update_div_next_w;
             update_div_m1_q <= update_div_q - 32'd1;
-            limit_q        <= limit_next_w;
+            limit_pos_q    <= limit_pos_next_w;
+            limit_neg_q    <= limit_neg_next_w;
             update_cnt_q   <= 32'd0;
             pos_q          <= -amp_q;
             direction_up_q <= 1'b1;
@@ -132,7 +128,8 @@ module ramp_generator (
             step_q         <= step_next_w;
             update_div_q   <= update_div_next_w;
             update_div_m1_q <= update_div_q - 32'd1;
-            limit_q        <= limit_next_w;
+            limit_pos_q    <= limit_pos_next_w;
+            limit_neg_q    <= limit_neg_next_w;
 
             if (update_pending_q) begin
                 update_cnt_q <= 32'd0;

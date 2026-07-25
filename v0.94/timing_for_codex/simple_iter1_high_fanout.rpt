@@ -1,0 +1,121 @@
+Copyright 1986-2020 Xilinx, Inc. All Rights Reserved.
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2020.1 (win64) Build 2902540 Wed May 27 19:54:49 MDT 2020
+| Date         : Sat Jul 25 18:47:21 2026
+| Host         : lin running 64-bit major release  (build 9200)
+| Command      : report_high_fanout_nets -fanout_greater_than 50 -max_nets 100 -file E:/new/fpga_lock/v94/v0.94/timing_for_codex/simple_iter1_high_fanout.rpt
+| Design       : red_pitaya_top
+| Device       : xc7z010
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+High Fan-out Nets Information
+
+1. Summary
+----------
+
++----------------------------------------------------------------------------------------+--------+-------------+
+| Net Name                                                                               | Fanout | Driver Type |
++----------------------------------------------------------------------------------------+--------+-------------+
+| i_asg/ch[0]/SR[0]                                                                      |   3485 | LUT1        |
+| rstn                                                                                   |    305 | FDRE        |
+| ps/axi_slave_gp0/rd_araddr_reg[7]_0                                                    |    182 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[2]_9                                                    |    181 | LUT3        |
+| i_asg/ch[0]/ext_trig_in_reg[1]_0                                                       |    175 | FDRE        |
+| i_scope/i_wr0/clear_0                                                                  |    169 | FDSE        |
+| i_scope/i_wr1/clear_0                                                                  |    169 | FDSE        |
+| i_asg/ch[0]/ext_trig_in_reg[2]_0                                                       |    168 | FDRE        |
+| ps/axi_slave_gp0/rd_do                                                                 |    159 | FDRE        |
+| i_scope/axi_a_dat_dv                                                                   |    157 | FDRE        |
+| i_scope/axi_b_dat_dv                                                                   |    157 | FDRE        |
+| i_scope/adc_arm_do                                                                     |    138 | FDRE        |
+| ps/system_i/xadc/inst/AXI_LITE_IPIF_I/I_SLAVE_ATTACHMENT/reset2ip_reset                |    136 | LUT2        |
+| ps/axi_slave_gp0/wr_wdata_reg[31]_0[0]                                                 |    135 | FDRE        |
+| i_scope/dec_valid                                                                      |    130 | CARRY4      |
+| ps/axi_slave_gp0/wr_wdata_reg[31]_0[13]                                                |    130 | FDRE        |
+| ps/axi_slave_gp0/rd_araddr_reg[3]_10                                                   |    114 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[3]_2                                                    |    114 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[3]_5                                                    |    114 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[3]_6                                                    |    114 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[3]_7                                                    |    114 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[6]_0                                                    |    113 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[6]_13                                                   |    113 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[6]_15                                                   |    113 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[6]_16                                                   |    113 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[6]_7                                                    |    113 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[6]_8                                                    |    113 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[4]_12                                                   |    112 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[4]_14                                                   |    112 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[4]_3                                                    |    112 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[4]_5                                                    |    112 | LUT3        |
+| ps/axi_slave_gp0/wr_wdata_reg[31]_0[1]                                                 |    111 | FDRE        |
+| ps/axi_slave_gp0/wr_wdata_reg[31]_0[2]                                                 |    110 | FDRE        |
+| ps/axi_slave_gp0/rd_araddr_reg[2]_1                                                    |    109 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[2]_4                                                    |    109 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[2]_5                                                    |    109 | LUT3        |
+| ps/axi_master_0/axi_wwr_pt_reg[0]                                                      |    108 | FDRE        |
+| ps/axi_master_1/axi_wwr_pt_reg_n_0_[0]                                                 |    108 | FDRE        |
+| ps/axi_master_0/axi_wwr_pt_reg[1]                                                      |    107 | FDRE        |
+| ps/axi_master_1/axi_wwr_pt_reg_n_0_[1]                                                 |    107 | FDRE        |
+| ps/axi_slave_gp0/rd_araddr_reg[4]_30                                                   |    107 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[4]_31                                                   |    107 | LUT3        |
+| ps/axi_slave_gp0/wr_wdata_reg[31]_0[12]                                                |    107 | FDRE        |
+| ps/axi_slave_gp0/wr_wdata_reg[31]_0[3]                                                 |    107 | FDRE        |
+| ps/axi_master_0/axi_wwr_pt_reg[2]                                                      |    106 | FDRE        |
+| ps/axi_master_1/axi_wwr_pt_reg_n_0_[2]                                                 |    106 | FDRE        |
+| ps/axi_master_0/axi_wwr_pt_reg[3]                                                      |    105 | FDRE        |
+| ps/axi_master_1/axi_wwr_pt_reg_n_0_[3]                                                 |    105 | FDRE        |
+| ps/axi_master_0/axi_wfifo_reg_0_15_0_5_i_1_n_0                                         |    104 | LUT3        |
+| ps/axi_master_1/axi_wfifo_reg_0_15_0_5_i_1__0_n_0                                      |    104 | LUT3        |
+| ps/axi_slave_gp0/wr_wdata_reg[31]_0[7]                                                 |    103 | FDRE        |
+| i_scope/adc_dly_cnt[0]_i_3_n_0                                                         |    102 | LUT6        |
+| ps/axi_slave_gp0/wr_wdata_reg[31]_0[4]                                                 |    102 | FDRE        |
+| ps/axi_slave_gp0/wr_wdata_reg[31]_0[5]                                                 |    102 | FDRE        |
+| ps/axi_slave_gp0/wr_wdata_reg[31]_0[6]                                                 |    102 | FDRE        |
+| i_scope/adc_dv_r[2]                                                                    |     99 | FDRE        |
+| ps/axi_slave_gp0/rd_araddr_reg[5]_15                                                   |     98 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[5]_3                                                    |     98 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[5]_4                                                    |     98 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[5]_9                                                    |     98 | LUT3        |
+| ps/axi_slave_gp0/wr_wdata_reg[31]_0[8]                                                 |     97 | FDRE        |
+| i_custom_register_bank/g_lock_acq_simple.i_simple_lock_acquisition/trigger_candidate_w |     96 | LUT6        |
+| ps/axi_slave_gp0/wr_wdata_reg[31]_0[10]                                                |     96 | FDRE        |
+| ps/axi_slave_gp0/wr_wdata_reg[31]_0[11]                                                |     96 | FDRE        |
+| ps/axi_slave_gp0/wr_wdata_reg[31]_0[9]                                                 |     96 | FDRE        |
+| ps/axi_slave_gp0/rd_araddr_reg[4]_0                                                    |     95 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[5]_1                                                    |     95 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[5]_2                                                    |     95 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[5]_21                                                   |     95 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[3]_16                                                   |     94 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[3]_17                                                   |     94 | LUT3        |
+| ps/axi_slave_gp0/rd_araddr_reg[3]_8                                                    |     94 | LUT3        |
+| ps/axi_slave_gp0/ps_sys\\.addr[20]                                                     |     90 | LUT3        |
+| ps/axi_slave_gp0/ps_sys\\.addr[21]                                                     |     90 | LUT3        |
+| i_scope/i_dfilt1_cha/pp_mult_i_2_n_0                                                   |     88 | LUT2        |
+| i_scope/i_dfilt1_chb/pp_mult_i_2__0_n_0                                                |     88 | LUT2        |
+| i_asg/ch[0]/dac_do                                                                     |     86 | FDRE        |
+| i_asg/ch[1]/dac_do                                                                     |     86 | FDRE        |
+| i_hk/daisy_mode[0]                                                                     |     85 | FDRE        |
+| ps/axi_master_0/axi_wrd_pt_reg[0]                                                      |     82 | FDRE        |
+| ps/axi_master_1/axi_wrd_pt_reg_n_0_[0]                                                 |     82 | FDRE        |
+| ps/axi_slave_gp0/ps_sys\\.addr[1]                                                      |     82 | LUT3        |
+| i_scope/axi_a_dat_fifo_lvl_reg_n_0_[0]                                                 |     81 | FDRE        |
+| i_scope/axi_b_dat_fifo_lvl_reg_n_0_[0]                                                 |     81 | FDRE        |
+| ps/axi_master_0/axi_wrd_pt_reg[1]                                                      |     81 | FDRE        |
+| ps/axi_master_1/axi_wrd_pt_reg_n_0_[1]                                                 |     81 | FDRE        |
+| i_scope/axi_a_dat_fifo_lvl_reg_n_0_[1]                                                 |     80 | FDRE        |
+| i_scope/axi_b_dat_fifo_lvl_reg_n_0_[1]                                                 |     80 | FDRE        |
+| ps/axi_master_0/axi_wrd_pt_reg[2]                                                      |     80 | FDRE        |
+| ps/axi_master_1/axi_wrd_pt_reg_n_0_[2]                                                 |     80 | FDRE        |
+| ps/axi_slave_gp0/ps_sys\\.addr[0]                                                      |     80 | LUT3        |
+| i_scope/axi_a_dat_fifo_lvl[1]_i_2_n_0                                                  |     79 | LUT6        |
+| i_scope/axi_b_dat_fifo_lvl[1]_i_2_n_0                                                  |     79 | LUT6        |
+| ps/axi_master_0/axi_wrd_pt_reg[3]                                                      |     79 | FDRE        |
+| ps/axi_master_1/axi_wrd_pt_reg_n_0_[3]                                                 |     79 | FDRE        |
+| ps/axi_slave_gp0/rd_araddr_reg[3]_9                                                    |     76 | LUT3        |
+| i_scope/axi_a_dat_fifo_reg[2][0]_srl4_i_1_n_0                                          |     75 | LUT1        |
+| i_scope/axi_a_dat_fifo_reg[2][0]_srl4_i_2_n_0                                          |     75 | LUT2        |
+| i_scope/axi_a_fifo_o[74]_i_1_n_0                                                       |     75 | LUT5        |
+| i_scope/axi_b_dat_fifo_reg[2][0]_srl4_i_1_n_0                                          |     75 | LUT1        |
++----------------------------------------------------------------------------------------+--------+-------------+
+
+

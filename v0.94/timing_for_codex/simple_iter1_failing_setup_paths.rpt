@@ -1,0 +1,2056 @@
+Copyright 1986-2020 Xilinx, Inc. All Rights Reserved.
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2020.1 (win64) Build 2902540 Wed May 27 19:54:49 MDT 2020
+| Date         : Sat Jul 25 18:46:23 2026
+| Host         : lin running 64-bit major release  (build 9200)
+| Command      : report_timing -delay_type max -max_paths 20 -nworst 5 -sort_by slack -path_type full_clock_expanded -input_pins -file E:/new/fpga_lock/v94/v0.94/timing_for_codex/simple_iter1_failing_setup_paths.rpt
+| Design       : red_pitaya_top
+| Device       : 7z010-clg400
+| Speed File   : -1  PRODUCTION 1.12 2019-11-22
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Report
+
+Slack (VIOLATED) :        -0.119ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[0]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.056ns  (logic 3.507ns (43.531%)  route 4.549ns (56.469%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 r  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 r  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 r  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.174    13.919    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      r  i_ramp_generator/scan_o[0]_i_1/I1
+    SLICE_X40Y45         LUT4 (Prop_lut4_I1_O)        0.124    14.043 r  i_ramp_generator/scan_o[0]_i_1/O
+                         net (fo=1, routed)           0.000    14.043    i_ramp_generator/scan_o[0]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[0]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[0]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.031    13.924    i_ramp_generator/scan_o_reg[0]
+  -------------------------------------------------------------------
+                         required time                         13.924    
+                         arrival time                         -14.043    
+  -------------------------------------------------------------------
+                         slack                                 -0.119    
+
+Slack (VIOLATED) :        -0.119ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[0]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.056ns  (logic 3.507ns (43.531%)  route 4.549ns (56.469%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 f  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 r  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 r  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.174    13.919    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      r  i_ramp_generator/scan_o[0]_i_1/I1
+    SLICE_X40Y45         LUT4 (Prop_lut4_I1_O)        0.124    14.043 r  i_ramp_generator/scan_o[0]_i_1/O
+                         net (fo=1, routed)           0.000    14.043    i_ramp_generator/scan_o[0]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[0]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[0]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.031    13.924    i_ramp_generator/scan_o_reg[0]
+  -------------------------------------------------------------------
+                         required time                         13.924    
+                         arrival time                         -14.043    
+  -------------------------------------------------------------------
+                         slack                                 -0.119    
+
+Slack (VIOLATED) :        -0.119ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[0]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.056ns  (logic 3.507ns (43.531%)  route 4.549ns (56.469%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 r  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 f  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 r  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.174    13.919    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      r  i_ramp_generator/scan_o[0]_i_1/I1
+    SLICE_X40Y45         LUT4 (Prop_lut4_I1_O)        0.124    14.043 r  i_ramp_generator/scan_o[0]_i_1/O
+                         net (fo=1, routed)           0.000    14.043    i_ramp_generator/scan_o[0]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[0]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[0]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.031    13.924    i_ramp_generator/scan_o_reg[0]
+  -------------------------------------------------------------------
+                         required time                         13.924    
+                         arrival time                         -14.043    
+  -------------------------------------------------------------------
+                         slack                                 -0.119    
+
+Slack (VIOLATED) :        -0.119ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[0]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.056ns  (logic 3.507ns (43.531%)  route 4.549ns (56.469%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 f  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 f  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 r  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.174    13.919    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      r  i_ramp_generator/scan_o[0]_i_1/I1
+    SLICE_X40Y45         LUT4 (Prop_lut4_I1_O)        0.124    14.043 r  i_ramp_generator/scan_o[0]_i_1/O
+                         net (fo=1, routed)           0.000    14.043    i_ramp_generator/scan_o[0]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[0]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[0]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.031    13.924    i_ramp_generator/scan_o_reg[0]
+  -------------------------------------------------------------------
+                         required time                         13.924    
+                         arrival time                         -14.043    
+  -------------------------------------------------------------------
+                         slack                                 -0.119    
+
+Slack (VIOLATED) :        -0.119ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[0]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.056ns  (logic 3.507ns (43.531%)  route 4.549ns (56.469%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 r  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 r  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 f  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      f  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 r  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.174    13.919    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      r  i_ramp_generator/scan_o[0]_i_1/I1
+    SLICE_X40Y45         LUT4 (Prop_lut4_I1_O)        0.124    14.043 r  i_ramp_generator/scan_o[0]_i_1/O
+                         net (fo=1, routed)           0.000    14.043    i_ramp_generator/scan_o[0]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[0]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[0]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.031    13.924    i_ramp_generator/scan_o_reg[0]
+  -------------------------------------------------------------------
+                         required time                         13.924    
+                         arrival time                         -14.043    
+  -------------------------------------------------------------------
+                         slack                                 -0.119    
+
+Slack (VIOLATED) :        -0.111ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[4]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.050ns  (logic 3.507ns (43.568%)  route 4.543ns (56.432%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 r  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 r  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.167    13.913    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[4]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.124    14.037 r  i_ramp_generator/scan_o[4]_i_1/O
+                         net (fo=1, routed)           0.000    14.037    i_ramp_generator/scan_o[4]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[4]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[4]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.032    13.925    i_ramp_generator/scan_o_reg[4]
+  -------------------------------------------------------------------
+                         required time                         13.925    
+                         arrival time                         -14.037    
+  -------------------------------------------------------------------
+                         slack                                 -0.111    
+
+Slack (VIOLATED) :        -0.111ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[4]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.050ns  (logic 3.507ns (43.568%)  route 4.543ns (56.432%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 f  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 r  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.167    13.913    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[4]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.124    14.037 r  i_ramp_generator/scan_o[4]_i_1/O
+                         net (fo=1, routed)           0.000    14.037    i_ramp_generator/scan_o[4]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[4]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[4]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.032    13.925    i_ramp_generator/scan_o_reg[4]
+  -------------------------------------------------------------------
+                         required time                         13.925    
+                         arrival time                         -14.037    
+  -------------------------------------------------------------------
+                         slack                                 -0.111    
+
+Slack (VIOLATED) :        -0.111ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[4]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.050ns  (logic 3.507ns (43.568%)  route 4.543ns (56.432%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 r  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 f  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.167    13.913    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[4]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.124    14.037 r  i_ramp_generator/scan_o[4]_i_1/O
+                         net (fo=1, routed)           0.000    14.037    i_ramp_generator/scan_o[4]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[4]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[4]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.032    13.925    i_ramp_generator/scan_o_reg[4]
+  -------------------------------------------------------------------
+                         required time                         13.925    
+                         arrival time                         -14.037    
+  -------------------------------------------------------------------
+                         slack                                 -0.111    
+
+Slack (VIOLATED) :        -0.111ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[4]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.050ns  (logic 3.507ns (43.568%)  route 4.543ns (56.432%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 f  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 f  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.167    13.913    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[4]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.124    14.037 r  i_ramp_generator/scan_o[4]_i_1/O
+                         net (fo=1, routed)           0.000    14.037    i_ramp_generator/scan_o[4]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[4]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[4]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.032    13.925    i_ramp_generator/scan_o_reg[4]
+  -------------------------------------------------------------------
+                         required time                         13.925    
+                         arrival time                         -14.037    
+  -------------------------------------------------------------------
+                         slack                                 -0.111    
+
+Slack (VIOLATED) :        -0.111ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[4]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.050ns  (logic 3.507ns (43.568%)  route 4.543ns (56.432%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 r  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 r  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 f  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      f  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.167    13.913    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[4]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.124    14.037 r  i_ramp_generator/scan_o[4]_i_1/O
+                         net (fo=1, routed)           0.000    14.037    i_ramp_generator/scan_o[4]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[4]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[4]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.032    13.925    i_ramp_generator/scan_o_reg[4]
+  -------------------------------------------------------------------
+                         required time                         13.925    
+                         arrival time                         -14.037    
+  -------------------------------------------------------------------
+                         slack                                 -0.111    
+
+Slack (VIOLATED) :        -0.104ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[1]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.085ns  (logic 3.536ns (43.733%)  route 4.549ns (56.267%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 r  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 r  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.174    13.919    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[1]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.153    14.072 r  i_ramp_generator/scan_o[1]_i_1/O
+                         net (fo=1, routed)           0.000    14.072    i_ramp_generator/scan_o[1]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[1]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[1]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.075    13.968    i_ramp_generator/scan_o_reg[1]
+  -------------------------------------------------------------------
+                         required time                         13.968    
+                         arrival time                         -14.072    
+  -------------------------------------------------------------------
+                         slack                                 -0.104    
+
+Slack (VIOLATED) :        -0.104ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[1]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.085ns  (logic 3.536ns (43.733%)  route 4.549ns (56.267%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 f  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 r  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.174    13.919    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[1]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.153    14.072 r  i_ramp_generator/scan_o[1]_i_1/O
+                         net (fo=1, routed)           0.000    14.072    i_ramp_generator/scan_o[1]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[1]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[1]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.075    13.968    i_ramp_generator/scan_o_reg[1]
+  -------------------------------------------------------------------
+                         required time                         13.968    
+                         arrival time                         -14.072    
+  -------------------------------------------------------------------
+                         slack                                 -0.104    
+
+Slack (VIOLATED) :        -0.104ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[1]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.085ns  (logic 3.536ns (43.733%)  route 4.549ns (56.267%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 r  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 f  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.174    13.919    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[1]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.153    14.072 r  i_ramp_generator/scan_o[1]_i_1/O
+                         net (fo=1, routed)           0.000    14.072    i_ramp_generator/scan_o[1]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[1]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[1]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.075    13.968    i_ramp_generator/scan_o_reg[1]
+  -------------------------------------------------------------------
+                         required time                         13.968    
+                         arrival time                         -14.072    
+  -------------------------------------------------------------------
+                         slack                                 -0.104    
+
+Slack (VIOLATED) :        -0.104ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[1]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.085ns  (logic 3.536ns (43.733%)  route 4.549ns (56.267%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 f  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 f  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.174    13.919    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[1]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.153    14.072 r  i_ramp_generator/scan_o[1]_i_1/O
+                         net (fo=1, routed)           0.000    14.072    i_ramp_generator/scan_o[1]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[1]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[1]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.075    13.968    i_ramp_generator/scan_o_reg[1]
+  -------------------------------------------------------------------
+                         required time                         13.968    
+                         arrival time                         -14.072    
+  -------------------------------------------------------------------
+                         slack                                 -0.104    
+
+Slack (VIOLATED) :        -0.104ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[1]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.085ns  (logic 3.536ns (43.733%)  route 4.549ns (56.267%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 r  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 r  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 f  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      f  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.174    13.919    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[1]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.153    14.072 r  i_ramp_generator/scan_o[1]_i_1/O
+                         net (fo=1, routed)           0.000    14.072    i_ramp_generator/scan_o[1]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[1]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[1]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.075    13.968    i_ramp_generator/scan_o_reg[1]
+  -------------------------------------------------------------------
+                         required time                         13.968    
+                         arrival time                         -14.072    
+  -------------------------------------------------------------------
+                         slack                                 -0.104    
+
+Slack (VIOLATED) :        -0.093ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[5]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.075ns  (logic 3.532ns (43.743%)  route 4.543ns (56.257%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 r  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 r  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.167    13.913    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[5]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.149    14.062 r  i_ramp_generator/scan_o[5]_i_1/O
+                         net (fo=1, routed)           0.000    14.062    i_ramp_generator/scan_o[5]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[5]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[5]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.075    13.968    i_ramp_generator/scan_o_reg[5]
+  -------------------------------------------------------------------
+                         required time                         13.968    
+                         arrival time                         -14.062    
+  -------------------------------------------------------------------
+                         slack                                 -0.093    
+
+Slack (VIOLATED) :        -0.093ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[5]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.075ns  (logic 3.532ns (43.743%)  route 4.543ns (56.257%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 f  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 r  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.167    13.913    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[5]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.149    14.062 r  i_ramp_generator/scan_o[5]_i_1/O
+                         net (fo=1, routed)           0.000    14.062    i_ramp_generator/scan_o[5]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[5]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[5]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.075    13.968    i_ramp_generator/scan_o_reg[5]
+  -------------------------------------------------------------------
+                         required time                         13.968    
+                         arrival time                         -14.062    
+  -------------------------------------------------------------------
+                         slack                                 -0.093    
+
+Slack (VIOLATED) :        -0.093ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[5]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.075ns  (logic 3.532ns (43.743%)  route 4.543ns (56.257%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 r  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 f  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.167    13.913    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[5]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.149    14.062 r  i_ramp_generator/scan_o[5]_i_1/O
+                         net (fo=1, routed)           0.000    14.062    i_ramp_generator/scan_o[5]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[5]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[5]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.075    13.968    i_ramp_generator/scan_o_reg[5]
+  -------------------------------------------------------------------
+                         required time                         13.968    
+                         arrival time                         -14.062    
+  -------------------------------------------------------------------
+                         slack                                 -0.093    
+
+Slack (VIOLATED) :        -0.093ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[5]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.075ns  (logic 3.532ns (43.743%)  route 4.543ns (56.257%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 f  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 f  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      f  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 r  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      r  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.167    13.913    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[5]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.149    14.062 r  i_ramp_generator/scan_o[5]_i_1/O
+                         net (fo=1, routed)           0.000    14.062    i_ramp_generator/scan_o[5]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[5]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[5]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.075    13.968    i_ramp_generator/scan_o_reg[5]
+  -------------------------------------------------------------------
+                         required time                         13.968    
+                         arrival time                         -14.062    
+  -------------------------------------------------------------------
+                         slack                                 -0.093    
+
+Slack (VIOLATED) :        -0.093ns  (required time - arrival time)
+  Source:                 i_ramp_generator/limit_q_reg[0]/C
+                            (rising edge-triggered cell FDSE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Destination:            i_ramp_generator/scan_o_reg[5]/D
+                            (rising edge-triggered cell FDRE clocked by pll_adc_clk  {rise@0.000ns fall@4.000ns period=8.000ns})
+  Path Group:             pll_adc_clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            8.000ns  (pll_adc_clk rise@8.000ns - pll_adc_clk rise@0.000ns)
+  Data Path Delay:        8.075ns  (logic 3.532ns (43.743%)  route 4.543ns (56.257%))
+  Logic Levels:           10  (CARRY4=6 LUT1=1 LUT2=1 LUT4=2)
+  Clock Path Skew:        -0.025ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.466ns = ( 13.466 - 8.000 ) 
+    Source Clock Delay      (SCD):    5.987ns
+    Clock Pessimism Removal (CPR):    0.496ns
+  Clock Uncertainty:      0.069ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.118ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock pll_adc_clk rise edge)
+                                                      0.000     0.000 r  
+    U18                                               0.000     0.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     0.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.983     0.983 r  i_clk/O
+                         net (fo=1, routed)           1.306     2.289    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.089     2.378 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.754     4.132    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.101     4.233 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.754     5.987    i_ramp_generator/clk_i
+    SLICE_X43Y43         FDSE                                         r  i_ramp_generator/limit_q_reg[0]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X43Y43         FDSE (Prop_fdse_C_Q)         0.456     6.443 f  i_ramp_generator/limit_q_reg[0]/Q
+                         net (fo=8, routed)           0.530     6.973    i_ramp_generator/limit_q[0]
+    SLICE_X43Y43                                                      f  i_ramp_generator/scan_o[4]_i_4/I0
+    SLICE_X43Y43         LUT1 (Prop_lut1_I0_O)        0.150     7.123 r  i_ramp_generator/scan_o[4]_i_4/O
+                         net (fo=1, routed)           0.491     7.613    i_ramp_generator/scan_o[4]_i_4_n_0
+    SLICE_X41Y42                                                      r  i_ramp_generator/scan_o_reg[4]_i_3/CYINIT
+    SLICE_X41Y42         CARRY4 (Prop_carry4_CYINIT_CO[3])
+                                                      0.782     8.395 r  i_ramp_generator/scan_o_reg[4]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.395    i_ramp_generator/scan_o_reg[4]_i_3_n_0
+    SLICE_X41Y43                                                      r  i_ramp_generator/scan_o_reg[8]_i_3/CI
+    SLICE_X41Y43         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.509 r  i_ramp_generator/scan_o_reg[8]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.509    i_ramp_generator/scan_o_reg[8]_i_3_n_0
+    SLICE_X41Y44                                                      r  i_ramp_generator/scan_o_reg[12]_i_3/CI
+    SLICE_X41Y44         CARRY4 (Prop_carry4_CI_CO[3])
+                                                      0.114     8.623 r  i_ramp_generator/scan_o_reg[12]_i_3/CO[3]
+                         net (fo=1, routed)           0.000     8.623    i_ramp_generator/scan_o_reg[12]_i_3_n_0
+    SLICE_X41Y45                                                      r  i_ramp_generator/scan_o_reg[13]_i_13/CI
+    SLICE_X41Y45         CARRY4 (Prop_carry4_CI_O[1])
+                                                      0.334     8.957 r  i_ramp_generator/scan_o_reg[13]_i_13/O[1]
+                         net (fo=4, routed)           0.776     9.733    i_ramp_generator/limited_scan_w20_in[14]
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_i_17/I0
+    SLICE_X42Y44         LUT2 (Prop_lut2_I0_O)        0.303    10.036 r  i_ramp_generator/saturated_o_i_17/O
+                         net (fo=1, routed)           0.000    10.036    i_ramp_generator/saturated_o_i_17_n_0
+    SLICE_X42Y44                                                      r  i_ramp_generator/saturated_o_reg_i_3/S[3]
+    SLICE_X42Y44         CARRY4 (Prop_carry4_S[3]_CO[3])
+                                                      0.376    10.412 f  i_ramp_generator/saturated_o_reg_i_3/CO[3]
+                         net (fo=27, routed)          1.049    11.461    i_ramp_generator/saturated_o_reg_i_3_n_0
+    SLICE_X43Y44                                                      f  i_ramp_generator/scan_o[13]_i_8/I1
+    SLICE_X43Y44         LUT4 (Prop_lut4_I1_O)        0.153    11.614 r  i_ramp_generator/scan_o[13]_i_8/O
+                         net (fo=1, routed)           0.530    12.144    i_ramp_generator/scan_o[13]_i_8_n_0
+    SLICE_X40Y44                                                      r  i_ramp_generator/scan_o_reg[13]_i_3/DI[2]
+    SLICE_X40Y44         CARRY4 (Prop_carry4_DI[2]_CO[3])
+                                                      0.601    12.745 f  i_ramp_generator/scan_o_reg[13]_i_3/CO[3]
+                         net (fo=15, routed)          1.167    13.913    i_ramp_generator/scan_o_reg[13]_i_3_n_0
+    SLICE_X40Y45                                                      f  i_ramp_generator/scan_o[5]_i_1/I2
+    SLICE_X40Y45         LUT4 (Prop_lut4_I2_O)        0.149    14.062 r  i_ramp_generator/scan_o[5]_i_1/O
+                         net (fo=1, routed)           0.000    14.062    i_ramp_generator/scan_o[5]_i_1_n_0
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[5]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock pll_adc_clk rise edge)
+                                                      8.000     8.000 r  
+    U18                                               0.000     8.000 r  adc_clk_i[1] (IN)
+                         net (fo=0)                   0.000     8.000    adc_clk_i[1]
+    U18                                                               r  i_clk/I
+    U18                  IBUFDS (Prop_ibufds_I_O)     0.940     8.940 r  i_clk/O
+                         net (fo=1, routed)           1.181    10.121    pll/adc_clk_in
+    PLLE2_ADV_X0Y0                                                    r  pll/pll/CLKIN1
+    PLLE2_ADV_X0Y0       PLLE2_ADV (Prop_plle2_adv_CLKIN1_CLKOUT0)
+                                                      0.084    10.205 r  pll/pll/CLKOUT0
+                         net (fo=1, routed)           1.594    11.799    pll_adc_clk
+    BUFGCTRL_X0Y0                                                     r  bufg_adc_clk/I
+    BUFGCTRL_X0Y0        BUFG (Prop_bufg_I_O)         0.091    11.890 r  bufg_adc_clk/O
+                         net (fo=7073, routed)        1.576    13.466    i_ramp_generator/clk_i
+    SLICE_X40Y45         FDRE                                         r  i_ramp_generator/scan_o_reg[5]/C
+                         clock pessimism              0.496    13.962    
+                         clock uncertainty           -0.069    13.893    
+    SLICE_X40Y45         FDRE (Setup_fdre_C_D)        0.075    13.968    i_ramp_generator/scan_o_reg[5]
+  -------------------------------------------------------------------
+                         required time                         13.968    
+                         arrival time                         -14.062    
+  -------------------------------------------------------------------
+                         slack                                 -0.093    
+
+
+
+
