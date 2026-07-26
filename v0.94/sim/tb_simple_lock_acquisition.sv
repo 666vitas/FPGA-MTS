@@ -14,13 +14,20 @@ module tb_simple_lock_acquisition;
     localparam logic [5:0] REG_CORRECTION_LIMIT = 6'h1C;
     localparam logic [5:0] REG_ABSOLUTE_LIMIT = 6'h1D;
     localparam logic [5:0] REG_GENERATION = 6'h1E;
+    localparam logic [5:0] REG_CONFIG_VALIDATION = 6'h1F;
     localparam logic [5:0] REG_ACQ_COMMAND = 6'h29;
     localparam logic [5:0] REG_ACQ_STATE = 6'h2A;
     localparam logic [5:0] REG_EVENT_OUT2 = 6'h2C;
     localparam logic [5:0] REG_EVENT_ERROR = 6'h2D;
     localparam logic [5:0] REG_EVENT_GENERATION = 6'h2E;
+    localparam logic [5:0] REG_EVENT_INFO = 6'h2F;
     localparam logic [5:0] REG_EVENT_TIMESTAMP_LO = 6'h30;
     localparam logic [5:0] REG_EVENT_TIMESTAMP_HI = 6'h31;
+
+    localparam logic [1:0] SCAN_DIR_RISING = 2'd1;
+    localparam logic [1:0] SCAN_DIR_FALLING = 2'd2;
+    localparam logic [1:0] ERROR_DIR_NEG_TO_POS = 2'd1;
+    localparam logic [1:0] ERROR_DIR_POS_TO_NEG = 2'd2;
 
     logic clk = 1'b0;
     always #5 clk = ~clk;
@@ -106,14 +113,18 @@ module tb_simple_lock_acquisition;
     task automatic preload_target(
         input logic signed [13:0] target,
         input logic [13:0] window,
-        input logic [1:0] direction,
+        input logic [1:0] scan_direction,
+        input logic [1:0] crossing_direction,
         input logic signed [13:0] setpoint,
         input logic [31:0] generation
     );
         bus_write(REG_TARGET_OUT2, {{18{target[13]}}, target});
         bus_write(REG_TARGET_ERROR, {{18{setpoint[13]}}, setpoint});
         bus_write(REG_TARGET_WINDOW, {18'd0, window});
-        bus_write(REG_TARGET_REQUIREMENTS, {27'd0, 1'b0, 2'd1, direction});
+        bus_write(
+            REG_TARGET_REQUIREMENTS,
+            {27'd0, 1'b0, crossing_direction, scan_direction}
+        );
         bus_write(REG_CORRECTION_LIMIT, 32'd12);
         bus_write(REG_ABSOLUTE_LIMIT, 32'd300);
         bus_write(REG_GENERATION, generation);
@@ -121,6 +132,7 @@ module tb_simple_lock_acquisition;
 
     task automatic enter_scan(input logic signed [13:0] initial_out2);
         out2_monitor = initial_out2;
+        error_monitor = 14'sd0;
         bus_write(REG_MODE, 32'd1);
         bus_write(REG_ENABLE, 32'd1);
         wait_cycles(3);
@@ -129,12 +141,12 @@ module tb_simple_lock_acquisition;
     task automatic wait_for_trigger;
         int count;
         count = 0;
-        while (!acq_trigger && count < 12) begin
+        while (!acq_trigger && count < 16) begin
             @(posedge clk);
             #1;
             count++;
         end
-        check("correct direction/window produces registered trigger", acq_trigger);
+        check("qualified realtime crossing produces registered trigger", acq_trigger);
     endtask
 
     custom_register_bank #(
@@ -181,6 +193,9 @@ module tb_simple_lock_acquisition;
     );
 
     initial begin
+        tests = 0;
+        pass_count = 0;
+        fail_count = 0;
         rstn = 1'b0;
         out2_monitor = 14'sd0;
         error_monitor = 14'sd0;
@@ -195,14 +210,21 @@ module tb_simple_lock_acquisition;
 
         bus_read(REG_VERSION, read_data);
         check("SIMPLE build reports VERSION 0x00030200", read_data == 32'h00030200);
-        preload_target(14'sd100, 14'd5, 2'd1, -14'sd3, 32'd17);
 
+        preload_target(
+            14'sd100, 14'd5, SCAN_DIR_RISING, ERROR_DIR_NEG_TO_POS,
+            -14'sd3, 32'd17
+        );
         enter_scan(14'sd80);
         out2_monitor = 14'sd90;
         wait_cycles(2);
         out2_monitor = 14'sd100;
+        error_monitor = 14'sd20;
         wait_cycles(2);
-        check("without request target hit does not trigger", !acq_trigger && mode == 32'd1);
+        check(
+            "without request target window and ERROR level do not trigger",
+            !acq_trigger && mode == 32'd1
+        );
 
         bus_write(REG_ENABLE, 32'd0);
         bus_write(REG_MODE, 32'd0);
@@ -221,20 +243,34 @@ module tb_simple_lock_acquisition;
 
         bus_write(REG_ACQ_COMMAND, 32'd2);
         enter_scan(14'sd120);
-        preload_target(14'sd100, 14'd5, 2'd1, -14'sd3, 32'd18);
+        preload_target(
+            14'sd100, 14'd5, SCAN_DIR_RISING, ERROR_DIR_NEG_TO_POS,
+            14'sd0, 32'd18
+        );
         out2_monitor = 14'sd110;
         wait_cycles(2);
         bus_write(REG_ACQ_COMMAND, 32'd1);
         wait_cycles(3);
+        error_monitor = -14'sd10;
         out2_monitor = 14'sd100;
+        wait_cycles(2);
+        error_monitor = 14'sd10;
         wait_cycles(3);
-        check("wrong scan direction does not trigger", !acq_trigger && mode == 32'd1);
+        check(
+            "wrong scan direction blocks a valid ERROR crossing",
+            !acq_trigger && mode == 32'd1
+        );
 
         bus_write(REG_ACQ_COMMAND, 32'd2);
         check("abort returns fast control to SAFE", mode == 32'd0 && !enable);
 
+        // Realtime NEG_TO_POS acquisition. Entering the guard on the destination
+        // side alone must not trigger; the source side must first be observed.
         enter_scan(14'sd80);
-        preload_target(14'sd100, 14'd3, 2'd1, -14'sd7, 32'd19);
+        preload_target(
+            14'sd100, 14'd5, SCAN_DIR_RISING, ERROR_DIR_NEG_TO_POS,
+            -14'sd7, 32'd19
+        );
         out2_monitor = 14'sd90;
         wait_cycles(2);
         bus_write(REG_KP, 32'd0);
@@ -242,57 +278,127 @@ module tb_simple_lock_acquisition;
         bus_write(REG_ACQ_COMMAND, 32'd1);
         wait_cycles(3);
         bus_read(REG_ACQ_STATE, read_data);
-        check("valid SIMPLE request enters ARMED", read_data[9] && (read_data[2:0] == 3'd2));
+        check("valid realtime request enters ARMED", read_data[9] && (read_data[2:0] == 3'd2));
+        bus_read(REG_CONFIG_VALIDATION, read_data);
+        check("config advertises realtime crossing capability", read_data[16]);
+
         out2_monitor = 14'sd96;
+        error_monitor = 14'sd2;
+        wait_cycles(3);
+        check(
+            "guard-window hit without source-side history does not trigger",
+            !acq_trigger && mode == 32'd1
+        );
+
+        error_monitor = -14'sd20;
         wait_cycles(2);
-        check("outside target window does not trigger", !acq_trigger && mode == 32'd1);
-        error_monitor = 14'sd23;
+        bus_read(REG_ACQ_STATE, read_data);
+        check("source-side hysteresis state is visible", read_data[16]);
+
+        error_monitor = -14'sd8;
+        wait_cycles(2);
+        check("hysteresis deadband does not trigger", !acq_trigger && mode == 32'd1);
+
         out2_monitor = 14'sd100;
+        error_monitor = 14'sd0;
         wait_for_trigger();
-        check("trigger captures current OUT2 sample",
-              dut.trigger_out2_sample_w == 14'sd100);
+        check("trigger captures current OUT2 sample", dut.trigger_out2_sample_w == 14'sd100);
+        check("trigger captures current ERROR sample", dut.trigger_error_sample_w == 14'sd0);
         check("trigger is held for one cycle", acq_hold);
         @(posedge clk);
         #1;
         check("registered trigger is exactly one cycle", !acq_trigger);
         check("trigger atomically enters P_LOCK", mode == 32'd3 && enable);
         check("Kp=0 remains debug no-feedback setting", kp == 14'sd0);
-        check("atomic transaction captures bias/setpoint/limits",
-              (lock_bias == 14'sd100) &&
-              (error_setpoint == -14'sd7) &&
-              (correction_limit == 14'sd12) &&
-              (lock_limit == 14'sd300));
+        check(
+            "atomic transaction captures bias/setpoint/limits",
+            (lock_bias == 14'sd100) &&
+            (error_setpoint == -14'sd7) &&
+            (correction_limit == 14'sd12) &&
+            (lock_limit == 14'sd300)
+        );
         bus_read(REG_EVENT_OUT2, read_data);
         check("trigger readback contains OUT2", $signed(read_data) == 32'sd100);
         bus_read(REG_EVENT_ERROR, read_data);
-        check("trigger readback contains ERROR", $signed(read_data) == 32'sd23);
+        check("trigger readback contains ERROR", $signed(read_data) == 32'sd0);
         bus_read(REG_EVENT_GENERATION, read_data);
         check("trigger readback contains generation", read_data == 32'd19);
+        bus_read(REG_EVENT_INFO, read_data);
+        check("event records rising scan direction", read_data[5:4] == SCAN_DIR_RISING);
+        check(
+            "event records NEG_TO_POS ERROR crossing direction",
+            read_data[7:6] == ERROR_DIR_NEG_TO_POS
+        );
         bus_read(REG_EVENT_TIMESTAMP_LO, read_data);
         check("unsupported SIMPLE timestamp low is deterministic zero", read_data == 32'd0);
         bus_read(REG_EVENT_TIMESTAMP_HI, read_data);
         check("unsupported SIMPLE timestamp high is deterministic zero", read_data == 32'd0);
 
+        // POS_TO_NEG must reject the opposite crossing and then accept the
+        // requested source-to-destination traversal.
         bus_write(REG_ACQ_COMMAND, 32'd2);
         enter_scan(14'sd80);
-        preload_target(14'sd100, 14'd4, 2'd1, 14'sd2, 32'd20);
+        preload_target(
+            14'sd100, 14'd5, SCAN_DIR_RISING, ERROR_DIR_POS_TO_NEG,
+            14'sd0, 32'd20
+        );
+        out2_monitor = 14'sd90;
+        wait_cycles(2);
+        bus_write(REG_KP, 32'd0);
+        bus_write(REG_ACQ_COMMAND, 32'd1);
+        wait_cycles(3);
+        out2_monitor = 14'sd96;
+        error_monitor = -14'sd10;
+        wait_cycles(2);
+        error_monitor = 14'sd10;
+        wait_cycles(2);
+        check(
+            "opposite NEG_TO_POS traversal does not satisfy POS_TO_NEG request",
+            !acq_trigger && mode == 32'd1
+        );
+        error_monitor = 14'sd1;
+        wait_cycles(1);
+        error_monitor = -14'sd10;
+        out2_monitor = 14'sd100;
+        wait_for_trigger();
+        bus_read(REG_EVENT_INFO, read_data);
+        check(
+            "event records POS_TO_NEG ERROR crossing direction",
+            read_data[7:6] == ERROR_DIR_POS_TO_NEG
+        );
+
+        // Preloaded nonzero Kp remains supported, but it is now entered only
+        // after a qualified realtime ERROR crossing.
+        bus_write(REG_ACQ_COMMAND, 32'd2);
+        enter_scan(14'sd80);
+        preload_target(
+            14'sd100, 14'd4, SCAN_DIR_RISING, ERROR_DIR_NEG_TO_POS,
+            14'sd2, 32'd21
+        );
         out2_monitor = 14'sd90;
         wait_cycles(2);
         bus_write(REG_KP, 32'd4);
         bus_write(REG_ACQ_COMMAND, 32'd1);
         wait_cycles(3);
-        error_monitor = -14'sd11;
+        out2_monitor = 14'sd97;
+        error_monitor = -14'sd10;
+        wait_cycles(2);
         out2_monitor = 14'sd100;
+        error_monitor = 14'sd10;
         wait_for_trigger();
         @(posedge clk);
         #1;
-        check("preloaded Kp=4 is preserved into P-only lock",
-              mode == 32'd3 && enable && (kp == 14'sd4));
+        check(
+            "preloaded Kp=4 is preserved after qualified realtime crossing",
+            mode == 32'd3 && enable && (kp == 14'sd4)
+        );
         bus_read(REG_ACQ_STATE, read_data);
         check("Kp=4 lock reports P_LOCK_ACTIVE", read_data[2:0] == 3'd5);
 
-        check("SIMPLE generate branch is elaborated",
-              dut.g_lock_acq_simple.i_simple_lock_acquisition.state_q == 3'd5);
+        check(
+            "SIMPLE generate branch is elaborated",
+            dut.g_lock_acq_simple.i_simple_lock_acquisition.state_q == 3'd5
+        );
 
         $display(
             "SUMMARY tb_simple_lock_acquisition tests=%0d pass=%0d fail=%0d",
