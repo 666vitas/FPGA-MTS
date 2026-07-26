@@ -1,7 +1,7 @@
 Status: ACTIVE
-Effective-Gate: LOCK-MVP-L0
+Effective-Gate: LOCK-MVP-L1
 Authority: STATUS
-Last-Updated: 2026-07-25
+Last-Updated: 2026-07-26
 Supersedes: version/history/STATUS_HISTORY_D1_THROUGH_2026-07-24.md
 Superseded-By: NONE
 
@@ -9,40 +9,53 @@ Superseded-By: NONE
 
 ## Current Stage
 
-`LOCK-MVP / Linien-like Simple Scan-to-P-Lock`
+`LOCK-MVP / FPGA realtime ERROR-crossing acquisition`
 
 ## Current Gate
 
-`LOCK-MVP-L0 / Linien-like Simple Scan-to-P-Lock`
+`LOCK-MVP-L1 / Realtime ERROR crossing before scan-to-P_LOCK`
 
 ## Current Facts
 
-- [FAILED] 用户最新 SIMPLE 构建报告为 WNS `-0.119 ns`、TNS `-0.428 ns`、`4` 个 setup failing endpoints、WHS `+0.057 ns`；失败路径均为 `i_ramp_generator/limit_q → scan_o_reg`。
-- [IMPLEMENTED] `LOCK_ACQ_IMPL=0/1/2` 从 `red_pitaya_top` 传播到唯一的 `custom_register_bank`；正式顶层默认 SIMPLE。
-- [IMPLEMENTED] SIMPLE 只保留 request、运行前置条件、scan direction、target window、abort、注册单拍 trigger、trigger sample 和 ARMED/P_LOCK/FAULT readback。
-- [IMPLEMENTED] SIMPLE trigger 同一 fast-control transaction 写入 bias、setpoint、limits、MODE、ENABLE 和 integral reset；不强制 Kp 清零。
-- [IMPLEMENTED] D1 完整源码、atomic snapshot、event/timestamp 和 Kp=0 语义保留。
-- [IMPLEMENTED] SIMPLE/D1 VERSION 分别为 `0x00030200`/`0x00030100`，Host 识别并显示 capability。
-- [IMPLEMENTED] GUI ARM 路径经 `LocalClient → LockService → CustomFpgaBackend`；target 与 capture id 绑定，stale target 拒绝，readback mismatch 请求 SAFE。
-- [IMPLEMENTED] `ramp_generator` 将规范化后的正负 limit 分别预寄存，实时输出只做单级 `raw_scan` 限幅；已删除后续 `±8191` 冗余比较/MUX，未增加 `scan_o` 时钟延迟。
-- [RTL SIMULATED] `tb_simple_lock_acquisition` 24/24、`tb_custom_register_bank_basic` 166/166、`tb_deterministic_lock_acquisition` 50/50、`tb_out2_lock_controller` 35/35、`tb_ramp_generator` 25/25。
-- [UNIT TESTED] `software/redpitaya_lock_host/tests/**` 共 146 个测试通过。
-- [NOT VERIFIED] 本轮未运行 Vivado；ramp limit 重构后的 SIMPLE build WNS/TNS、high fanout、utilization 和 unconstrained paths 未验证。
-- [NOT VERIFIED] 未生成或烧录 bitstream，未连接板卡；真实 Kp=0/Kp=4、模拟无扰和持续锁定均未验证。
+- [ROUTED TIMING PASS ON CONSTRAINED PATHS] User-supplied Vivado 2020.1 implementation reports show WNS `+0.209 ns`, TNS `0`, `0` setup failing endpoints, WHS `+0.050 ns`, THS `0`, `0` hold failing endpoints, TPWS `0`, and `0` failed routes.
+- [TIMING COVERAGE NOT CLEAN] `check_timing` still reports `52` no-clock pins, `19` unconstrained internal endpoints, `17` inputs without delay, and `42` outputs without delay.
+- [METHODOLOGY BLOCKER] `report_methodology` contains `5` critical warnings: `TIMING-6 x2`, `TIMING-7 x2`, and `TIMING-17 x1`.
+- [CURRENT WORST CUSTOM PATH] `i_out2_lock_controller/s5_lock_limit_reg[12] -> control_o_reg[5]`, `16` logic levels, slack `+0.209 ns`; new acquisition logic must not be inserted into this output combinational path.
+- [UTILIZATION] Routed design uses `6819` LUTs, `7688` FFs, `38` RAMB36, and `12` DSPs. Device capacity is not the present blocker.
+- [HARDWARE VERIFIED] The board can scan and produce an observable FPGA mixer+LPF error signal on OUT1.
+- [HARDWARE NOT VERIFIED] No real scan-to-lock transition, Kp=0 hold, Kp=4 negative feedback, 60-second lock, or absence of spectral shift has been demonstrated.
+- [ROOT CAUSE IN OLD SIMPLE] The production SIMPLE trigger previously used only scan direction plus historical OUT2 target window. It accepted an ERROR crossing direction field but did not use it in the trigger condition.
+- [CODE UPDATED ON FEATURE BRANCH] `feature/realtime-error-crossing-l1` adds realtime ERROR crossing qualification with a fixed 4-count hysteresis, source-side history, requested crossing direction, and event crossing-direction readback.
+- [TEST UPDATED, NOT RUN] `tb_simple_lock_acquisition` now covers guard-window-only rejection, hysteresis, both ERROR crossing directions, wrong scan direction, atomic bias capture, and Kp=0/Kp=4 state transitions. No simulator or Vivado run has yet verified this branch.
+- [HOST CONTRACT RETAINED] The existing host already writes independent scan direction and ERROR crossing direction fields, so this first RTL correction does not require a new normal-operation GUI workflow.
 
-## Current Blocker
+## Current Blockers
 
-唯一 blocker 是缺少 ramp limit 重构后的 SIMPLE synthesis/implementation timing 报告。
+1. Run the updated RTL regression and fix any compile or behavioral failure.
+2. Identify and classify the `19` unconstrained internal endpoints and `52` no-clock pins.
+3. Resolve or explicitly justify the `TIMING-6`, `TIMING-7`, and `TIMING-17` methodology critical warnings.
+4. Re-run synthesis and implementation after the realtime crossing change.
+5. Do not generate the production locking bitstream until the modified branch passes both regression and routed timing coverage review.
 
 ## Forbidden Scope
 
-- 没有新 timing 报告前不继续 LPF 或其他大规模 RTL 重构。
-- 不新增 PI/Ki、自动重锁、AI、IQ，不删除 D1。
-- 不声称 timing、bitstream、烧录或真实硬件锁定通过。
+- Do not add machine learning, automatic relock, PSD, IQ reconstruction, fast/slow dual actuator control, or large GUI redesign.
+- Do not add PI/Ki before realtime crossing and P-only acquisition are proven on hardware.
+- Do not use blanket false paths, multicycle constraints, lower clock frequency, or relaxed constraints to hide unconstrained or failing functional paths.
+- Do not delete D1, legacy HOLD, or CAPTURE_LOCK_POINT source yet; remove them only from the normal workflow after the replacement path is verified.
+- Do not claim bitstream, burn, scan-to-lock, or real lock success from timing and simulation alone.
 
 ## Unique Next Action
 
-用户保持 `red_pitaya_top.LOCK_ACQ_IMPL=1`，Reset `synth_1`/`impl_1` 后重新运行
-Synthesis 和 Implementation，并返回
-完整 timing summary、最差 setup path、failing endpoints、high fanout、utilization
-和 unconstrained paths。
+Run the updated `tb_simple_lock_acquisition` and the full existing RTL/Host regression on branch `feature/realtime-error-crossing-l1`.
+
+If regression passes, generate the following additional reports before a new bitstream:
+
+```text
+par_clk -> pll_adc_clk timing
+pll_adc_clk -> par_clk timing
+clock interaction
+unconstrained timing paths with object names
+```
+
+Then reset `synth_1`/`impl_1`, implement the modified RTL, and return the new timing summary, worst setup path, methodology report, and unconstrained-path report.
