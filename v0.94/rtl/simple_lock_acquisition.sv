@@ -55,16 +55,25 @@ module simple_lock_acquisition (
     localparam logic [2:0] STATE_P_LOCK_ACTIVE = 3'd5;
     localparam logic [2:0] STATE_FAULT         = 3'd6;
 
-    localparam logic [1:0] SCAN_DIR_RISING  = 2'd1;
-    localparam logic [1:0] SCAN_DIR_FALLING = 2'd2;
-    localparam logic [2:0] EVENT_TRIGGERED  = 3'd2;
+    localparam logic [1:0] SCAN_DIR_RISING       = 2'd1;
+    localparam logic [1:0] SCAN_DIR_FALLING      = 2'd2;
+    localparam logic [1:0] ERROR_DIR_NEG_TO_POS  = 2'd1;
+    localparam logic [1:0] ERROR_DIR_POS_TO_NEG  = 2'd2;
+    localparam logic [2:0] EVENT_TRIGGERED       = 3'd2;
     localparam logic [15:0] FAULT_RUNTIME_SAFETY = 16'h0001;
+
+    // Fixed first-pass hysteresis. It is intentionally small and timing-light.
+    // Hardware captures will determine whether a later CSR is needed.
+    localparam logic signed [15:0] ERROR_HYSTERESIS = 16'sd4;
 
     logic [2:0] state_q;
     logic request_q;
     logic signed [13:0] previous_out2_q;
     logic [1:0] scan_direction_q;
     logic scan_direction_valid_q;
+    logic crossing_source_seen_q;
+    logic [1:0] event_scan_direction_q;
+    logic [1:0] event_error_crossing_direction_q;
     logic event_valid_q;
     logic [15:0] fault_code_q;
 
@@ -82,10 +91,18 @@ module simple_lock_acquisition (
     logic signed [15:0] target_high_w;
     logic signed [15:0] absolute_ext_w;
     logic signed [15:0] out2_ext_w;
+    logic signed [15:0] error_ext_w;
+    logic signed [15:0] error_setpoint_ext_w;
+    logic signed [15:0] lock_error_ext_w;
     logic [1:0] scan_direction_now_w;
     logic scan_direction_now_valid_w;
     logic direction_match_w;
     logic inside_window_w;
+    logic error_negative_zone_w;
+    logic error_positive_zone_w;
+    logic crossing_source_zone_w;
+    logic crossing_destination_zone_w;
+    logic crossing_match_w;
     logic trigger_candidate_w;
     logic fault_candidate_w;
 
@@ -98,8 +115,8 @@ module simple_lock_acquisition (
             (target_requirements_i[31:5] == 27'd0) &&
             ((target_requirements_i[1:0] == SCAN_DIR_RISING) ||
              (target_requirements_i[1:0] == SCAN_DIR_FALLING)) &&
-            ((target_requirements_i[3:2] == 2'd1) ||
-             (target_requirements_i[3:2] == 2'd2));
+            ((target_requirements_i[3:2] == ERROR_DIR_NEG_TO_POS) ||
+             (target_requirements_i[3:2] == ERROR_DIR_POS_TO_NEG));
         window_valid_w =
             (target_window_i[31:14] == 18'd0) &&
             (target_window_i[13:0] != 14'd0) &&
@@ -147,6 +164,32 @@ module simple_lock_acquisition (
         direction_match_w =
             scan_direction_now_valid_w &&
             (scan_direction_now_w == target_requirements_i[1:0]);
+
+        error_ext_w = {{2{error_i[13]}}, error_i};
+        error_setpoint_ext_w =
+            {{2{target_error_setpoint_i[13]}}, target_error_setpoint_i[13:0]};
+        lock_error_ext_w = error_ext_w - error_setpoint_ext_w;
+        error_negative_zone_w = (lock_error_ext_w <= -ERROR_HYSTERESIS);
+        error_positive_zone_w = (lock_error_ext_w >= ERROR_HYSTERESIS);
+
+        crossing_source_zone_w = 1'b0;
+        crossing_destination_zone_w = 1'b0;
+        unique case (target_requirements_i[3:2])
+            ERROR_DIR_NEG_TO_POS: begin
+                crossing_source_zone_w = error_negative_zone_w;
+                crossing_destination_zone_w = error_positive_zone_w;
+            end
+            ERROR_DIR_POS_TO_NEG: begin
+                crossing_source_zone_w = error_positive_zone_w;
+                crossing_destination_zone_w = error_negative_zone_w;
+            end
+            default: begin
+                crossing_source_zone_w = 1'b0;
+                crossing_destination_zone_w = 1'b0;
+            end
+        endcase
+        crossing_match_w =
+            crossing_source_seen_q && crossing_destination_zone_w;
     end
 
     assign fault_candidate_w =
@@ -154,7 +197,7 @@ module simple_lock_acquisition (
         (saturated_i || !enable_i || (mode_i != MODE_SCAN));
     assign trigger_candidate_w =
         (state_q == STATE_ARMED) && !abort_i && !fault_candidate_w &&
-        direction_match_w && inside_window_w;
+        direction_match_w && inside_window_w && crossing_match_w;
     assign hold_o = trigger_candidate_w || trigger_o;
     assign fault_immediate_o = fault_candidate_w;
 
@@ -167,6 +210,9 @@ module simple_lock_acquisition (
             previous_out2_q <= 14'sd0;
             scan_direction_q <= 2'd0;
             scan_direction_valid_q <= 1'b0;
+            crossing_source_seen_q <= 1'b0;
+            event_scan_direction_q <= 2'd0;
+            event_error_crossing_direction_q <= 2'd0;
             trigger_out2_sample_o <= 14'sd0;
             trigger_error_sample_o <= 14'sd0;
             event_sequence_o <= 32'd0;
@@ -186,23 +232,34 @@ module simple_lock_acquisition (
                 scan_direction_valid_q <= 1'b1;
             end
 
+            if ((state_q != STATE_ARMED) || !inside_window_w || !direction_match_w) begin
+                crossing_source_seen_q <= 1'b0;
+            end else if (crossing_source_zone_w) begin
+                crossing_source_seen_q <= 1'b1;
+            end
+
             if (abort_i) begin
                 state_q <= STATE_SAFE;
                 request_q <= 1'b0;
+                crossing_source_seen_q <= 1'b0;
                 event_valid_q <= 1'b0;
                 fault_code_q <= 16'd0;
             end else if (fault_candidate_w) begin
                 state_q <= STATE_FAULT;
                 request_q <= 1'b0;
+                crossing_source_seen_q <= 1'b0;
                 fault_code_q <= FAULT_RUNTIME_SAFETY;
             end else if (trigger_candidate_w) begin
                 trigger_o <= 1'b1;
+                crossing_source_seen_q <= 1'b0;
                 trigger_out2_sample_o <= out2_i;
                 trigger_error_sample_o <= error_i;
                 event_sequence_o <= event_sequence_o + 32'd1;
                 event_out2_o <= {{18{out2_i[13]}}, out2_i};
                 event_error_o <= {{18{error_i[13]}}, error_i};
                 event_config_generation_o <= config_generation_i;
+                event_scan_direction_q <= scan_direction_now_w;
+                event_error_crossing_direction_q <= target_requirements_i[3:2];
                 event_valid_q <= 1'b1;
                 state_q <= (kp_i == 14'sd0) ?
                            STATE_P_LOCK_KP0 : STATE_P_LOCK_ACTIVE;
@@ -218,6 +275,7 @@ module simple_lock_acquisition (
                         else if (request_q && config_valid_w) begin
                             state_q <= STATE_ARMED;
                             request_accepted_o <= 1'b1;
+                            crossing_source_seen_q <= 1'b0;
                         end
                     end
                     STATE_ARMED: begin
@@ -253,6 +311,7 @@ module simple_lock_acquisition (
         config_validation_o[7] = config_valid_w;
         config_validation_o[14:8] = config_written_mask_i;
         config_validation_o[15] = 1'b1;
+        config_validation_o[16] = 1'b1; // SIMPLE realtime ERROR-crossing capability.
 
         state_readback_o = 32'd0;
         state_readback_o[2:0] = state_q;
@@ -267,6 +326,7 @@ module simple_lock_acquisition (
                                (state_q == STATE_P_LOCK_ACTIVE);
         state_readback_o[13] = scan_direction_now_valid_w;
         state_readback_o[15:14] = scan_direction_now_w;
+        state_readback_o[16] = crossing_source_seen_q;
 
         active_target_out2_o = target_out2_i[13:0];
         active_error_setpoint_o = target_error_setpoint_i[13:0];
@@ -278,7 +338,9 @@ module simple_lock_acquisition (
         event_info_o = 32'd0;
         event_info_o[0] = event_valid_q;
         event_info_o[3:1] = event_valid_q ? EVENT_TRIGGERED : 3'd0;
-        event_info_o[5:4] = event_valid_q ? scan_direction_q : 2'd0;
+        event_info_o[5:4] = event_valid_q ? event_scan_direction_q : 2'd0;
+        event_info_o[7:6] =
+            event_valid_q ? event_error_crossing_direction_q : 2'd0;
         event_info_o[23:16] = fault_code_q[7:0];
         event_timestamp_lo_o = 32'd0;
         event_timestamp_hi_o = 32'd0;
