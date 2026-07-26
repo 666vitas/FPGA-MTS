@@ -1,5 +1,43 @@
 # 开发日志
 
+## 2026-07-26 - LOCK-MVP-L1 OUT2 Controller Routed Timing Closure
+
+- 修改前 routed timing：`WNS=-3.949 ns`、`TNS=-282.362 ns`、
+  786 个 setup failing endpoints；`WHS=0.050 ns`、`THS=0`、
+  0 个 hold failing endpoints。
+- 修改前最差路径族为
+  `i_out2_lock_controller/s5_lock_limit_reg[12]_replica`
+  到 `i_out2_lock_controller/control_o_reg[*]`，8.000 ns requirement，
+  total delay 约 11.844 ns、23 logic levels。
+- `[IMPLEMENTED]` S4→S5 并行归一化 absolute limit；正值保持，
+  负值取绝对值，`-8192` 饱和为 8191。S6 注册 absolute-clamped
+  target、saturation、mode、enable、valid 与 normalized slew limit。
+  最终输出周期只计算 target-control delta 和单周期 slew commit。
+- `[IMPLEMENTED]` P_LOCK latency 从 7 增为 8 clocks；离开
+  P_LOCK/PI_LOCK、disable、abort、fault 会 flush pending valid。
+  SAFE/SCAN/HOLD/acq_hold 保持直接绕过。
+- `[RTL SIMULATED]` `tb_out2_lock_controller` 54/54；全部 20 个 RTL
+  testbench 通过，有计数器的 15 个合计 642/642，5 个 legacy
+  testbench 退出码 0。
+- `[UNIT TESTED]` Host `python -m pytest -q tests`：148 passed。
+- `[AUTOMATED VERIFIED]` clean Synthesis/route_design 完成。新 routed
+  timing：`WNS=0.142 ns`、`TNS=0`、0 setup failing endpoints；
+  `WHS=0.053 ns`、`THS=0`、0 hold failing endpoints。
+- `[CODE INSPECTED]` 旧 OUT2 path family 已退出 top-10；新全局最差
+  setup path 转移到 L1 supervisor：
+  `servo_counter_q_reg[0]/C -> abs_sum_snapshot_q_reg[0]/S`，
+  slack 0.142 ns，data delay 7.295 ns/8 levels。
+- `[NOT VERIFIED]` 完整 Timing Gate 尚未通过 `check_timing`：
+  19 个 unconstrained internal endpoints、17 个 no-input-delay ports、
+  42 个 no-output-delay ports，以及 daisy/DNA no-clock 项。本轮按范围
+  未修改 XDC，未添加 false path、multicycle、降频或 blanket CDC
+  exception。
+- `[NOT VERIFIED]` 未生成 bitstream、未烧录、未连接板卡；ARM
+  VALIDATE、ARM ACTIVE 与真实 P-only 锁频均未硬件验证。
+
+本轮没有 commit、push 或 PR。唯一下一动作是单独授权现有 XDC/官方
+I/O `check_timing` 审查；完整 Timing Gate 通过前不生成正式 bitstream。
+
 ## 2026-07-26 - LOCK-MVP-L1 125 MHz Timing Architecture Refactor
 
 - 修改前 implementation 基线：`WNS=-5.323 ns`、`TNS=-2624.753 ns`、

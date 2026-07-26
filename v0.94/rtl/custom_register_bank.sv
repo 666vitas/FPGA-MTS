@@ -1809,24 +1809,31 @@ module out2_lock_controller (
     logic        [31:0] s5_mode;
     logic signed [31:0] s5_raw;
     logic               s5_correction_saturated;
-    logic signed [13:0] s5_lock_limit;
+    logic        [12:0] s5_abs_limit;
 
-    logic signed [31:0] abs_limit_w;
+    logic               s6_enable;
+    logic        [31:0] s6_mode;
+    logic signed [13:0] s6_target;
+    logic               s6_saturated;
+    logic               s6_valid;
+    logic signed [14:0] s6_slew_limit;
+
+    logic        [12:0] s4_abs_limit_w;
+    logic signed [31:0] s5_abs_limit_ext_w;
     logic signed [31:0] correction_limit_abs_w;
-    logic signed [31:0] limited_target_w;
-    logic               limited_target_saturated_w;
+    logic signed [31:0] s6_target_next_w;
+    logic               s6_saturated_next_w;
     logic signed [14:0] slew_delta_w;
-    logic signed [14:0] slew_limit_w;
     logic        [15:0] servo_count_q;
     logic               servo_tick_w;
 
     always_comb begin
-        if (s5_lock_limit < 14'sd0)
-            abs_limit_w = -$signed({{18{s5_lock_limit[13]}}, s5_lock_limit});
+        if (s4_lock_limit == -14'sd8192)
+            s4_abs_limit_w = 13'd8191;
+        else if (s4_lock_limit < 14'sd0)
+            s4_abs_limit_w = $unsigned(-s4_lock_limit);
         else
-            abs_limit_w = $signed({{18{s5_lock_limit[13]}}, s5_lock_limit});
-        if (abs_limit_w > 32'sd8191)
-            abs_limit_w = 32'sd8191;
+            s4_abs_limit_w = $unsigned(s4_lock_limit[12:0]);
 
         if (s3_correction_limit < 14'sd0)
             correction_limit_abs_w =
@@ -1837,21 +1844,20 @@ module out2_lock_controller (
         if (correction_limit_abs_w > 32'sd8191)
             correction_limit_abs_w = 32'sd8191;
 
-        if (s5_raw > abs_limit_w) begin
-            limited_target_w = abs_limit_w;
-            limited_target_saturated_w = 1'b1;
-        end else if (s5_raw < -abs_limit_w) begin
-            limited_target_w = -abs_limit_w;
-            limited_target_saturated_w = 1'b1;
+        s5_abs_limit_ext_w = $signed({19'd0, s5_abs_limit});
+        if (s5_raw > s5_abs_limit_ext_w) begin
+            s6_target_next_w = s5_abs_limit_ext_w;
+            s6_saturated_next_w = 1'b1;
+        end else if (s5_raw < -s5_abs_limit_ext_w) begin
+            s6_target_next_w = -s5_abs_limit_ext_w;
+            s6_saturated_next_w = 1'b1;
         end else begin
-            limited_target_w = s5_raw;
-            limited_target_saturated_w = s5_correction_saturated;
+            s6_target_next_w = s5_raw;
+            s6_saturated_next_w = s5_correction_saturated;
         end
         slew_delta_w =
-            $signed({limited_target_w[13], limited_target_w[13:0]}) -
+            $signed({s6_target[13], s6_target}) -
             $signed({control_o[13], control_o});
-        slew_limit_w = (out2_slew_limit_i == 14'd0)
-                     ? 15'sd1 : $signed({1'b0, out2_slew_limit_i});
     end
 
     assign servo_tick_w =
@@ -1897,7 +1903,13 @@ module out2_lock_controller (
             s5_mode         <= MODE_SAFE;
             s5_raw          <= 32'sd0;
             s5_correction_saturated <= 1'b0;
-            s5_lock_limit   <= 14'sd8191;
+            s5_abs_limit    <= 13'd8191;
+            s6_enable       <= 1'b0;
+            s6_mode         <= MODE_SAFE;
+            s6_target       <= 14'sd0;
+            s6_saturated    <= 1'b0;
+            s6_valid        <= 1'b0;
+            s6_slew_limit   <= 15'sd1;
             control_o       <= 14'sd0;
             saturated_o     <= 1'b0;
             servo_count_q    <= 16'd0;
@@ -1956,7 +1968,31 @@ module out2_lock_controller (
             s5_raw        <= $signed({{18{s4_lock_bias[13]}}, s4_lock_bias}) +
                              s4_correction;
             s5_correction_saturated <= s4_correction_saturated;
-            s5_lock_limit <= s4_lock_limit;
+            s5_abs_limit  <= s4_abs_limit_w;
+
+            s6_enable     <= s5_enable;
+            s6_mode       <= s5_mode;
+            s6_target     <= s6_target_next_w[13:0];
+            s6_saturated  <= s6_saturated_next_w;
+            s6_valid      <= s5_enable &&
+                             ((s5_mode == MODE_P_LOCK) ||
+                              (s5_mode == MODE_PI_LOCK));
+            s6_slew_limit <= (out2_slew_limit_i == 14'd0)
+                           ? 15'sd1
+                           : $signed({1'b0, out2_slew_limit_i});
+
+            if (!enable_i ||
+                ((mode_i != MODE_P_LOCK) && (mode_i != MODE_PI_LOCK)) ||
+                acq_abort_i || acq_fault_i) begin
+                s0_enable <= 1'b0;
+                s1_enable <= 1'b0;
+                s2_enable <= 1'b0;
+                s3_enable <= 1'b0;
+                s4_enable <= 1'b0;
+                s5_enable <= 1'b0;
+                s6_enable <= 1'b0;
+                s6_valid  <= 1'b0;
+            end
 
             if (!enable_i || (mode_i == MODE_SAFE) || acq_abort_i || acq_fault_i) begin
                 control_o   <= 14'sd0;
@@ -1981,18 +2017,18 @@ module out2_lock_controller (
                     MODE_PI_LOCK: begin
                         if (!servo_tick_w) begin
                             servo_count_q <= servo_count_q + 16'd1;
-                        end else if (s5_enable &&
-                            ((s5_mode == MODE_P_LOCK) || (s5_mode == MODE_PI_LOCK))) begin
+                        end else if (s6_valid && s6_enable &&
+                            ((s6_mode == MODE_P_LOCK) || (s6_mode == MODE_PI_LOCK))) begin
                             servo_count_q <= 16'd0;
-                            if (slew_delta_w > slew_limit_w) begin
-                                control_o <= control_o + slew_limit_w[13:0];
-                                saturated_o <= limited_target_saturated_w;
-                            end else if (slew_delta_w < -slew_limit_w) begin
-                                control_o <= control_o - slew_limit_w[13:0];
-                                saturated_o <= limited_target_saturated_w;
+                            if (slew_delta_w > s6_slew_limit) begin
+                                control_o <= control_o + s6_slew_limit[13:0];
+                                saturated_o <= s6_saturated;
+                            end else if (slew_delta_w < -s6_slew_limit) begin
+                                control_o <= control_o - s6_slew_limit[13:0];
+                                saturated_o <= s6_saturated;
                             end else begin
-                                control_o <= limited_target_w[13:0];
-                                saturated_o <= limited_target_saturated_w;
+                                control_o <= s6_target;
+                                saturated_o <= s6_saturated;
                             end
                         end else begin
                             servo_count_q <= 16'd0;

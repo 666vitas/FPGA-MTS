@@ -7,7 +7,7 @@ module tb_out2_lock_controller;
     localparam logic [31:0] MODE_HOLD   = 32'd2;
     localparam logic [31:0] MODE_P_LOCK = 32'd3;
     localparam logic [31:0] MODE_PI_LOCK = 32'd4;
-    localparam int P_LOCK_LATENCY = 7;
+    localparam int P_LOCK_LATENCY = 8;
 
     logic clk = 1'b0;
     always #5 clk = ~clk;
@@ -42,6 +42,8 @@ module tb_out2_lock_controller;
     int changed_cycles;
     bit slew_ok;
     bit divider_observed;
+    bit pipeline_fill_ok;
+    bit target_alignment_ok;
 
     task automatic check(input string name, input bit condition);
         tests++;
@@ -197,6 +199,26 @@ module tb_out2_lock_controller;
         check("P_LOCK absolute limit clamps positive output", control_o == 14'sd120);
         check("P_LOCK absolute saturation flag asserts at limit", saturated_o == 1'b1);
 
+        lock_bias = -14'sd100;
+        error_i = -14'sd100;
+        wait_cycles(P_LOCK_LATENCY);
+        check("P_LOCK absolute limit clamps negative output", control_o == -14'sd120);
+        check("P_LOCK negative absolute clamp asserts saturation", saturated_o == 1'b1);
+
+        lock_bias = 14'sd100;
+        error_i = 14'sd100;
+        lock_limit = -14'sd120;
+        wait_cycles(P_LOCK_LATENCY);
+        check("negative lock limit is normalized before absolute clamp",
+              control_o == 14'sd120 && saturated_o == 1'b1);
+
+        lock_bias = 14'sd8100;
+        error_i = 14'sd1000;
+        lock_limit = -14'sd8192;
+        wait_cycles(P_LOCK_LATENCY);
+        check("lock_limit=-8192 saturates to absolute limit 8191",
+              control_o == 14'sd8191 && saturated_o == 1'b1);
+
         lock_bias = 14'sd8100;
         lock_limit = 14'sd8191;
         error_i = 14'sd1000;
@@ -209,6 +231,99 @@ module tb_out2_lock_controller;
         wait_cycles(P_LOCK_LATENCY + 2);
         check("P_LOCK output never exceeds negative DAC limit", control_o == -14'sd8191);
         check("P_LOCK negative DAC limit asserts saturation", saturated_o == 1'b1);
+
+        mode = MODE_HOLD;
+        hold_value = 14'sd100;
+        wait_cycles(1);
+        mode = MODE_P_LOCK;
+        lock_bias = 14'sd100;
+        lock_limit = 14'sd120;
+        error_i = 14'sd100;
+        wait_cycles(P_LOCK_LATENCY);
+        check("saturated target and written control are aligned",
+              control_o == 14'sd120 && saturated_o == 1'b1);
+        error_i = 14'sd0;
+        wait_cycles(P_LOCK_LATENCY);
+        check("unsaturated target clears saturation on its commit cycle",
+              control_o == 14'sd100 && saturated_o == 1'b0);
+
+        error_i = 14'sd1000;
+        wait_cycles(3);
+        mode = MODE_SCAN;
+        scan_i = -14'sd222;
+        wait_cycles(1);
+        check("P_LOCK to SCAN bypasses and clears pending S6 data",
+              control_o == -14'sd222 && dut.s6_valid == 1'b0);
+        mode = MODE_P_LOCK;
+        lock_bias = 14'sd333;
+        lock_limit = 14'sd8191;
+        kp = 14'sd0;
+        pipeline_fill_ok = 1'b1;
+        repeat (P_LOCK_LATENCY - 1) begin
+            wait_cycles(1);
+            if (control_o != 14'sd333)
+                pipeline_fill_ok = 1'b0;
+        end
+        check("old P_LOCK target cannot commit after SCAN re-entry",
+              pipeline_fill_ok);
+        wait_cycles(1);
+        check("fresh P_LOCK data commits after full refill", control_o == 14'sd333);
+
+        kp = 14'sd256;
+        error_i = 14'sd1000;
+        wait_cycles(3);
+        mode = MODE_HOLD;
+        hold_value = -14'sd444;
+        wait_cycles(1);
+        check("P_LOCK to HOLD bypasses and clears pending S6 data",
+              control_o == -14'sd444 && dut.s6_valid == 1'b0);
+        mode = MODE_P_LOCK;
+        lock_bias = 14'sd444;
+        kp = 14'sd0;
+        pipeline_fill_ok = 1'b1;
+        repeat (P_LOCK_LATENCY - 1) begin
+            wait_cycles(1);
+            if (control_o != 14'sd444)
+                pipeline_fill_ok = 1'b0;
+        end
+        check("old P_LOCK target cannot commit after HOLD re-entry",
+              pipeline_fill_ok);
+
+        kp = 14'sd256;
+        error_i = 14'sd1000;
+        wait_cycles(3);
+        acq_abort_i = 1'b1;
+        wait_cycles(1);
+        check("P_LOCK abort clears output and pending valid immediately",
+              control_o == 14'sd0 && dut.s6_valid == 1'b0);
+        acq_abort_i = 1'b0;
+        lock_bias = 14'sd555;
+        kp = 14'sd0;
+        pipeline_fill_ok = 1'b1;
+        repeat (P_LOCK_LATENCY - 1) begin
+            wait_cycles(1);
+            if (control_o != 14'sd555)
+                pipeline_fill_ok = 1'b0;
+        end
+        check("aborted pipeline cannot recover stale output", pipeline_fill_ok);
+
+        kp = 14'sd256;
+        error_i = -14'sd1000;
+        wait_cycles(3);
+        acq_fault_i = 1'b1;
+        wait_cycles(1);
+        check("P_LOCK fault clears output and pending valid immediately",
+              control_o == 14'sd0 && dut.s6_valid == 1'b0);
+        acq_fault_i = 1'b0;
+        lock_bias = -14'sd555;
+        kp = 14'sd0;
+        pipeline_fill_ok = 1'b1;
+        repeat (P_LOCK_LATENCY - 1) begin
+            wait_cycles(1);
+            if (control_o != -14'sd555)
+                pipeline_fill_ok = 1'b0;
+        end
+        check("faulted pipeline cannot recover stale output", pipeline_fill_ok);
 
         lock_bias = 14'sd100;
         lock_limit = 14'sd8191;
@@ -259,6 +374,39 @@ module tb_out2_lock_controller;
         integral_reset = 1'b0;
         wait_cycles(P_LOCK_LATENCY);
         check("integral reset is accepted but no integral exists", control_o == 14'sd120);
+
+        mode = MODE_HOLD;
+        hold_value = 14'sd0;
+        wait_cycles(2);
+        mode = MODE_P_LOCK;
+        lock_bias = 14'sd0;
+        lock_limit = 14'sd30;
+        lock_correction_limit = 14'sd50;
+        kp = 14'sd256;
+        polarity = 1'b0;
+        servo_update_div = 16'd1;
+        out2_slew_limit = 14'd8191;
+        error_i = 14'sd10;
+        wait_cycles(1);
+        error_i = 14'sd100;
+        wait_cycles(1);
+        error_i = -14'sd10;
+        wait_cycles(1);
+        error_i = -14'sd100;
+        wait_cycles(P_LOCK_LATENCY - 3);
+        target_alignment_ok =
+            (control_o == 14'sd10) && (saturated_o == 1'b0);
+        wait_cycles(1);
+        target_alignment_ok &=
+            (control_o == 14'sd30) && (saturated_o == 1'b1);
+        wait_cycles(1);
+        target_alignment_ok &=
+            (control_o == -14'sd10) && (saturated_o == 1'b0);
+        wait_cycles(1);
+        target_alignment_ok &=
+            (control_o == -14'sd30) && (saturated_o == 1'b1);
+        check("continuous target, saturation, and mode stay cycle-aligned",
+              target_alignment_ok);
 
         mode = MODE_HOLD;
         hold_value = 14'sd0;
