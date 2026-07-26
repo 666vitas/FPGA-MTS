@@ -138,7 +138,8 @@ module tb_register_bank_basic;
         bus_read(6'h00, read_data);
         check("magic register is readable", read_data == 32'h4D545330);
         bus_read(6'h01, read_data);
-        check("version register is readable", read_data == 32'h00030000);
+        // The register bank's documented standalone default is the D1 build.
+        check("version register is readable", read_data == 32'h00030100);
 
         bus_write(6'h04, 32'd6962);
         bus_write(6'h05, 32'd410);

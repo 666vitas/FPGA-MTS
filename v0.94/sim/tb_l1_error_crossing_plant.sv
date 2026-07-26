@@ -1,6 +1,7 @@
 `timescale 1ns/1ps
 
 module tb_l1_error_crossing_plant;
+    localparam int ARM_PIPELINE_LATENCY = 6;
     localparam logic [6:0] REG_MODE = 7'h02;
     localparam logic [6:0] REG_ENABLE = 7'h03;
     localparam logic [6:0] REG_POLARITY = 7'h0D;
@@ -270,7 +271,7 @@ module tb_l1_error_crossing_plant;
         bus_write(REG_KP_RAMP, {16'd1, 2'd0, 14'd16});
         bus_write(REG_TIMEOUT, 32'd2000);
         bus_write(REG_SERVO, {2'd0, 14'd1, 16'd1});
-        bus_write(REG_SUPERVISOR0, {8'd0, 8'd8, 8'd3, 8'd3});
+        bus_write(REG_SUPERVISOR0, {8'd0, 8'd8, 8'd3, 8'd8});
         bus_write(REG_SUPERVISOR1, {2'd0, 14'd12, 2'd0, 14'd10});
         bus_write(REG_TARGET_OUT2, 32'd100);
         bus_write(REG_TARGET_ERROR, 32'd0);
@@ -295,8 +296,8 @@ module tb_l1_error_crossing_plant;
               trigger_seen && last_scan_sample >= 14'sd111 &&
               last_scan_sample <= 14'sd118);
         bus_read(REG_EVENT_OUT2, read_data);
-        check("plant event stores actual trigger OUT2",
-              $signed(read_data) == $signed(last_scan_sample));
+        check("plant event stores aligned crossing OUT2 used as lock bias",
+              $signed(read_data) == $signed(lock_bias));
         wait_cycles(4);
         check("SCAN to lock first output is bumpless within one count",
               first_lock_seen &&
@@ -338,7 +339,7 @@ module tb_l1_error_crossing_plant;
         bus_write(REG_KP_RAMP, {16'd1, 2'd0, 14'd16});
         bus_write(REG_TIMEOUT, 32'd1000);
         bus_write(REG_SERVO, {2'd0, 14'd1, 16'd1});
-        bus_write(REG_SUPERVISOR0, {8'd0, 8'd2, 8'd3, 8'd3});
+        bus_write(REG_SUPERVISOR0, {8'd0, 8'd1, 8'd3, 8'd8});
         bus_write(REG_SUPERVISOR1, {2'd0, 14'd8, 2'd0, 14'd6});
         bus_write(REG_TARGET_OUT2, 32'd100);
         bus_write(REG_TARGET_ERROR, 32'd0);

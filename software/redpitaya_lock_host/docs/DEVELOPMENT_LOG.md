@@ -1,5 +1,33 @@
 # 开发日志
 
+## 2026-07-26 - LOCK-MVP-L1 125 MHz Timing Architecture Refactor
+
+- 修改前 implementation 基线：`WNS=-5.323 ns`、`TNS=-2624.753 ns`、
+  3224 个 setup failing endpoints，最差路径 13.244 ns/24 levels。
+- `[IMPLEMENTED]` 将 `simple_lock_acquisition` 重构为 sample-alignment
+  orchestrator、小型 FSM、`l1_kp_ramp`、`l1_lock_supervisor` 和
+  `l1_event_recorder`；realtime ERROR crossing detector 保留。
+- `[IMPLEMENTED]` supervisor 固定 256 servo-tick window，使用 24-bit
+  饱和累加和 ARM-time 预计算 sum thresholds；snapshot、compare、counter
+  decision 和主 FSM 分拍，移除实时 dynamic shift/48-bit wide chain。
+- `[IMPLEMENTED]` ERROR、OUT2、setpoint、lock error 和 event payload
+  注册对齐；ACTIVE 仍捕获实际 OUT2，VALIDATE 不改变 SCAN，Kp ramp 与
+  supervisor 解耦，Kp=0 bumpless 行为保持。
+- `[IMPLEMENTED]` ARM 拒绝 `observe_shift != 8`；旧 CSR 地址、
+  `MAGIC=0x4D545330`、`VERSION=0x00030200` 和 signed14 编码未变。
+- `[CODE INSPECTED]` 官方 daisy `par_clk -> pll_adc_clk` 路径是真异步且
+  当前没有 2FF/toggle/handshake；本轮未添加 blanket false path、
+  multicycle 或未经证明的 `ASYNC_REG`。
+- `[RTL SIMULATED]` 全部 20 个 RTL testbench 重新
+  compile/elaborate/simulate 通过；15 个有计数器的 testbench 合计
+  626/626，另 5 个 legacy testbench 退出码 0。
+- `[UNIT TESTED]` Host：`python -m pytest -q tests`，148 passed。
+- `[NOT VERIFIED]` SYNTHESIS/IMPLEMENTATION；未声称 timing closed。
+- `[NOT VERIFIED]` BITSTREAM/HARDWARE；未生成 bin、未烧录、未连接板卡。
+
+本轮没有 commit、push 或 PR。下一动作由用户 Reset `synth_1/impl_1`
+并重新运行完整 Synthesis/Implementation。
+
 ## 2026-07-26 - LOCK-MVP-L1 FPGA Real-Time ERROR-Crossing P-Only Lock
 
 - `[IMPLEMENTED]` 新增 H/N hysteretic crossing detector；ERROR 使用

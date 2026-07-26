@@ -1,6 +1,12 @@
 `timescale 1ns/1ps
 
 module tb_simple_lock_acquisition;
+    localparam int ARM_PIPELINE_LATENCY = 6;
+    localparam int CROSSING_PIPELINE_LATENCY = 4;
+    localparam int EVENT_PIPELINE_LATENCY = 2;
+    localparam int SUPERVISOR_PIPELINE_LATENCY = 3;
+    localparam int HARD_FAULT_PIPELINE_LATENCY = 4;
+    localparam int OBSERVE_LENGTH = 256;
     localparam logic [6:0] REG_VERSION = 7'h01;
     localparam logic [6:0] REG_MODE = 7'h02;
     localparam logic [6:0] REG_ENABLE = 7'h03;
@@ -208,9 +214,9 @@ module tb_simple_lock_acquisition;
         bus_write(REG_CROSSING_CONFIG, {8'd0, 8'd3, 2'd0, 14'd4});
         bus_write(REG_KP_TARGET, 32'd4);
         bus_write(REG_KP_RAMP, {16'd1, 2'd0, 14'd1});
-        bus_write(REG_TIMEOUT, 32'd200);
+        bus_write(REG_TIMEOUT, 32'd5000);
         bus_write(REG_SERVO_CONFIG, {2'd0, 14'd8, 16'd1});
-        bus_write(REG_SUPERVISOR0, {8'd0, 8'd3, 8'd2, 8'd2});
+        bus_write(REG_SUPERVISOR0, {8'd0, 8'd3, 8'd2, 8'd8});
         bus_write(REG_SUPERVISOR1, {2'd0, 14'd12, 2'd0, 14'd8});
 
         enter_scan();
@@ -230,16 +236,31 @@ module tb_simple_lock_acquisition;
         bus_read(REG_VALIDATION, read_data);
         check("falling plus POS_TO_NEG requires polarity=1", read_data[16]);
 
+        // L1 uses a fixed 256-servo-tick observation window. A non-8 legacy
+        // observe_shift value is retained in CSR but rejected at ARM.
+        preload(2'd1, 2'd1, 1'b1, 32'd10);
+        bus_write(REG_SUPERVISOR0, {8'd0, 8'd3, 8'd2, 8'd7});
+        bus_write(REG_ACQ_COMMAND, 32'd8);
+        wait_cycles(ARM_PIPELINE_LATENCY);
+        bus_read(REG_ACQ_STATE, read_data);
+        check("observe_shift other than 8 is rejected before ARM",
+              read_data[2:0] == 3'd1);
+        bus_read(REG_EVENT_INFO, read_data);
+        check("observe_shift rejection produces CONFIG_REJECTED event",
+              read_data[0] && read_data[3:1] == 3'd4);
+        bus_write(REG_ACQ_COMMAND, 32'd4);
+        bus_write(REG_SUPERVISOR0, {8'd0, 8'd3, 8'd2, 8'd8});
+
         // VALIDATE uses the same detector but never changes the control path.
         preload(2'd1, 2'd1, 1'b1, 32'd12);
         bus_write(REG_POLARITY, 32'd1);
         bus_write(REG_LOCK_BIAS, 32'd55);
         bus_write(REG_ACQ_COMMAND, 32'd8);
-        wait_cycles(3);
+        wait_cycles(ARM_PIPELINE_LATENCY);
         bus_read(REG_ACQ_STATE, read_data);
         check("ARM_VALIDATE enters VALIDATING", read_data[2:0] == 3'd2);
         rising_neg_to_pos_crossing();
-        wait_cycles(2);
+        wait_cycles(CROSSING_PIPELINE_LATENCY + EVENT_PIPELINE_LATENCY);
         check("VALIDATE leaves MODE SCAN and ENABLE unchanged",
               mode == 32'd1 && enable);
         check("VALIDATE does not change LOCK_BIAS or Kp",
@@ -261,16 +282,19 @@ module tb_simple_lock_acquisition;
         set_sample(14'sd120, 14'sd15);
         set_sample(14'sd80, 14'sd15);
         rising_neg_to_pos_crossing();
+        wait_cycles(CROSSING_PIPELINE_LATENCY + EVENT_PIPELINE_LATENCY);
         bus_read(REG_VALIDATE_COUNT, read_data);
         check("guard re-entry permits another validate event", read_data == 32'd2);
 
         // ACTIVE captures the actual crossing sample and starts FPGA Kp ramp.
         bus_write(REG_ACQ_COMMAND, 32'd2);
+        check("ABORT does not wait for an observation window",
+              mode == 32'd0 && !enable && kp_effective == 14'sd0);
         enter_scan();
         preload(2'd1, 2'd1, 1'b1, 32'd13);
         bus_write(REG_POLARITY, 32'd1);
         bus_write(REG_ACQ_COMMAND, 32'd1);
-        wait_cycles(3);
+        wait_cycles(ARM_PIPELINE_LATENCY);
         bus_read(REG_ACQ_STATE, read_data);
         check("ARM_ACTIVE enters ARMED", read_data[2:0] == 3'd3);
         bus_write(REG_CROSSING_CONFIG, {8'd0, 8'd20, 2'd0, 14'd20});
@@ -284,7 +308,7 @@ module tb_simple_lock_acquisition;
         set_sample(14'sd120, 14'sd15);
         set_sample(14'sd90, 14'sd15);
         rising_neg_to_pos_crossing();
-        wait_cycles(2);
+        wait_cycles(CROSSING_PIPELINE_LATENCY + EVENT_PIPELINE_LATENCY);
         check("qualified ACTIVE crossing enters P_LOCK", mode == 32'd3 && enable);
         check("ACTIVE captures actual OUT2 rather than guard center",
               lock_bias == 14'sd96);
@@ -297,6 +321,9 @@ module tb_simple_lock_acquisition;
         bus_read(REG_EVENT_ERROR, read_data);
         check("ACTIVE event payload records raw ERROR",
               $signed(read_data) == 32'sd25);
+        bus_read(REG_EVENT_OUT2, read_data);
+        check("event OUT2 and ERROR are the aligned qualifying sample pair",
+              $signed(read_data) == 32'sd96);
         bus_read(REG_EVENT_GENERATION, read_data);
         check("ACTIVE event payload records generation", read_data == 32'd13);
 
@@ -307,13 +334,13 @@ module tb_simple_lock_acquisition;
         bus_read(REG_KP_EFFECTIVE, read_data);
         check("FPGA soft-start reaches host-approved Kp target",
               $signed(read_data) == 32'sd4);
-        wait_cycles(20);
+        wait_cycles((2 * OBSERVE_LENGTH) + SUPERVISOR_PIPELINE_LATENCY + 16);
         bus_read(REG_ACQ_STATE, read_data);
         check("converged windows enter P_LOCKED", read_data[2:0] == 3'd5);
 
         // Saturation is an immediate FPGA-authoritative fault and SAFE action.
         saturated = 1'b1;
-        wait_cycles(2);
+        wait_cycles(HARD_FAULT_PIPELINE_LATENCY);
         check("runtime saturation forces SAFE and clears effective Kp",
               mode == 32'd0 && !enable && kp_effective == 14'sd0);
         saturated = 1'b0;
@@ -328,13 +355,13 @@ module tb_simple_lock_acquisition;
         bus_write(REG_KP_RAMP, {16'd1, 2'd0, 14'd1});
         bus_write(REG_TIMEOUT, 32'd10);
         bus_write(REG_SERVO_CONFIG, {2'd0, 14'd8, 16'd1});
-        bus_write(REG_SUPERVISOR0, {8'd0, 8'd255, 8'd255, 8'd2});
+        bus_write(REG_SUPERVISOR0, {8'd0, 8'd255, 8'd255, 8'd8});
         bus_write(REG_SUPERVISOR1, {2'd0, 14'd8191, 2'd0, 14'd8191});
         enter_scan();
         preload(2'd1, 2'd1, 1'b1, 32'd14);
         bus_write(REG_POLARITY, 32'd1);
         bus_write(REG_ACQ_COMMAND, 32'd1);
-        wait_cycles(3);
+        wait_cycles(ARM_PIPELINE_LATENCY);
         rising_neg_to_pos_crossing();
         error_monitor = 14'sd20;
         wait_cycles(20);
