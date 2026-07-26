@@ -1,5 +1,16 @@
 # 硬件测试 SOP
 
+> **LOCK-MVP-L1 暂停点（2026-07-26）**
+> 新 ERROR-crossing RTL 仅完成仿真，尚未重新 implementation。
+> 用户必须先 Reset `synth_1/impl_1`、重新运行 Synthesis/Implementation，
+> 确认 timing/unconstrained paths 后才可生成测试 bitstream。
+> timing 通过后，真实板卡顺序必须是 `Probe/identity -> SAFE -> SCAN
+> -> ARM VALIDATE -> 检查 event/count/direction/generation
+> -> 用户批准后 ARM ACTIVE`。不得以 Linux `lock-here`、
+> `CAPTURE_LOCK_POINT`、HOLD selected count 或 manual APPLY P
+> 作为正常获取步骤。任何 mismatch、saturation、FAILED/FAULT 或通信异常
+> 都停止并请求 SAFE。
+
 按本顺序执行。前面的检查没有通过之前，不要连接 PD、laser scan / PZT 或任何真实执行器。
 
 当前上位机开发目录：

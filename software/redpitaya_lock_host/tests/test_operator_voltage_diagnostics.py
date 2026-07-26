@@ -380,8 +380,9 @@ def test_fpga_trigger_result_uses_sticky_event_and_matching_generation() -> None
         assert diagnostics["captured_error_setpoint_counts"] == 10
         assert diagnostics["delta_error_setpoint_counts"] == 0
         assert window.operator_alert_label.text() == ""
-        assert window.p_lock_ready
-        assert "FPGA TRIGGERED" in window.operator_state_label.text()
+        assert not window.p_lock_ready
+        assert not window.custom_apply_p_button.isVisible()
+        assert "ACQUIRING" in window.operator_state_label.text()
         assert window.applied_kp == 0
     finally:
         window.close()

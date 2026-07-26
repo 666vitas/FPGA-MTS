@@ -1360,6 +1360,7 @@ class MainWindow(QMainWindow):
             self.custom_pick_lock_button,
             self.custom_confirm_lock_point_button,
             self.custom_lock_button,
+            self.custom_validate_lock_button,
         ):
             lock_row.addWidget(button)
         lock_row.addWidget(QLabel("Kp"))
@@ -2068,6 +2069,7 @@ class MainWindow(QMainWindow):
         self.custom_pi_lock_button = QPushButton("PI_LOCK")
         self.custom_capture_bias_button = QPushButton("Capture Bias")
         self.custom_lock_button = QPushButton("ARM BASIC LOCK")
+        self.custom_validate_lock_button = QPushButton("ARM VALIDATE")
         self.custom_apply_p_button = QPushButton("APPLY P")
         self.custom_arm_auto_lock_button = QPushButton("LOCK HERE")
         self.custom_abort_auto_lock_button = QPushButton("ABORT / SAFE")
@@ -2088,6 +2090,7 @@ class MainWindow(QMainWindow):
             self.custom_pi_lock_button,
             self.custom_capture_bias_button,
             self.custom_lock_button,
+            self.custom_validate_lock_button,
             self.custom_apply_p_button,
             self.custom_arm_auto_lock_button,
             self.custom_abort_auto_lock_button,
@@ -2105,6 +2108,8 @@ class MainWindow(QMainWindow):
         self.custom_p_lock_button.setVisible(False)
         self.custom_pi_lock_button.setVisible(False)
         self.custom_arm_auto_lock_button.setVisible(False)
+        self.custom_capture_bias_button.setVisible(False)
+        self.custom_apply_p_button.setVisible(False)
         buttons.addWidget(self.custom_probe_button, 0, 0)
         buttons.addWidget(self.custom_status_button, 0, 1)
         buttons.addWidget(self.custom_safe_button, 1, 0)
@@ -2112,7 +2117,7 @@ class MainWindow(QMainWindow):
         buttons.addWidget(self.custom_hold_button, 2, 0)
         buttons.addWidget(self.custom_capture_bias_button, 2, 1)
         buttons.addWidget(self.custom_lock_button, 3, 0)
-        buttons.addWidget(self.custom_apply_p_button, 3, 1)
+        buttons.addWidget(self.custom_validate_lock_button, 3, 1)
         buttons.addWidget(self.custom_unlock_button, 4, 0)
         buttons.addWidget(self.custom_abort_auto_lock_button, 4, 1)
         buttons.addWidget(self.custom_capture_waveform_button, 5, 0, 1, 2)
@@ -2632,6 +2637,9 @@ class MainWindow(QMainWindow):
         self.custom_pi_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("pi-lock"))
         self.custom_capture_bias_button.clicked.connect(lambda: self._start_custom_fpga_operation("capture-bias"))
         self.custom_lock_button.clicked.connect(lambda: self._start_custom_fpga_operation("lock"))
+        self.custom_validate_lock_button.clicked.connect(
+            lambda: self._start_custom_fpga_operation("validate-lock")
+        )
         self.custom_apply_p_button.clicked.connect(lambda: self._start_custom_fpga_operation("update-p-lock"))
         self.custom_abort_auto_lock_button.clicked.connect(
             lambda: self._start_custom_fpga_operation("abort-acquisition")
@@ -3090,7 +3098,7 @@ class MainWindow(QMainWindow):
                     (self.selected_lock_point or {}).get("config_generation", 0)
                 ),
             }
-        elif operation == "lock":
+        elif operation in {"lock", "validate-lock"}:
             if self.selected_lock_point is None:
                 self.custom_warning_text.setPlainText(
                     "LOCK HERE requires a target selected from the current scan waveform. "
@@ -3138,6 +3146,12 @@ class MainWindow(QMainWindow):
                 "safe_min_counts": int(self.selected_lock_point.get("safe_min_counts", -8191)),
                 "safe_max_counts": int(self.selected_lock_point.get("safe_max_counts", 8191)),
                 "config_generation": int(self.selected_lock_point["config_generation"]),
+                "crossing_hysteresis_counts": 4,
+                "crossing_consecutive_samples": 3,
+                "kp_ramp_step": 1,
+                "kp_ramp_div": 1,
+                "servo_update_div": 125,
+                "out2_slew_limit_counts": 1,
             }
         elif operation == "capture":
             self._update_capture_time_window_label()
@@ -3154,6 +3168,7 @@ class MainWindow(QMainWindow):
             "scan": "PZT scan requested",
             "capture": "Capture requested",
             "lock": "FPGA deterministic acquisition ARM requested",
+            "validate-lock": "FPGA realtime crossing validation requested",
             "abort-acquisition": "FPGA acquisition ABORT requested",
             "hold-selected-count": "Exact-count HOLD diagnostic requested",
             "update-p-lock": "P gain update requested",
@@ -3289,13 +3304,17 @@ class MainWindow(QMainWindow):
             self.basic_lock_queue = []
             self.custom_kp.setCurrentText("0")
             acquisition_state = int(payload.get("acquisition_state", -1))
-            if acquisition_state == 4 and self.p_lock_ready:
+            if acquisition_state == 5:
                 self.basic_status_label.setText(
-                    "state: P_LOCK_KP0 | FPGA trigger captured; use APPLY P manually"
+                    "state: P_LOCKED | FPGA supervisor confirmed convergence"
+                )
+            elif acquisition_state == 4:
+                self.basic_status_label.setText(
+                    "state: ACQUIRING | FPGA is ramping Kp and checking convergence"
                 )
             else:
                 self.basic_status_label.setText(
-                    "state: ARMED | FPGA waits for direction/window/raw-error crossing"
+                    "state: ARMED | FPGA waits for guard + direction + ERROR crossing"
                 )
             return
         if operation == "update-p-lock":
@@ -3860,6 +3879,7 @@ class MainWindow(QMainWindow):
             self.custom_scope_valid_for_selection = False
             self.custom_confirm_lock_point_button.setEnabled(False)
             self.custom_lock_button.setEnabled(False)
+            self.custom_validate_lock_button.setEnabled(False)
             self.custom_apply_p_button.setEnabled(False)
             self.custom_target_marker.setVisible(False)
             self.custom_zero_marker.setVisible(False)
@@ -3895,6 +3915,7 @@ class MainWindow(QMainWindow):
         self.p_lock_ready = False
         self.custom_confirm_lock_point_button.setEnabled(False)
         self.custom_lock_button.setEnabled(False)
+        self.custom_validate_lock_button.setEnabled(False)
         self.custom_apply_p_button.setEnabled(False)
         self.operator_state_label.setText("CAPTURE READY")
         self.operator_candidate_label.setText(
@@ -4198,6 +4219,15 @@ class MainWindow(QMainWindow):
                 self.custom_warning_text.setPlainText(f"{failure}\nSAFE will be requested if communication remains available.")
                 request_safe_after = bool(self.system_identity_communication_ok)
                 self._refresh_operator_lock_diagnostics()
+        elif operation == "validate-lock":
+            self.acquisition_state = int(payload.get("acquisition_state", 2))
+            self.operator_state_label.setText("FPGA VALIDATING")
+            self.operator_alert_label.setText("")
+            self.custom_warning_text.setPlainText(
+                "ARM VALIDATE accepted. FPGA remains in SCAN and records only "
+                "qualified realtime ERROR crossings; refresh STATUS for the "
+                "authoritative event/count."
+            )
         elif operation == "lock":
             event = payload.get("acquisition_event")
             event = event if isinstance(event, dict) else {}
@@ -4231,28 +4261,26 @@ class MainWindow(QMainWindow):
                 and int(event.get("event_type", 0)) == 2
                 and int(event.get("config_generation", 0)) == selected_generation
             )
-            self.p_lock_ready = bool(triggered and state == 4)
+            self.p_lock_ready = False
             self.applied_kp = triggered_kp if triggered else 0
             if triggered:
                 self.applied_polarity_index = self.custom_polarity.currentIndex()
                 self.operator_state_label.setText(
-                    "P_LOCK Kp=0 / FPGA TRIGGERED"
+                    "ACQUIRING / FPGA TRIGGERED"
                     if state == 4
-                    else "P_LOCK ACTIVE / FPGA TRIGGERED"
+                    else "P_LOCKED / FPGA VERIFIED"
                 )
                 self.operator_alert_label.setText("")
                 if state == 4:
                     self.custom_warning_text.append(
-                        "FPGA TRIGGERED matches the target generation; APPLY P is enabled."
+                        "FPGA TRIGGERED matches the target generation; FPGA is ramping Kp and evaluating convergence."
                     )
                 else:
                     self.custom_warning_text.append(
-                        "SIMPLE FPGA TRIGGERED with the user-preloaded Kp=4; monitor lock health."
+                        "FPGA supervisor reports P_LOCKED; continue monitoring ERROR, OUT2 and saturation."
                     )
-            elif state in (2, 3):
-                self.operator_state_label.setText(
-                    "ARMED" if state == 2 else "TRIGGER_CAPTURE"
-                )
+            elif state == 3:
+                self.operator_state_label.setText("ARMED")
                 self.operator_alert_label.setText("")
                 self.custom_warning_text.append(
                     "FPGA is armed; the host does not poll or command the real-time transition."
@@ -4262,7 +4290,7 @@ class MainWindow(QMainWindow):
                 self.operator_alert_label.setText(
                     "FPGA did not report ARMED or a matching TRIGGERED event"
                 )
-            if state == 6 or bool(payload.get("saturated", False)):
+            if state in (6, 7) or bool(payload.get("saturated", False)):
                 request_safe_after = bool(self.system_identity_communication_ok)
         elif operation == "update-p-lock" and operation_verified:
             kp = int(self.custom_kp.currentText())
@@ -4288,13 +4316,21 @@ class MainWindow(QMainWindow):
                 and selected_generation > 0
                 and int(event.get("config_generation", 0)) == selected_generation
             )
-            self.p_lock_ready = bool(matching_trigger)
+            self.p_lock_ready = False
             if matching_trigger:
                 self.operator_state_label.setText(
-                    "P_LOCK Kp=0 / FPGA TRIGGERED"
+                    "ACQUIRING / FPGA TRIGGERED"
                     if state == 4
-                    else "P_LOCK ACTIVE / FPGA TRIGGERED"
+                    else "P_LOCKED / FPGA VERIFIED"
                 )
+            elif state == 2:
+                self.operator_state_label.setText("FPGA VALIDATING")
+            elif state == 3:
+                self.operator_state_label.setText("ARMED")
+            elif state == 6:
+                self.operator_state_label.setText("FAILED / SAFE")
+            elif state == 7:
+                self.operator_state_label.setText("FAULT / SAFE")
         if operation == "status" and not self.system_identity_communication_ok:
             error_text = self.system_identity_error_label.text() or "Register read failed"
             self.connection_state = ERROR
@@ -5031,6 +5067,7 @@ class MainWindow(QMainWindow):
             self.custom_pi_lock_button,
             self.custom_capture_bias_button,
             self.custom_lock_button,
+            self.custom_validate_lock_button,
             self.custom_apply_p_button,
             self.custom_arm_auto_lock_button,
             self.custom_abort_auto_lock_button,
@@ -5073,6 +5110,9 @@ class MainWindow(QMainWindow):
         for button in self.lock_bias_trim_buttons:
             button.setEnabled(self.pending_lock_point is not None or self.selected_lock_point is not None)
         self.custom_lock_button.setEnabled(
+            identity_enabled and self.selected_lock_point is not None
+        )
+        self.custom_validate_lock_button.setEnabled(
             identity_enabled and self.selected_lock_point is not None
         )
         selected_is_current = (

@@ -114,6 +114,18 @@ class AcquisitionTargetConfig:
     config_generation: int
     preloaded_kp: int = 0
     preloaded_polarity: int = 0
+    crossing_hysteresis_counts: int = 4
+    crossing_consecutive_samples: int = 3
+    kp_ramp_step: int = 1
+    kp_ramp_div: int = 1
+    acquire_timeout_cycles: int = 12_500_000
+    servo_update_div: int = 125
+    out2_slew_limit_counts: int = 1
+    observe_shift: int = 8
+    lock_confirm_windows: int = 4
+    divergence_windows: int = 4
+    error_mean_limit_counts: int = 16
+    error_abs_limit_counts: int = 32
 
 
 @dataclass(frozen=True)
@@ -123,6 +135,7 @@ class AcquisitionEvent:
     event_type: AcquisitionEventType
     out2_counts: int
     error_counts: int
+    lock_error_counts: int
     scan_direction: int
     error_crossing_direction: int
     config_generation: int
@@ -256,6 +269,18 @@ def build_acquisition_target_config(
     safe_max_counts: int,
     preloaded_kp: int = 0,
     preloaded_polarity: int | None = None,
+    crossing_hysteresis_counts: int = 4,
+    crossing_consecutive_samples: int = 3,
+    kp_ramp_step: int = 1,
+    kp_ramp_div: int = 1,
+    acquire_timeout_cycles: int = 12_500_000,
+    servo_update_div: int = 125,
+    out2_slew_limit_counts: int = 1,
+    observe_shift: int = 8,
+    lock_confirm_windows: int = 4,
+    divergence_windows: int = 4,
+    error_mean_limit_counts: int = 16,
+    error_abs_limit_counts: int = 32,
 ) -> AcquisitionTargetConfig:
     target = int(target_out2_counts)
     setpoint = int(target_error_setpoint_counts)
@@ -319,6 +344,28 @@ def build_acquisition_target_config(
         if preloaded_polarity is None
         else int(preloaded_polarity)
     )
+    if int(crossing_hysteresis_counts) <= 0 or int(crossing_hysteresis_counts) > 8191:
+        raise CustomFpgaBackendError("crossing hysteresis must be within 1..8191 counts")
+    if int(crossing_consecutive_samples) <= 0 or int(crossing_consecutive_samples) > 255:
+        raise CustomFpgaBackendError("crossing consecutive samples must be within 1..255")
+    for name, value, maximum in (
+        ("kp_ramp_step", kp_ramp_step, 8191),
+        ("kp_ramp_div", kp_ramp_div, 65535),
+        ("servo_update_div", servo_update_div, 65535),
+        ("out2_slew_limit_counts", out2_slew_limit_counts, 8191),
+        ("lock_confirm_windows", lock_confirm_windows, 255),
+        ("divergence_windows", divergence_windows, 255),
+    ):
+        if int(value) <= 0 or int(value) > maximum:
+            raise CustomFpgaBackendError(f"{name} must be within 1..{maximum}")
+    if int(acquire_timeout_cycles) <= 0 or int(acquire_timeout_cycles) > 0xFFFFFFFF:
+        raise CustomFpgaBackendError("acquire timeout must be within 1..0xFFFFFFFF cycles")
+    if int(observe_shift) < 0 or int(observe_shift) > 20:
+        raise CustomFpgaBackendError("observe_shift must be within 0..20")
+    if not (0 <= int(error_mean_limit_counts) <= 8191):
+        raise CustomFpgaBackendError("error mean limit must be within 0..8191")
+    if not (0 <= int(error_abs_limit_counts) <= 8191):
+        raise CustomFpgaBackendError("error abs limit must be within 0..8191")
     return AcquisitionTargetConfig(
         target_out2_counts=target,
         target_error_setpoint_counts=setpoint,
@@ -331,6 +378,18 @@ def build_acquisition_target_config(
         config_generation=generation,
         preloaded_kp=preload_kp,
         preloaded_polarity=1 if preload_polarity else 0,
+        crossing_hysteresis_counts=int(crossing_hysteresis_counts),
+        crossing_consecutive_samples=int(crossing_consecutive_samples),
+        kp_ramp_step=int(kp_ramp_step),
+        kp_ramp_div=int(kp_ramp_div),
+        acquire_timeout_cycles=int(acquire_timeout_cycles),
+        servo_update_div=int(servo_update_div),
+        out2_slew_limit_counts=int(out2_slew_limit_counts),
+        observe_shift=int(observe_shift),
+        lock_confirm_windows=int(lock_confirm_windows),
+        divergence_windows=int(divergence_windows),
+        error_mean_limit_counts=int(error_mean_limit_counts),
+        error_abs_limit_counts=int(error_abs_limit_counts),
     )
 
 
@@ -839,6 +898,30 @@ def _remote_python_command(
             str(config.preloaded_kp),
             "--preloaded-polarity",
             str(config.preloaded_polarity),
+            "--crossing-hysteresis-counts",
+            str(config.crossing_hysteresis_counts),
+            "--crossing-consecutive-samples",
+            str(config.crossing_consecutive_samples),
+            "--kp-ramp-step",
+            str(config.kp_ramp_step),
+            "--kp-ramp-div",
+            str(config.kp_ramp_div),
+            "--acquire-timeout-cycles",
+            str(config.acquire_timeout_cycles),
+            "--servo-update-div",
+            str(config.servo_update_div),
+            "--out2-slew-limit-counts",
+            str(config.out2_slew_limit_counts),
+            "--observe-shift",
+            str(config.observe_shift),
+            "--lock-confirm-windows",
+            str(config.lock_confirm_windows),
+            "--divergence-windows",
+            str(config.divergence_windows),
+            "--error-mean-limit-counts",
+            str(config.error_mean_limit_counts),
+            "--error-abs-limit-counts",
+            str(config.error_abs_limit_counts),
         ]
     elif isinstance(config, CaptureConfig):
         remote_args += [
@@ -996,6 +1079,12 @@ class CustomFpgaBackend:
     ) -> CustomFpgaResponse:
         return self.arm_acquisition(config)
 
+    def validate_lock_target(
+        self,
+        config: AcquisitionTargetConfig,
+    ) -> CustomFpgaResponse:
+        return self._run("validate-acquisition", config, allow_nonzero=False)
+
     def read_acquisition_state(self) -> CustomFpgaResponse:
         return self._run("acquisition-status", None, allow_nonzero=False)
 
@@ -1011,6 +1100,7 @@ class CustomFpgaBackend:
                 event_type=AcquisitionEventType(int(event["event_type"])),
                 out2_counts=int(event["out2_counts"]),
                 error_counts=int(event["error_counts"]),
+                lock_error_counts=int(event["lock_error_counts"]),
                 scan_direction=int(event["scan_direction"]),
                 error_crossing_direction=int(event["error_crossing_direction"]),
                 config_generation=int(event["config_generation"]),

@@ -25,6 +25,8 @@ module tb_out2_lock_controller;
     logic signed [13:0] lock_bias;
     logic signed [13:0] lock_limit;
     logic signed [13:0] lock_correction_limit;
+    logic [15:0] servo_update_div;
+    logic [13:0] out2_slew_limit;
     logic integral_reset;
     logic acq_hold_i;
     logic acq_abort_i;
@@ -35,6 +37,11 @@ module tb_out2_lock_controller;
     int tests;
     int pass_count;
     int fail_count;
+    int previous_control;
+    int delta;
+    int changed_cycles;
+    bit slew_ok;
+    bit divider_observed;
 
     task automatic check(input string name, input bit condition);
         tests++;
@@ -67,6 +74,8 @@ module tb_out2_lock_controller;
         .lock_bias_i(lock_bias),
         .lock_limit_i(lock_limit),
         .lock_correction_limit_i(lock_correction_limit),
+        .servo_update_div_i(servo_update_div),
+        .out2_slew_limit_i(out2_slew_limit),
         .integral_reset_i(integral_reset),
         .acq_hold_i(acq_hold_i),
         .acq_abort_i(acq_abort_i),
@@ -89,6 +98,8 @@ module tb_out2_lock_controller;
         lock_bias = 14'sd100;
         lock_limit = 14'sd8191;
         lock_correction_limit = 14'sd128;
+        servo_update_div = 16'd1;
+        out2_slew_limit = 14'd8191;
         integral_reset = 1'b0;
         acq_hold_i = 1'b0;
         acq_abort_i = 1'b0;
@@ -195,7 +206,7 @@ module tb_out2_lock_controller;
 
         lock_bias = -14'sd8100;
         error_i = -14'sd1000;
-        wait_cycles(P_LOCK_LATENCY);
+        wait_cycles(P_LOCK_LATENCY + 2);
         check("P_LOCK output never exceeds negative DAC limit", control_o == -14'sd8191);
         check("P_LOCK negative DAC limit asserts saturation", saturated_o == 1'b1);
 
@@ -248,6 +259,41 @@ module tb_out2_lock_controller;
         integral_reset = 1'b0;
         wait_cycles(P_LOCK_LATENCY);
         check("integral reset is accepted but no integral exists", control_o == 14'sd120);
+
+        mode = MODE_HOLD;
+        hold_value = 14'sd0;
+        wait_cycles(2);
+        servo_update_div = 16'd3;
+        out2_slew_limit = 14'd10;
+        mode = MODE_P_LOCK;
+        lock_bias = 14'sd0;
+        lock_limit = 14'sd8191;
+        lock_correction_limit = 14'sd256;
+        kp = 14'sd256;
+        polarity = 1'b0;
+        error_i = 14'sd100;
+        wait_cycles(P_LOCK_LATENCY);
+        previous_control = $signed(control_o);
+        changed_cycles = 0;
+        slew_ok = 1'b1;
+        divider_observed = 1'b0;
+        repeat (15) begin
+            wait_cycles(1);
+            delta = $signed(control_o) - previous_control;
+            if (delta < 0) delta = -delta;
+            if (delta > 10) slew_ok = 1'b0;
+            if (delta == 0) divider_observed = 1'b1;
+            else changed_cycles++;
+            previous_control = $signed(control_o);
+        end
+        check("P_LOCK slew limiter bounds every OUT2 update to configured counts",
+              slew_ok && changed_cycles > 0);
+        check("servo divider holds OUT2 between control updates",
+              divider_observed && changed_cycles <= 5);
+        mode = MODE_SAFE;
+        wait_cycles(1);
+        check("SAFE bypasses servo divider and slew limiter immediately",
+              control_o == 14'sd0);
 
         $display("SUMMARY tb_out2_lock_controller tests=%0d pass=%0d fail=%0d", tests, pass_count, fail_count);
         if (fail_count != 0) begin

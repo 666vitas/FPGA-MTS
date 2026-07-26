@@ -1,5 +1,28 @@
 # 开发日志
 
+## 2026-07-26 - LOCK-MVP-L1 FPGA Real-Time ERROR-Crossing P-Only Lock
+
+- `[IMPLEMENTED]` 新增 H/N hysteretic crossing detector；ERROR 使用
+  `error_i - active_error_setpoint`，OUT2 target 只作为 guard。
+- `[IMPLEMENTED]` 新增 `ARM_VALIDATE=8`；与 ACTIVE 共用 detector，
+  VALIDATE 不改变 SCAN/ENABLE/bias/Kp。
+- `[IMPLEMENTED]` ACTIVE 捕获 crossing 拍实际 `selected_out2`，进入
+  ACQUIRING；`kp_effective` 在 FPGA 内按 servo tick soft-start。
+- `[IMPLEMENTED]` OUT2 controller 新增 servo divider/slew limiter，
+  既有 P `>>>8`、polarity、correction/absolute limits 保持；SAFE 立即生效。
+- `[IMPLEMENTED]` supervisor 使用移位均值/绝对均值、confirm/divergence
+  counters、timeout 与 saturation/limit fault，输出 FPGA 权威状态。
+- `[IMPLEMENTED]` Host 同 VERSION 下额外校验 `L1_CAPABILITY=0x4C310001`，
+  显式区分 VALIDATE/ACTIVE；正常 GUI 隐藏 Capture Bias/APPLY P。
+- `[RTL SIMULATED]` crossing 13/13、SIMPLE 28/28、plant 8/8、
+  OUT2 controller 38/38、D1 register bank 166/166、ramp 25/25。
+- `[UNIT TESTED]` Host 分文件共 148 passed。
+- `[NOT VERIFIED]` 未运行 synthesis/implementation，未生成 bitstream，
+  未烧录、未连接板卡、未做真实 PZT/laser lock。
+
+本轮没有 commit、push 或 PR。下一动作由用户 Reset `synth_1/impl_1`
+并重新运行 Synthesis/Implementation。
+
 ## 2026-07-14 - v3LOCK-P0 Host Lock Point Selector 最小审查与修复
 
 - 执行 Agent：Claude Code。本轮只改上位机，不改 RTL、不运行 Vivado、不生成 bitstream、不烧录。

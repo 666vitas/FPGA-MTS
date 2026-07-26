@@ -175,7 +175,7 @@ class CustomFpgaRegisterWorker(QThread):
                     polarity=int(self.params["polarity"]),
                     config_generation=int(self.params.get("config_generation", 0)),
                 )
-            elif self.operation == "lock":
+            elif self.operation in {"lock", "validate-lock"}:
                 capture_id = int(self.params["capture_id"])
                 acquisition_service.adopt_capture_id(capture_id)
                 target = LockTarget(
@@ -202,6 +202,22 @@ class CustomFpgaRegisterWorker(QThread):
                             self.params.get("correction_limit_counts", 128)
                         ),
                         absolute_limit_counts=int(self.params["absolute_limit_counts"]),
+                        validate_only=self.operation == "validate-lock",
+                        crossing_hysteresis_counts=int(
+                            self.params.get("crossing_hysteresis_counts", 4)
+                        ),
+                        crossing_consecutive_samples=int(
+                            self.params.get("crossing_consecutive_samples", 3)
+                        ),
+                        kp_ramp_step=int(self.params.get("kp_ramp_step", 1)),
+                        kp_ramp_div=int(self.params.get("kp_ramp_div", 1)),
+                        acquire_timeout_cycles=int(
+                            self.params.get("acquire_timeout_cycles", 12_500_000)
+                        ),
+                        servo_update_div=int(self.params.get("servo_update_div", 125)),
+                        out2_slew_limit_counts=int(
+                            self.params.get("out2_slew_limit_counts", 1)
+                        ),
                     )
                 )
             elif self.operation == "abort-acquisition":

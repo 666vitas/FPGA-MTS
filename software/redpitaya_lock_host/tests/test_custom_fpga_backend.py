@@ -448,7 +448,7 @@ def test_acquisition_signed_count_encoding_and_independent_directions() -> None:
 def test_normal_arm_path_writes_complete_shadow_once_without_host_trigger_polling() -> None:
     module = load_scan_control_module()
     helper = module.REMOTE_HELPER
-    run_start = helper.index("def run_preload_acquisition(regs, args, arm):")
+    run_start = helper.index("def run_preload_acquisition(regs, args, arm, validate=False):")
     run_end = helper.index("\ndef capture_waveform", run_start)
     run_body = helper[run_start:run_end]
     shadow_start = helper.index("def write_acquisition_shadow(regs, args):")
@@ -465,9 +465,11 @@ def test_normal_arm_path_writes_complete_shadow_once_without_host_trigger_pollin
         "CONFIG_GENERATION_SHADOW",
     ):
         assert f'REGISTERS["{register}"]' in shadow_body
-    assert run_body.count('regs.write(REGISTERS["ACQ_COMMAND"], 1)') == 1
+    assert run_body.count(
+        'regs.write(REGISTERS["ACQ_COMMAND"], 8 if validate else 1)'
+    ) == 1
     assert run_body.index('if not (validation & (1 << 7)):') < run_body.index(
-        'regs.write(REGISTERS["ACQ_COMMAND"], 1)'
+        'regs.write(REGISTERS["ACQ_COMMAND"], 8 if validate else 1)'
     )
     assert "time.sleep" not in run_body
     assert "target_poll" not in run_body
@@ -507,7 +509,9 @@ def test_cli_and_worker_normal_lock_path_route_only_to_fpga_arm() -> None:
     worker_source = (
         ROOT / "redpitaya_lock_host" / "connection_workers.py"
     ).read_text(encoding="utf-8")
-    lock_start = worker_source.index('elif self.operation == "lock":')
+    lock_start = worker_source.index(
+        'elif self.operation in {"lock", "validate-lock"}:'
+    )
     lock_end = worker_source.index('elif self.operation == "abort-acquisition":', lock_start)
     lock_body = worker_source[lock_start:lock_end]
     assert "local_client.arm_basic_lock(" in lock_body
@@ -1603,7 +1607,7 @@ def test_lock_point_calibration_adjusts_bias_without_enabling_feedback() -> None
         app.processEvents()
 
 
-def test_basic_lock_arm_stops_at_fpga_armed_without_auto_gain() -> None:
+def test_basic_lock_arm_stops_host_queue_at_fpga_armed() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from PySide6.QtWidgets import QApplication
@@ -1624,7 +1628,7 @@ def test_basic_lock_arm_stops_at_fpga_armed_without_auto_gain() -> None:
         assert window.basic_lock_queue == []
         assert window.custom_kp.currentText() == "0"
         assert "ARMED" in window.basic_status_label.text()
-        assert "raw-error crossing" in window.basic_status_label.text()
+        assert "ERROR crossing" in window.basic_status_label.text()
     finally:
         window.close()
         app.processEvents()

@@ -14,15 +14,18 @@ from redpitaya_lock_host.custom_fpga_backend import CustomFpgaBackendError
 
 
 class FakeBackend:
-    def __init__(self, *, arm_state: int = 2) -> None:
+    def __init__(self, *, arm_state: int = 3, l1_capability: str = "0x4C310001") -> None:
         self.arm_state = arm_state
         self.safe_calls = 0
         self.arm_configs = []
+        self.validate_configs = []
+        self.l1_capability = l1_capability
 
     def read_status(self):
         return SimpleNamespace(
             payload={
                 "version": "0x00030200",
+                "l1_capability": self.l1_capability,
                 "mode": 1,
                 "enable": 1,
                 "saturated": False,
@@ -39,6 +42,19 @@ class FakeBackend:
                 "enable": 1,
                 "saturated": False,
                 "acquisition_state": self.arm_state,
+            }
+        )
+
+    def validate_lock_target(self, config):
+        self.validate_configs.append(config)
+        return SimpleNamespace(
+            payload={
+                "version": "0x00030200",
+                "l1_capability": self.l1_capability,
+                "mode": 1,
+                "enable": 1,
+                "saturated": False,
+                "acquisition_state": 2,
             }
         )
 
@@ -116,7 +132,7 @@ def test_stale_capture_is_rejected_before_arm() -> None:
     assert backend.safe_calls == 0
 
 
-def test_simple_request_preloads_user_kp_and_polarity() -> None:
+def test_l1_active_request_preloads_fpga_kp_target_and_polarity() -> None:
     backend = FakeBackend()
     acquisition = AcquisitionService(backend)
     acquisition.adopt_capture_id(7)
@@ -135,6 +151,48 @@ def test_simple_request_preloads_user_kp_and_polarity() -> None:
     assert service.state is LockState.ARMED
     assert backend.arm_configs[0].preloaded_kp == 4
     assert backend.arm_configs[0].preloaded_polarity == 1
+
+
+def test_l1_validate_is_distinct_and_preserves_scanning_state() -> None:
+    backend = FakeBackend()
+    acquisition = AcquisitionService(backend)
+    acquisition.adopt_capture_id(7)
+    service = LockService(backend, acquisition)
+
+    service.request_lock(
+        BasicLockRequest(
+            target=make_target(),
+            kp=4,
+            polarity=1,
+            correction_limit_counts=12,
+            absolute_limit_counts=300,
+            validate_only=True,
+        )
+    )
+
+    assert service.state is LockState.VALIDATING
+    assert len(backend.validate_configs) == 1
+    assert backend.arm_configs == []
+
+
+def test_same_version_without_l1_capability_is_safed_before_arm() -> None:
+    backend = FakeBackend(l1_capability="0x00000000")
+    acquisition = AcquisitionService(backend)
+    acquisition.adopt_capture_id(7)
+    service = LockService(backend, acquisition)
+
+    with pytest.raises(CustomFpgaBackendError, match="SAFE requested"):
+        service.request_lock(
+            BasicLockRequest(
+                target=make_target(),
+                kp=4,
+                polarity=1,
+                correction_limit_counts=12,
+                absolute_limit_counts=300,
+            )
+        )
+    assert backend.safe_calls == 1
+    assert backend.arm_configs == []
 
 
 def test_arm_readback_mismatch_requests_safe_and_enters_failed() -> None:

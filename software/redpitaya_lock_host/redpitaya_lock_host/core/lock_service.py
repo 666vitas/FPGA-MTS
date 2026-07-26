@@ -29,7 +29,9 @@ class LockService:
     def _status_payload(self) -> dict:
         response = self._backend.read_status()
         payload = response.payload
-        self.capability = capability_from_version(payload.get("version", 0))
+        self.capability = capability_from_version(
+            payload.get("version", 0), payload.get("l1_capability", 0)
+        )
         return payload
 
     def safe(self):
@@ -70,10 +72,10 @@ class LockService:
             raise CustomFpgaBackendError(
                 "target configuration writes are forbidden while acquisition is ARMED"
             )
-        if self.capability is AcquisitionCapability.D1 and request.kp != 0:
-            raise CustomFpgaBackendError("D1 preserves the Kp=0 trigger contract")
-        if self.capability not in (AcquisitionCapability.SIMPLE, AcquisitionCapability.D1):
-            return self._fail_safe("loaded FPGA build has no supported acquisition capability")
+        if self.capability is not AcquisitionCapability.L1_ERROR_CROSSING:
+            return self._fail_safe(
+                "loaded FPGA build does not advertise LOCK-MVP-L1 realtime crossing capability"
+            )
 
         target = request.target
         config = build_acquisition_target_config(
@@ -90,23 +92,42 @@ class LockService:
             safe_max_counts=target.safe_max_counts,
             preloaded_kp=request.kp,
             preloaded_polarity=request.polarity,
+            crossing_hysteresis_counts=request.crossing_hysteresis_counts,
+            crossing_consecutive_samples=request.crossing_consecutive_samples,
+            kp_ramp_step=request.kp_ramp_step,
+            kp_ramp_div=request.kp_ramp_div,
+            acquire_timeout_cycles=request.acquire_timeout_cycles,
+            servo_update_div=request.servo_update_div,
+            out2_slew_limit_counts=request.out2_slew_limit_counts,
+            observe_shift=request.observe_shift,
+            lock_confirm_windows=request.lock_confirm_windows,
+            divergence_windows=request.divergence_windows,
+            error_mean_limit_counts=request.error_mean_limit_counts,
+            error_abs_limit_counts=request.error_abs_limit_counts,
         )
-        response = self._backend.arm_lock_target(config)
+        response = (
+            self._backend.validate_lock_target(config)
+            if request.validate_only
+            else self._backend.arm_lock_target(config)
+        )
         readback = response.payload
         acq_state = int(readback.get("acquisition_state", -1))
         mode = int(readback.get("mode", -1))
         enable = int(readback.get("enable", 0))
-        if acq_state not in (2, 3, 4, 5):
-            return self._fail_safe("ARM readback did not report ARMED or P_LOCK")
-        if acq_state in (4, 5) and (mode != 3 or enable != 1):
-            return self._fail_safe("P_LOCK readback does not match MODE/ENABLE")
+        expected_states = (2,) if request.validate_only else (3, 4, 5)
+        if acq_state not in expected_states:
+            return self._fail_safe("ARM readback does not match requested VALIDATE/ACTIVE intent")
+        if request.validate_only and (mode != 1 or enable != 1):
+            return self._fail_safe("VALIDATE readback must preserve MODE=SCAN and ENABLE=1")
+        if not request.validate_only and acq_state in (4, 5) and (mode != 3 or enable != 1):
+            return self._fail_safe("ACTIVE readback does not match MODE/ENABLE")
 
         self.target = target
         self.state = {
-            2: LockState.ARMED,
+            2: LockState.VALIDATING,
             3: LockState.ARMED,
-            4: LockState.P_LOCK_KP0,
-            5: LockState.P_LOCK_ACTIVE,
+            4: LockState.ACQUIRING,
+            5: LockState.P_LOCKED,
         }[acq_state]
         return response
 
@@ -116,7 +137,8 @@ class LockService:
             polarity=polarity,
             config_generation=config_generation,
         )
-        self.state = LockState.P_LOCK_KP0 if int(kp) == 0 else LockState.P_LOCK_ACTIVE
+        # Legacy engineer diagnostic only; normal L1 acquisition ramps Kp in FPGA.
+        self.state = LockState.ACQUIRING if int(kp) == 0 else LockState.P_LOCKED
         return response
 
     def _fail_safe(self, reason: str):

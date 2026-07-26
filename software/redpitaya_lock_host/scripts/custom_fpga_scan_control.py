@@ -96,6 +96,18 @@ REGISTERS = {
     "ACTIVE_CORRECTION_LIMIT": 0xD8,
     "ACTIVE_ABSOLUTE_LIMIT": 0xDC,
     "FAULT_DETAIL": 0xE0,
+    "L1_CAPABILITY": 0xE4,
+    "CROSSING_CONFIG": 0xE8,
+    "KP_ACQUIRE_TARGET": 0xEC,
+    "KP_RAMP_CONFIG": 0xF0,
+    "ACQUIRE_TIMEOUT": 0xF4,
+    "SERVO_CONFIG": 0xF8,
+    "SUPERVISOR_CONFIG0": 0xFC,
+    "SUPERVISOR_CONFIG1": 0x100,
+    "EVENT_LOCK_ERROR": 0x104,
+    "VALIDATE_EVENT_COUNT": 0x108,
+    "KP_EFFECTIVE": 0x10C,
+    "SUPERVISOR_METRICS": 0x110,
 }
 
 
@@ -166,6 +178,18 @@ REGISTERS = {
     "ACTIVE_CORRECTION_LIMIT": 0xD8,
     "ACTIVE_ABSOLUTE_LIMIT": 0xDC,
     "FAULT_DETAIL": 0xE0,
+    "L1_CAPABILITY": 0xE4,
+    "CROSSING_CONFIG": 0xE8,
+    "KP_ACQUIRE_TARGET": 0xEC,
+    "KP_RAMP_CONFIG": 0xF0,
+    "ACQUIRE_TIMEOUT": 0xF4,
+    "SERVO_CONFIG": 0xF8,
+    "SUPERVISOR_CONFIG0": 0xFC,
+    "SUPERVISOR_CONFIG1": 0x100,
+    "EVENT_LOCK_ERROR": 0x104,
+    "VALIDATE_EVENT_COUNT": 0x108,
+    "KP_EFFECTIVE": 0x10C,
+    "SUPERVISOR_METRICS": 0x110,
 }
 
 EXPECTED_MAGIC = 0x4D545330
@@ -195,11 +219,12 @@ def to_signed14(value):
 ACQ_STATE_NAMES = {
     0: "SAFE",
     1: "SCAN",
-    2: "ARMED",
-    3: "TRIGGER_CAPTURE",
-    4: "P_LOCK_KP0",
-    5: "P_LOCK_ACTIVE",
-    6: "FAULT",
+    2: "VALIDATING",
+    3: "ARMED",
+    4: "ACQUIRING",
+    5: "P_LOCKED",
+    6: "FAILED",
+    7: "FAULT",
 }
 
 
@@ -211,6 +236,7 @@ EVENT_TYPE_NAMES = {
     4: "CONFIG_REJECTED",
     5: "COMMAND_REJECTED",
     6: "FAULT",
+    7: "VALIDATED",
 }
 
 
@@ -311,14 +337,18 @@ def read_status(regs):
     lock_bias_raw = regs.read(REGISTERS["LOCK_BIAS"])
     acq_state_raw = regs.read(REGISTERS["ACQ_STATE"])
     acq_state = acq_state_raw & 0x7
+    l1_capability = regs.read(REGISTERS["L1_CAPABILITY"])
     return {
         "magic": f"0x{magic:08X}",
         "version": f"0x{version:08X}",
         "build_capability": (
-            "SIMPLE" if version == SIMPLE_VERSION
+            "L1_ERROR_CROSSING"
+            if version == SIMPLE_VERSION and l1_capability == 0x4C310001
+            else "SIMPLE" if version == SIMPLE_VERSION
             else "D1" if version == EXPECTED_VERSION
             else "UNKNOWN"
         ),
+        "l1_capability": f"0x{l1_capability:08X}",
         "mode": regs.read(REGISTERS["MODE"]),
         "enable": regs.read(REGISTERS["ENABLE"]) & 1,
         "status_raw": f"0x{status:08X}",
@@ -347,6 +377,9 @@ def read_status(regs):
         "acquisition_active": bool(acq_state_raw & (1 << 10)),
         "acquisition_fault": bool(acq_state_raw & (1 << 11)),
         "acquisition_scan_direction": (acq_state_raw >> 14) & 0x3,
+        "kp_effective": to_signed14(regs.read(REGISTERS["KP_EFFECTIVE"])),
+        "validate_event_count": regs.read(REGISTERS["VALIDATE_EVENT_COUNT"]),
+        "supervisor_metrics_raw": f"0x{regs.read(REGISTERS['SUPERVISOR_METRICS']):08X}",
     }
 
 
@@ -356,6 +389,7 @@ def read_acquisition_event_coherent(regs, retries=8):
         info = regs.read(REGISTERS["EVENT_INFO"])
         out2_raw = regs.read(REGISTERS["EVENT_OUT2"])
         error_raw = regs.read(REGISTERS["EVENT_ERROR"])
+        lock_error_raw = regs.read(REGISTERS["EVENT_LOCK_ERROR"])
         generation = regs.read(REGISTERS["EVENT_CONFIG_GENERATION"])
         timestamp_lo = regs.read(REGISTERS["EVENT_TIMESTAMP_LO"])
         timestamp_hi = regs.read(REGISTERS["EVENT_TIMESTAMP_HI"])
@@ -370,6 +404,7 @@ def read_acquisition_event_coherent(regs, retries=8):
                 "event_type_name": EVENT_TYPE_NAMES.get(event_type, "UNKNOWN"),
                 "out2_counts": to_signed14(out2_raw),
                 "error_counts": to_signed14(error_raw),
+                "lock_error_counts": to_signed14(lock_error_raw),
                 "scan_direction": (info >> 4) & 0x3,
                 "error_crossing_direction": (info >> 6) & 0x3,
                 "config_generation": generation,
@@ -404,7 +439,36 @@ def write_acquisition_shadow(regs, args):
     regs.write(REGISTERS["CONFIG_GENERATION_SHADOW"], int(args.config_generation))
 
 
-def run_preload_acquisition(regs, args, arm):
+def write_l1_acquisition_config(regs, args):
+    regs.write(
+        REGISTERS["CROSSING_CONFIG"],
+        (int(args.crossing_consecutive_samples) << 16)
+        | int(args.crossing_hysteresis_counts),
+    )
+    regs.write(REGISTERS["KP_ACQUIRE_TARGET"], int(args.preloaded_kp))
+    regs.write(
+        REGISTERS["KP_RAMP_CONFIG"],
+        (int(args.kp_ramp_div) << 16) | int(args.kp_ramp_step),
+    )
+    regs.write(REGISTERS["ACQUIRE_TIMEOUT"], int(args.acquire_timeout_cycles))
+    regs.write(
+        REGISTERS["SERVO_CONFIG"],
+        (int(args.out2_slew_limit_counts) << 16) | int(args.servo_update_div),
+    )
+    regs.write(
+        REGISTERS["SUPERVISOR_CONFIG0"],
+        (int(args.divergence_windows) << 16)
+        | (int(args.lock_confirm_windows) << 8)
+        | int(args.observe_shift),
+    )
+    regs.write(
+        REGISTERS["SUPERVISOR_CONFIG1"],
+        (int(args.error_abs_limit_counts) << 16)
+        | int(args.error_mean_limit_counts),
+    )
+
+
+def run_preload_acquisition(regs, args, arm, validate=False):
     require_magic(regs)
     before = read_status(regs)
     if int(before["version"], 0) not in SUPPORTED_VERSIONS:
@@ -418,17 +482,16 @@ def run_preload_acquisition(regs, args, arm):
         raise SystemExit("FPGA acquisition refused because STATUS reports saturation")
     if int(before["acquisition_state"]) == 2:
         raise SystemExit("target configuration writes are forbidden while acquisition is ARMED")
-    if before["build_capability"] == "SIMPLE":
-        if int(args.preloaded_kp) not in (0, 4):
-            raise SystemExit("SIMPLE basic lock requires preloaded Kp 0 or 4")
-        regs.write(REGISTERS["KP"], int(args.preloaded_kp))
-        regs.write(REGISTERS["POLARITY"], int(args.preloaded_polarity) & 1)
+    if before["build_capability"] != "L1_ERROR_CROSSING":
+        raise SystemExit("LOCK-MVP-L1 capability 0x4C310001 is required")
+    regs.write(REGISTERS["POLARITY"], int(args.preloaded_polarity) & 1)
     write_acquisition_shadow(regs, args)
+    write_l1_acquisition_config(regs, args)
     validation = regs.read(REGISTERS["CONFIG_VALIDATION"])
     if not (validation & (1 << 7)):
         raise SystemExit(f"FPGA acquisition shadow validation failed: 0x{validation:08X}")
     if arm:
-        regs.write(REGISTERS["ACQ_COMMAND"], 1)
+        regs.write(REGISTERS["ACQ_COMMAND"], 8 if validate else 1)
     result = acquisition_status(regs)
     result["config_validation"] = f"0x{validation:08X}"
     result["config_generation"] = int(args.config_generation)
@@ -440,11 +503,13 @@ def run_preload_acquisition(regs, args, arm):
         args.required_error_crossing_direction
     )
     result["initial_polarity_suggestion"] = int(args.initial_polarity_suggestion)
-    if arm and int(result["acquisition_state"]) not in (2, 3, 4, 5):
+    expected_states = (2,) if validate else (3, 4, 5)
+    if arm and int(result["acquisition_state"]) not in expected_states:
         raise SystemExit(
             "ARM command was written once, but FPGA did not report ARMED or P_LOCK"
         )
     result["lock_state"] = result["acquisition_state_name"]
+    result["arm_intent"] = "VALIDATE" if validate else "ACTIVE"
     return result
 
 
@@ -693,6 +758,7 @@ def main():
             "lock-here",
             "preload-acquisition",
             "arm-acquisition",
+            "validate-acquisition",
             "acquisition-status",
             "abort-acquisition",
             "clear-acquisition-event",
@@ -732,6 +798,18 @@ def main():
     parser.add_argument("--config-generation", type=int, default=0)
     parser.add_argument("--preloaded-kp", type=int, choices=[0, 4], default=0)
     parser.add_argument("--preloaded-polarity", type=int, choices=[0, 1], default=0)
+    parser.add_argument("--crossing-hysteresis-counts", type=int, default=4)
+    parser.add_argument("--crossing-consecutive-samples", type=int, default=3)
+    parser.add_argument("--kp-ramp-step", type=int, default=1)
+    parser.add_argument("--kp-ramp-div", type=int, default=1)
+    parser.add_argument("--acquire-timeout-cycles", type=int, default=12500000)
+    parser.add_argument("--servo-update-div", type=int, default=125)
+    parser.add_argument("--out2-slew-limit-counts", type=int, default=1)
+    parser.add_argument("--observe-shift", type=int, default=8)
+    parser.add_argument("--lock-confirm-windows", type=int, default=4)
+    parser.add_argument("--divergence-windows", type=int, default=4)
+    parser.add_argument("--error-mean-limit-counts", type=int, default=16)
+    parser.add_argument("--error-abs-limit-counts", type=int, default=32)
     parser.add_argument("--target-timeout-s", type=float, default=5.0)
     parser.add_argument("--target-poll-s", type=float, default=0.005)
     args = parser.parse_args()
@@ -800,6 +878,10 @@ def main():
             return
         elif args.op == "arm-acquisition":
             status = run_preload_acquisition(regs, args, True)
+            print(json.dumps(status, indent=2, sort_keys=True))
+            return
+        elif args.op == "validate-acquisition":
+            status = run_preload_acquisition(regs, args, True, validate=True)
             print(json.dumps(status, indent=2, sort_keys=True))
             return
         elif args.op == "acquisition-status":

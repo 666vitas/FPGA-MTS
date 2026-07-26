@@ -1,48 +1,46 @@
 Status: ACTIVE
-Effective-Gate: LOCK-MVP-L0
+Effective-Gate: LOCK-MVP-L1
 Authority: STATUS
-Last-Updated: 2026-07-25
-Supersedes: version/history/STATUS_HISTORY_D1_THROUGH_2026-07-24.md
+Last-Updated: 2026-07-26
+Supersedes: previous LOCK-MVP-L0 status
 Superseded-By: NONE
 
-# STATUS
+# FPGA-MTS 当前状态
 
-## Current Stage
+## 当前事实
 
-`LOCK-MVP / Linien-like Simple Scan-to-P-Lock`
+- Repository：`666vitas/FPGA-MTS`
+- Local branch/HEAD at task start：`main@adf52ac`
+- 本轮工作区：有未提交的 L1 本地修改；未 commit、未 push、未创建 PR。
+- `MAGIC=0x4D545330`、`VERSION=0x00030200` 与旧 `0x00..0xE0` CSR 地址保持不变。
+- 新 L1 capability CSR 为 `0xE4 = 0x4C310001`；Host 同时检查 VERSION 与 capability。
 
-## Current Gate
+## 本轮实现
 
-`LOCK-MVP-L0 / Linien-like Simple Scan-to-P-Lock`
+- `[IMPLEMENTED]` `lock_error = error_i - active_error_setpoint` 的 H/N 连续样本 crossing detector。
+- `[IMPLEMENTED]` `ARM_VALIDATE=8` 与 `ARM_ACTIVE=1` 共用 detector；VALIDATE 保持 SCAN，ACTIVE 捕获实际 `selected_out2`。
+- `[IMPLEMENTED]` 状态：SAFE、SCAN、VALIDATING、ARMED、ACQUIRING、P_LOCKED、FAILED、FAULT。
+- `[IMPLEMENTED]` FPGA `kp_effective` soft-start、servo update divider、OUT2 slew limit、均值/绝对均值 supervisor、timeout/divergence/saturation SAFE。
+- `[IMPLEMENTED]` 正常 GUI 增加 `ARM VALIDATE`，隐藏正常视图中的 `Capture Bias`/`APPLY P`；legacy 源码保留作 engineer diagnostic。
 
-## Current Facts
+## 自动验证
 
-- [FAILED] 用户最新 SIMPLE 构建报告为 WNS `-0.119 ns`、TNS `-0.428 ns`、`4` 个 setup failing endpoints、WHS `+0.057 ns`；失败路径均为 `i_ramp_generator/limit_q → scan_o_reg`。
-- [IMPLEMENTED] `LOCK_ACQ_IMPL=0/1/2` 从 `red_pitaya_top` 传播到唯一的 `custom_register_bank`；正式顶层默认 SIMPLE。
-- [IMPLEMENTED] SIMPLE 只保留 request、运行前置条件、scan direction、target window、abort、注册单拍 trigger、trigger sample 和 ARMED/P_LOCK/FAULT readback。
-- [IMPLEMENTED] SIMPLE trigger 同一 fast-control transaction 写入 bias、setpoint、limits、MODE、ENABLE 和 integral reset；不强制 Kp 清零。
-- [IMPLEMENTED] D1 完整源码、atomic snapshot、event/timestamp 和 Kp=0 语义保留。
-- [IMPLEMENTED] SIMPLE/D1 VERSION 分别为 `0x00030200`/`0x00030100`，Host 识别并显示 capability。
-- [IMPLEMENTED] GUI ARM 路径经 `LocalClient → LockService → CustomFpgaBackend`；target 与 capture id 绑定，stale target 拒绝，readback mismatch 请求 SAFE。
-- [IMPLEMENTED] `ramp_generator` 将规范化后的正负 limit 分别预寄存，实时输出只做单级 `raw_scan` 限幅；已删除后续 `±8191` 冗余比较/MUX，未增加 `scan_o` 时钟延迟。
-- [RTL SIMULATED] `tb_simple_lock_acquisition` 24/24、`tb_custom_register_bank_basic` 166/166、`tb_deterministic_lock_acquisition` 50/50、`tb_out2_lock_controller` 35/35、`tb_ramp_generator` 25/25。
-- [UNIT TESTED] `software/redpitaya_lock_host/tests/**` 共 146 个测试通过。
-- [NOT VERIFIED] 本轮未运行 Vivado；ramp limit 重构后的 SIMPLE build WNS/TNS、high fanout、utilization 和 unconstrained paths 未验证。
-- [NOT VERIFIED] 未生成或烧录 bitstream，未连接板卡；真实 Kp=0/Kp=4、模拟无扰和持续锁定均未验证。
+- `[RTL SIMULATED]` `tb_realtime_error_crossing_detector`: 13/13。
+- `[RTL SIMULATED]` `tb_simple_lock_acquisition`: 28/28。
+- `[RTL SIMULATED]` `tb_l1_error_crossing_plant`: 8/8。
+- `[RTL SIMULATED]` `tb_out2_lock_controller`: 38/38。
+- `[RTL SIMULATED]` `tb_custom_register_bank_basic` D1/legacy: 166/166。
+- `[RTL SIMULATED]` `tb_ramp_generator`: 25/25。
+- `[CODE INSPECTED]` `red_pitaya_top` 与全部本地 RTL 重新 `xvlog` 通过；未执行顶层 implementation。
+- `[UNIT TESTED]` Host 分文件共 148 passed：backend 99、lock service 6、workflow 3、operator diagnostics 37、waveform 3。
 
-## Current Blocker
+## Timing 与硬件
 
-唯一 blocker 是缺少 ramp limit 重构后的 SIMPLE synthesis/implementation timing 报告。
+- 用户报告的旧基线受约束 timing 已通过；该结果只属于修改前基线。
+- `[NOT VERIFIED]` 本轮 RTL 的 synthesis/implementation、WNS/TNS/WHS、high-fanout、unconstrained path。
+- `[NOT VERIFIED]` bitstream generated / burned / board connected。
+- `[NOT VERIFIED]` 真实 ERROR crossing、PZT bumpless、P-only convergence 和 sustained lock。
 
-## Forbidden Scope
+## 唯一下一动作
 
-- 没有新 timing 报告前不继续 LPF 或其他大规模 RTL 重构。
-- 不新增 PI/Ki、自动重锁、AI、IQ，不删除 D1。
-- 不声称 timing、bitstream、烧录或真实硬件锁定通过。
-
-## Unique Next Action
-
-用户保持 `red_pitaya_top.LOCK_ACQ_IMPL=1`，Reset `synth_1`/`impl_1` 后重新运行
-Synthesis 和 Implementation，并返回
-完整 timing summary、最差 setup path、failing endpoints、high fanout、utilization
-和 unconstrained paths。
+用户 Reset `synth_1/impl_1`，重新运行 Synthesis 和 Implementation，并提供 timing summary、最差 setup/hold 路径、high-fanout 与 unconstrained path 报告。timing 通过前不要生成或烧录正式 bitstream。

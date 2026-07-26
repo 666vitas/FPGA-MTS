@@ -251,6 +251,7 @@ logic        [32-1:0] scan_update_div;
 logic signed [14-1:0] out2_limit;
 logic signed [14-1:0] hold_value;
 logic signed [14-1:0] lock_kp;
+logic signed [14-1:0] lock_kp_effective;
 logic signed [14-1:0] lock_ki;
 logic                 lock_polarity;
 logic signed [14-1:0] lock_bias;
@@ -259,6 +260,8 @@ logic signed [14-1:0] lock_correction_limit;
 logic signed [14-1:0] error_setpoint;
 logic signed [14-1:0] lock_error;
 logic                 integral_reset;
+logic        [16-1:0] servo_update_div;
+logic        [14-1:0] out2_slew_limit;
 logic signed [14-1:0] scan_out2;
 logic signed [14-1:0] selected_out2;
 logic                 scan_saturated;
@@ -517,6 +520,7 @@ custom_register_bank #(
   .out2_limit_o    (out2_limit     ),
   .hold_value_o    (hold_value     ),
   .kp_o            (lock_kp        ),
+  .kp_effective_o  (lock_kp_effective),
   .polarity_o      (lock_polarity  ),
   .lock_bias_o     (lock_bias      ),
   .lock_limit_o    (lock_limit     ),
@@ -524,6 +528,8 @@ custom_register_bank #(
   .error_setpoint_o(error_setpoint ),
   .ki_o            (lock_ki        ),
   .integral_reset_o(integral_reset ),
+  .servo_update_div_o(servo_update_div),
+  .out2_slew_limit_o(out2_slew_limit),
   .acq_trigger_o   (acq_trigger    ),
   .acq_hold_o      (acq_hold       ),
   .acq_abort_o     (acq_abort      ),
@@ -591,12 +597,14 @@ out2_lock_controller i_out2_lock_controller (
   .scan_saturated_i (scan_saturated ),
   .hold_value_i     (hold_value     ),
   .error_i          (lock_error     ),
-  .kp_i             (lock_kp        ),
+  .kp_i             (lock_kp_effective),
   .ki_i             (lock_ki        ),
   .polarity_i       (lock_polarity  ),
   .lock_bias_i      (lock_bias      ),
   .lock_limit_i     (lock_limit     ),
   .lock_correction_limit_i(lock_correction_limit),
+  .servo_update_div_i(servo_update_div),
+  .out2_slew_limit_i(out2_slew_limit),
   .integral_reset_i (integral_reset ),
   .acq_hold_i       (acq_hold       ),
   .acq_abort_i      (acq_abort      ),

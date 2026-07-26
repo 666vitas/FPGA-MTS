@@ -1,5 +1,48 @@
 # FPGA Deterministic Lock Acquisition
 
+> **LOCK-MVP-L1 ACTIVE CONTRACT — 2026-07-26**
+> 下方 D1 文本保留作历史设计记录；与本节冲突时以本节为准。
+> 当前证据为 `[IMPLEMENTED]`、`[RTL SIMULATED]`、`[UNIT TESTED]`；
+> timing、bitstream 与硬件均为 `[NOT VERIFIED]`。
+
+L1 将旧 `target_out2/window` 解释为 `guard_center/guard_half_width`。
+最终 trigger 必须是 active guard、实际 scan direction 与
+`lock_error = ERROR - active_setpoint` 的 H/N hysteretic crossing 同时成立。
+`ARM_VALIDATE=8` 只记 `VALIDATED` 事件并保持完整 SCAN；
+`ARM_ACTIVE=1` 捕获实际 `selected_out2` 为 bias 并进入 ACQUIRING。
+
+状态编码：
+
+```text
+0 SAFE, 1 SCAN, 2 VALIDATING, 3 ARMED,
+4 ACQUIRING, 5 P_LOCKED, 6 FAILED, 7 FAULT
+```
+
+保留地址 `0x00..0xE0`。新增地址：
+
+| Offset | Name | Access | L1 语义 |
+|---:|---|---|---|
+| `0xE4` | `L1_CAPABILITY` | RO | `0x4C310001` |
+| `0xE8` | `CROSSING_CONFIG` | RW | `[13:0] H`, `[23:16] N` |
+| `0xEC` | `KP_ACQUIRE_TARGET` | RW | host 预批准 P target |
+| `0xF0` | `KP_RAMP_CONFIG` | RW | step `[13:0]`, servo-tick div `[31:16]` |
+| `0xF4` | `ACQUIRE_TIMEOUT` | RW | acquisition clock timeout |
+| `0xF8` | `SERVO_CONFIG` | RW | update div `[15:0]`, slew `[29:16]` |
+| `0xFC` | `SUPERVISOR_CONFIG0` | RW | observe shift / confirm / divergence windows |
+| `0x100` | `SUPERVISOR_CONFIG1` | RW | signed-mean / abs-mean limits |
+| `0x104` | `EVENT_LOCK_ERROR` | RO | crossing 拍实际 lock_error |
+| `0x108` | `VALIDATE_EVENT_COUNT` | RO | validate event count |
+| `0x10C` | `KP_EFFECTIVE` | RO | FPGA 当前有效 Kp |
+| `0x110` | `SUPERVISOR_METRICS` | RO | abs mean / confirm / divergence counters |
+
+`ACQ_COMMAND` 的合法独立值为：ACTIVE `1`、ABORT `2`、
+CLEAR_EVENT `4`、VALIDATE `8`。不能组合。`VERSION=0x00030200` 保持，
+Host 必须额外校验 `L1_CAPABILITY`，从而拒绝同 VERSION 的旧 SIMPLE build。
+
+事件保存 actual OUT2、raw ERROR、lock_error、两个方向、generation、
+sequence 和 64-bit FPGA cycle timestamp。VALIDATE one guard pass 至多一个
+事件；离开并重新进入 guard 后可再次产生。
+
 > **D1-A DESIGN BASELINE / `[NOT VERIFIED]`**  
 > 本文件定义 `v3LOCK-D1 / Deterministic FPGA Lock Acquisition Design` 的最小接口基线。它描述待实现的 RTL、寄存器和 host 契约，不表示 RTL、bitstream、GUI 或真实锁定已经通过。
 

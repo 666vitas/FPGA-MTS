@@ -1,7 +1,7 @@
 Status: ACTIVE
 Effective-Gate: ALL
 Authority: SPEC
-Last-Updated: 2026-07-25
+Last-Updated: 2026-07-26
 Supersedes: FPGA_MTS_Linien_Basic_Lock_Project_Spec.md
 Superseded-By: NONE
 
@@ -12,6 +12,10 @@ Superseded-By: NONE
 **当前信号约定：** IN1=PD，IN2=REF，OUT1=MTS error，OUT2=PZT/Scan  
 **文档版本：** 1.1
 **核心目标：** 在不重写整个项目的前提下，实现一次真实、可重复、无明显谱峰偏移的 P-only 激光锁定，并建立可逐步演进为 Linien 式系统的软件边界。
+
+> 当前 active Gate 为 `LOCK-MVP-L1`。本文件末尾的
+> “LOCK-MVP-L1 implementation note” 覆盖本文中旧 SIMPLE acquisition、
+> host APPLY P 和旧状态机描述；timing 与硬件仍未验证。
 
 ---
 
@@ -953,3 +957,41 @@ Kp=4 后：
 - `linien-org/linien` 官方仓库及 Development Wiki
 - Linien 官方论文：*Linien: A versatile, user-friendly, open-source FPGA-based tool for frequency stabilization and spectroscopy parameter optimization*
 - Red Pitaya 官方 Linien 应用说明
+# LOCK-MVP-L1 implementation note (2026-07-26)
+
+> `[IMPLEMENTED]` / `[RTL SIMULATED]` / `[NOT VERIFIED: TIMING AND HARDWARE]`
+
+当前 active Gate 已从旧的 SIMPLE OUT2-window acquisition 提升为
+`FPGA Real-Time ERROR-Crossing P-Only Lock`。本文后续若仍描述 host
+等待 OUT2、Kp=0 等待人工 APPLY P 或只以 MODE=P_LOCK 判断成功，均视为
+历史背景，不再是正常路径。
+
+```text
+SAFE -> SCAN
+-> ARM_VALIDATE or ARM_ACTIVE
+-> guard_center +/- guard_half_width
+-> realtime lock_error H/N crossing
+-> actual selected_out2 captured as LOCK_BIAS
+-> ACQUIRING: kp_effective FPGA soft-start
+-> supervisor P_LOCKED or FAILED/FAULT -> SAFE
+```
+
+- `target_out2_counts` / `target_window_counts` 保留旧协议名字，但语义是
+  guard estimate；它们不能成为静态 bias。
+- `ARM_VALIDATE` 与 ACTIVE 使用相同方向、guard、H/N detector；VALIDATE
+  只记事件，SCAN/ENABLE/OUT2/bias/Kp 均不改变。
+- ACTIVE 在 crossing 拍捕获实际 `selected_out2`，第一锁定输出与最后
+  scan 样本数字差不超过 1 count。
+- P 控制仍使用既有 `product >>> 8`、polarity、correction limit 和
+  absolute limit；新增 servo divider 与独立 slew limiter，SAFE 不受其延迟。
+- Host 只写配置/命令并读 FPGA 权威状态，不参与逐样本 trigger、Kp ramp
+  或 servo。
+- legacy Linux `lock-here`、`CAPTURE_LOCK_POINT`、HOLD selected count 和
+  manual APPLY P 保留作 engineer diagnostic，正常 GUI 不调用。
+
+L1 状态编码：
+
+```text
+0 SAFE, 1 SCAN, 2 VALIDATING, 3 ARMED,
+4 ACQUIRING, 5 P_LOCKED, 6 FAILED, 7 FAULT
+```

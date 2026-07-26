@@ -22,6 +22,7 @@ module custom_register_bank #(
     output logic signed [13:0] out2_limit_o,
     output logic signed [13:0] hold_value_o,
     output logic signed [13:0] kp_o,
+    output logic signed [13:0] kp_effective_o,
     output logic               polarity_o,
     output logic signed [13:0] lock_bias_o,
     output logic signed [13:0] lock_limit_o,
@@ -29,6 +30,8 @@ module custom_register_bank #(
     output logic signed [13:0] error_setpoint_o,
     output logic signed [13:0] ki_o,
     output logic               integral_reset_o,
+    output logic        [15:0] servo_update_div_o,
+    output logic        [13:0] out2_slew_limit_o,
     output logic               acq_trigger_o,
     output logic               acq_hold_o,
     output logic               acq_abort_o,
@@ -117,13 +120,25 @@ module custom_register_bank #(
     localparam logic [5:0] REG_ACTIVE_CORRECTION_LIMIT  = 6'h36;
     localparam logic [5:0] REG_ACTIVE_ABSOLUTE_LIMIT    = 6'h37;
     localparam logic [5:0] REG_FAULT_DETAIL             = 6'h38;
+    localparam logic [6:0] REG_L1_CAPABILITY            = 7'h39;
+    localparam logic [6:0] REG_CROSSING_CONFIG          = 7'h3A;
+    localparam logic [6:0] REG_KP_ACQUIRE_TARGET        = 7'h3B;
+    localparam logic [6:0] REG_KP_RAMP_CONFIG           = 7'h3C;
+    localparam logic [6:0] REG_ACQUIRE_TIMEOUT          = 7'h3D;
+    localparam logic [6:0] REG_SERVO_CONFIG             = 7'h3E;
+    localparam logic [6:0] REG_SUPERVISOR_CONFIG0       = 7'h3F;
+    localparam logic [6:0] REG_SUPERVISOR_CONFIG1       = 7'h40;
+    localparam logic [6:0] REG_EVENT_LOCK_ERROR         = 7'h41;
+    localparam logic [6:0] REG_VALIDATE_EVENT_COUNT     = 7'h42;
+    localparam logic [6:0] REG_KP_EFFECTIVE             = 7'h43;
+    localparam logic [6:0] REG_SUPERVISOR_METRICS       = 7'h44;
 
     localparam logic [31:0] MODE_SAFE   = 32'd0;
     localparam logic [31:0] MODE_SCAN   = 32'd1;
     localparam logic [31:0] MODE_HOLD   = 32'd2;
     localparam logic [31:0] MODE_P_LOCK = 32'd3;
 
-    logic [5:0] reg_addr_w;
+    logic [6:0] reg_addr_w;
     logic sys_en_w;
     logic enabled_status_w;
 
@@ -135,15 +150,24 @@ module custom_register_bank #(
     logic [31:0] absolute_limit_shadow_q;
     logic [31:0] config_generation_shadow_q;
     logic  [6:0] shadow_written_mask_q;
+    logic [31:0] crossing_config_q;
+    logic signed [13:0] kp_acquire_target_q;
+    logic [31:0] kp_ramp_config_q;
+    logic [31:0] acquire_timeout_q;
+    logic [31:0] servo_config_q;
+    logic [31:0] supervisor_config0_q;
+    logic [31:0] supervisor_config1_q;
 
     logic command_write_w;
     logic arm_pulse_w;
+    logic validate_pulse_w;
     logic abort_pulse_w;
     logic clear_event_pulse_w;
     logic command_reject_pulse_w;
     logic apply_p_pulse_w;
     logic write_cycle_active_q;
     logic arm_command_q;
+    logic validate_command_q;
     logic abort_command_q;
     logic clear_event_command_q;
     logic invalid_command_q;
@@ -180,8 +204,13 @@ module custom_register_bank #(
     logic arm_accepted_w;
     logic signed [13:0] trigger_out2_sample_w;
     logic signed [13:0] trigger_error_sample_w;
+    logic signed [14:0] trigger_lock_error_sample_w;
+    logic signed [13:0] acq_kp_effective_w;
+    logic [31:0] validate_event_count_w;
+    logic [31:0] supervisor_metrics_w;
+    logic signed [31:0] event_lock_error_w;
 
-    assign reg_addr_w = bus.addr[2+:6];
+    assign reg_addr_w = bus.addr[2+:7];
     assign sys_en_w = bus.wen | bus.ren;
     assign enabled_status_w = enable_o && (mode_o != MODE_SAFE);
 
@@ -189,12 +218,16 @@ module custom_register_bank #(
     assign arm_pulse_w = command_write_w && (bus.wdata == 32'h0000_0001);
     assign abort_pulse_w = command_write_w && (bus.wdata == 32'h0000_0002);
     assign clear_event_pulse_w = command_write_w && (bus.wdata == 32'h0000_0004);
+    assign validate_pulse_w = command_write_w && (bus.wdata == 32'h0000_0008);
     assign command_reject_pulse_w = command_write_w &&
                                     (bus.wdata != 32'h0000_0001) &&
                                     (bus.wdata != 32'h0000_0002) &&
-                                    (bus.wdata != 32'h0000_0004);
+                                    (bus.wdata != 32'h0000_0004) &&
+                                    (bus.wdata != 32'h0000_0008);
     assign apply_p_pulse_w = bus.wen && (reg_addr_w == REG_KP);
     assign acq_abort_o = abort_command_q;
+    assign kp_effective_o =
+        (LOCK_ACQ_IMPL == LOCK_ACQ_SIMPLE) ? acq_kp_effective_w : kp_o;
 
     // Registered W1P command mailbox. write_cycle_active_q suppresses a
     // repeated command if the sys_bus master holds wen until the registered
@@ -203,6 +236,7 @@ module custom_register_bank #(
         if (!rstn_i) begin
             write_cycle_active_q                 <= 1'b0;
             arm_command_q                        <= 1'b0;
+            validate_command_q                   <= 1'b0;
             abort_command_q                      <= 1'b0;
             clear_event_command_q                <= 1'b0;
             invalid_command_q                    <= 1'b0;
@@ -211,6 +245,7 @@ module custom_register_bank #(
         end else begin
             write_cycle_active_q <= bus.wen;
             arm_command_q <= 1'b0;
+            validate_command_q <= 1'b0;
             abort_command_q <= 1'b0;
             clear_event_command_q <= 1'b0;
             invalid_command_q <= 1'b0;
@@ -218,6 +253,7 @@ module custom_register_bank #(
 
             if (!write_cycle_active_q) begin
                 arm_command_q <= arm_pulse_w;
+                validate_command_q <= validate_pulse_w;
                 abort_command_q <= abort_pulse_w;
                 clear_event_command_q <= clear_event_pulse_w;
                 invalid_command_q <= command_reject_pulse_w;
@@ -231,6 +267,14 @@ module custom_register_bank #(
 
     generate
         if (LOCK_ACQ_IMPL == LOCK_ACQ_D1) begin : g_lock_acq_d1
+            assign trigger_lock_error_sample_w =
+                $signed({trigger_error_sample_w[13], trigger_error_sample_w}) -
+                $signed({active_error_setpoint_w[13], active_error_setpoint_w});
+            assign acq_kp_effective_w = kp_o;
+            assign validate_event_count_w = 32'd0;
+            assign supervisor_metrics_w = 32'd0;
+            assign event_lock_error_w =
+                {{18{event_error_w[13]}}, event_error_w[13:0]};
             // D1 alone owns the snapshot start replicas. They preserve the
             // existing atomic D1 transaction and its legacy test hierarchy.
             always_ff @(posedge clk_i) begin
@@ -331,7 +375,6 @@ module custom_register_bank #(
                 .saturated_i(saturated_i),
                 .out2_i(out2_monitor_i),
                 .error_i(error_monitor_i),
-                .kp_i(kp_o),
                 .target_out2_i(target_out2_shadow_q),
                 .target_error_setpoint_i(target_error_setpoint_shadow_q),
                 .target_window_i(target_window_shadow_q),
@@ -340,15 +383,32 @@ module custom_register_bank #(
                 .absolute_limit_i(absolute_limit_shadow_q),
                 .config_generation_i(config_generation_shadow_q),
                 .config_written_mask_i(shadow_written_mask_q),
-                .request_i(arm_command_q),
+                .request_active_i(arm_command_q),
+                .request_validate_i(validate_command_q),
                 .abort_i(abort_command_q),
                 .clear_event_i(clear_event_command_q),
+                .crossing_hysteresis_i(crossing_config_q[13:0]),
+                .crossing_samples_i(crossing_config_q[23:16]),
+                .kp_target_i(kp_acquire_target_q),
+                .kp_ramp_step_i(kp_ramp_config_q[13:0]),
+                .kp_ramp_div_i(kp_ramp_config_q[31:16]),
+                .acquire_timeout_i(acquire_timeout_q),
+                .servo_update_div_i(servo_config_q[15:0]),
+                .observe_shift_i(supervisor_config0_q[7:0]),
+                .lock_confirm_windows_i(supervisor_config0_q[15:8]),
+                .divergence_windows_i(supervisor_config0_q[23:16]),
+                .error_mean_limit_i(supervisor_config1_q[13:0]),
+                .error_abs_limit_i(supervisor_config1_q[29:16]),
                 .trigger_o(acq_trigger_o),
                 .hold_o(acq_hold_o),
                 .fault_immediate_o(acq_fault_o),
                 .request_accepted_o(arm_accepted_w),
                 .trigger_out2_sample_o(trigger_out2_sample_w),
                 .trigger_error_sample_o(trigger_error_sample_w),
+                .trigger_lock_error_sample_o(trigger_lock_error_sample_w),
+                .kp_effective_o(acq_kp_effective_w),
+                .validate_event_count_o(validate_event_count_w),
+                .supervisor_metrics_o(supervisor_metrics_w),
                 .config_validation_o(config_validation_w),
                 .state_readback_o(acq_state_w),
                 .active_target_out2_o(active_target_out2_w),
@@ -360,6 +420,7 @@ module custom_register_bank #(
                 .event_sequence_o(event_sequence_w),
                 .event_out2_o(event_out2_w),
                 .event_error_o(event_error_w),
+                .event_lock_error_o(event_lock_error_w),
                 .event_config_generation_o(event_config_generation_w),
                 .event_info_o(event_info_w),
                 .event_timestamp_lo_o(event_timestamp_lo_w),
@@ -380,6 +441,10 @@ module custom_register_bank #(
             assign arm_accepted_w = 1'b0;
             assign trigger_out2_sample_w = 14'sd0;
             assign trigger_error_sample_w = 14'sd0;
+            assign trigger_lock_error_sample_w = 15'sd0;
+            assign acq_kp_effective_w = kp_o;
+            assign validate_event_count_w = 32'd0;
+            assign supervisor_metrics_w = 32'd0;
             assign config_validation_w = 32'd0;
             assign acq_state_w = 32'd0;
             assign active_target_out2_w = 14'sd0;
@@ -391,6 +456,7 @@ module custom_register_bank #(
             assign event_sequence_w = 32'd0;
             assign event_out2_w = 32'd0;
             assign event_error_w = 32'd0;
+            assign event_lock_error_w = 32'sd0;
             assign event_config_generation_w = 32'd0;
             assign event_info_w = 32'd0;
             assign event_timestamp_lo_w = 32'd0;
@@ -482,6 +548,19 @@ module custom_register_bank #(
                     end
                 endcase
             end
+        end
+    end
+
+    // The controller sees only ARM-committed servo timing/slew values.  Later
+    // sys_bus writes prepare the next transaction and cannot perturb a live
+    // acquisition.
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
+            servo_update_div_o <= 16'd125;
+            out2_slew_limit_o <= 14'd1;
+        end else if ((LOCK_ACQ_IMPL == LOCK_ACQ_SIMPLE) && arm_accepted_w) begin
+            servo_update_div_o <= servo_config_q[15:0];
+            out2_slew_limit_o <= servo_config_q[29:16];
         end
     end
 
@@ -596,6 +675,57 @@ module custom_register_bank #(
         end
     end
 
+    // LOCK-MVP-L1 configuration is bus-owned and only snapshots into the
+    // SIMPLE real-time acquisition block on a legal ARM transaction.
+    always_ff @(posedge clk_i) begin
+        if (!rstn_i) begin
+            crossing_config_q <= {8'd0, 8'd3, 2'd0, 14'd4};
+            kp_acquire_target_q <= 14'sd4;
+            kp_ramp_config_q <= {16'd1, 2'd0, 14'd1};
+            acquire_timeout_q <= 32'd12500000;
+            servo_config_q <= {2'd0, 14'd1, 16'd125};
+            supervisor_config0_q <= {8'd0, 8'd4, 8'd4, 8'd8};
+            supervisor_config1_q <= {2'd0, 14'd32, 2'd0, 14'd16};
+        end else if (bus.wen) begin
+            unique case (reg_addr_w)
+                REG_CROSSING_CONFIG: begin
+                    crossing_config_q[13:0] <=
+                        (bus.wdata[13:0] == 14'd0) ? 14'd1 : bus.wdata[13:0];
+                    crossing_config_q[23:16] <=
+                        (bus.wdata[23:16] == 8'd0) ? 8'd1 : bus.wdata[23:16];
+                end
+                REG_KP_ACQUIRE_TARGET:
+                    kp_acquire_target_q <= bus.wdata[13:0];
+                REG_KP_RAMP_CONFIG: begin
+                    kp_ramp_config_q[13:0] <=
+                        (bus.wdata[13:0] == 14'd0) ? 14'd1 : bus.wdata[13:0];
+                    kp_ramp_config_q[31:16] <=
+                        (bus.wdata[31:16] == 16'd0) ? 16'd1 : bus.wdata[31:16];
+                end
+                REG_ACQUIRE_TIMEOUT:
+                    acquire_timeout_q <= (bus.wdata == 32'd0) ? 32'd1 : bus.wdata;
+                REG_SERVO_CONFIG: begin
+                    servo_config_q[15:0] <=
+                        (bus.wdata[15:0] == 16'd0) ? 16'd1 : bus.wdata[15:0];
+                    servo_config_q[29:16] <=
+                        (bus.wdata[29:16] == 14'd0) ? 14'd1 : bus.wdata[29:16];
+                end
+                REG_SUPERVISOR_CONFIG0: begin
+                    supervisor_config0_q[7:0] <=
+                        (bus.wdata[7:0] > 8'd20) ? 8'd20 : bus.wdata[7:0];
+                    supervisor_config0_q[15:8] <=
+                        (bus.wdata[15:8] == 8'd0) ? 8'd1 : bus.wdata[15:8];
+                    supervisor_config0_q[23:16] <=
+                        (bus.wdata[23:16] == 8'd0) ? 8'd1 : bus.wdata[23:16];
+                end
+                REG_SUPERVISOR_CONFIG1:
+                    supervisor_config1_q <= bus.wdata;
+                default: begin
+                end
+            endcase
+        end
+    end
+
     always_ff @(posedge clk_i) begin
         if (!rstn_i) begin
             bus.ack   <= 1'b0;
@@ -678,6 +808,24 @@ module custom_register_bank #(
                     REG_ACTIVE_ABSOLUTE_LIMIT:
                         bus.rdata <= {18'd0, active_absolute_limit_w};
                     REG_FAULT_DETAIL: bus.rdata <= fault_detail_w;
+                    REG_L1_CAPABILITY:
+                        bus.rdata <= (LOCK_ACQ_IMPL == LOCK_ACQ_SIMPLE)
+                                   ? 32'h4C31_0001 : 32'd0;
+                    REG_CROSSING_CONFIG: bus.rdata <= crossing_config_q;
+                    REG_KP_ACQUIRE_TARGET:
+                        bus.rdata <= {{18{kp_acquire_target_q[13]}},
+                                      kp_acquire_target_q};
+                    REG_KP_RAMP_CONFIG: bus.rdata <= kp_ramp_config_q;
+                    REG_ACQUIRE_TIMEOUT: bus.rdata <= acquire_timeout_q;
+                    REG_SERVO_CONFIG:
+                        bus.rdata <= servo_config_q;
+                    REG_SUPERVISOR_CONFIG0: bus.rdata <= supervisor_config0_q;
+                    REG_SUPERVISOR_CONFIG1: bus.rdata <= supervisor_config1_q;
+                    REG_EVENT_LOCK_ERROR: bus.rdata <= event_lock_error_w;
+                    REG_VALIDATE_EVENT_COUNT: bus.rdata <= validate_event_count_w;
+                    REG_KP_EFFECTIVE:
+                        bus.rdata <= {{18{kp_effective_o[13]}}, kp_effective_o};
+                    REG_SUPERVISOR_METRICS: bus.rdata <= supervisor_metrics_w;
                     default: bus.rdata <= 32'd0;
                 endcase
             end
@@ -1603,6 +1751,8 @@ module out2_lock_controller (
     input  logic signed [13:0] lock_bias_i,
     input  logic signed [13:0] lock_limit_i,
     input  logic signed [13:0] lock_correction_limit_i,
+    input  logic        [15:0] servo_update_div_i,
+    input  logic        [13:0] out2_slew_limit_i,
     input  logic               integral_reset_i,
     input  logic               acq_hold_i,
     input  logic               acq_abort_i,
@@ -1663,6 +1813,12 @@ module out2_lock_controller (
 
     logic signed [31:0] abs_limit_w;
     logic signed [31:0] correction_limit_abs_w;
+    logic signed [31:0] limited_target_w;
+    logic               limited_target_saturated_w;
+    logic signed [14:0] slew_delta_w;
+    logic signed [14:0] slew_limit_w;
+    logic        [15:0] servo_count_q;
+    logic               servo_tick_w;
 
     always_comb begin
         if (s5_lock_limit < 14'sd0)
@@ -1680,7 +1836,27 @@ module out2_lock_controller (
                 $signed({{18{s3_correction_limit[13]}}, s3_correction_limit});
         if (correction_limit_abs_w > 32'sd8191)
             correction_limit_abs_w = 32'sd8191;
+
+        if (s5_raw > abs_limit_w) begin
+            limited_target_w = abs_limit_w;
+            limited_target_saturated_w = 1'b1;
+        end else if (s5_raw < -abs_limit_w) begin
+            limited_target_w = -abs_limit_w;
+            limited_target_saturated_w = 1'b1;
+        end else begin
+            limited_target_w = s5_raw;
+            limited_target_saturated_w = s5_correction_saturated;
+        end
+        slew_delta_w =
+            $signed({limited_target_w[13], limited_target_w[13:0]}) -
+            $signed({control_o[13], control_o});
+        slew_limit_w = (out2_slew_limit_i == 14'd0)
+                     ? 15'sd1 : $signed({1'b0, out2_slew_limit_i});
     end
+
+    assign servo_tick_w =
+        (servo_count_q + 16'd1 >=
+         ((servo_update_div_i == 16'd0) ? 16'd1 : servo_update_div_i));
 
     always_ff @(posedge clk_i) begin
         if (!rstn_i) begin
@@ -1724,6 +1900,7 @@ module out2_lock_controller (
             s5_lock_limit   <= 14'sd8191;
             control_o       <= 14'sd0;
             saturated_o     <= 1'b0;
+            servo_count_q    <= 16'd0;
         end else begin
             s0_enable     <= enable_i;
             s0_mode       <= mode_i;
@@ -1784,6 +1961,7 @@ module out2_lock_controller (
             if (!enable_i || (mode_i == MODE_SAFE) || acq_abort_i || acq_fault_i) begin
                 control_o   <= 14'sd0;
                 saturated_o <= 1'b0;
+                servo_count_q <= 16'd0;
             end else if (acq_hold_i) begin
                 control_o   <= control_o;
                 saturated_o <= 1'b0;
@@ -1792,26 +1970,32 @@ module out2_lock_controller (
                     MODE_SCAN: begin
                         control_o   <= scan_i;
                         saturated_o <= scan_saturated_i;
+                        servo_count_q <= 16'd0;
                     end
                     MODE_HOLD: begin
                         control_o   <= hold_value_i;
                         saturated_o <= 1'b0;
+                        servo_count_q <= 16'd0;
                     end
                     MODE_P_LOCK,
                     MODE_PI_LOCK: begin
-                        if (s5_enable &&
+                        if (!servo_tick_w) begin
+                            servo_count_q <= servo_count_q + 16'd1;
+                        end else if (s5_enable &&
                             ((s5_mode == MODE_P_LOCK) || (s5_mode == MODE_PI_LOCK))) begin
-                            if (s5_raw > abs_limit_w) begin
-                                control_o   <= abs_limit_w[13:0];
-                                saturated_o <= 1'b1;
-                            end else if (s5_raw < -abs_limit_w) begin
-                                control_o   <= -abs_limit_w[13:0];
-                                saturated_o <= 1'b1;
+                            servo_count_q <= 16'd0;
+                            if (slew_delta_w > slew_limit_w) begin
+                                control_o <= control_o + slew_limit_w[13:0];
+                                saturated_o <= limited_target_saturated_w;
+                            end else if (slew_delta_w < -slew_limit_w) begin
+                                control_o <= control_o - slew_limit_w[13:0];
+                                saturated_o <= limited_target_saturated_w;
                             end else begin
-                                control_o   <= s5_raw[13:0];
-                                saturated_o <= s5_correction_saturated;
+                                control_o <= limited_target_w[13:0];
+                                saturated_o <= limited_target_saturated_w;
                             end
                         end else begin
+                            servo_count_q <= 16'd0;
                             control_o   <= lock_bias_i;
                             saturated_o <= 1'b0;
                         end
@@ -1819,6 +2003,7 @@ module out2_lock_controller (
                     default: begin
                         control_o   <= 14'sd0;
                         saturated_o <= 1'b0;
+                        servo_count_q <= 16'd0;
                     end
                 endcase
             end
