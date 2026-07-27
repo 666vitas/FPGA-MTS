@@ -1,0 +1,484 @@
+# FPGABuilder - FPGA自动构建工具链
+
+FPGABuilder是一个跨平台的FPGA自动构建工具链，支持Windows环境，能够集成Xilinx、Altera等主流FPGA厂商的开发工具，提供工程创建、构建、综合、烧录等全流程自动化。
+
+## 特性
+
+- **多厂商支持**: 支持Xilinx Vivado、Intel Quartus等主流FPGA开发工具
+- **自动化构建**: 一键完成从源代码到比特流的全流程构建
+- **插件化架构**: 模块化设计，易于扩展新功能和新厂商支持
+- **配置驱动**: 使用YAML配置文件定义工程，支持版本控制
+- **文档集成**: 自动生成项目文档，支持MkDocs和Doxygen
+- **交互式配置**: 提供类似Linux内核的menuconfig配置界面
+- **项目管理**: 支持git子模块，自动管理第三方IP核和库
+- **跨平台**: 优先支持Windows，设计考虑Linux/macOS兼容性
+
+## 安装
+
+### 快速安装（Windows）
+
+1. 下载最新版本的FPGABuilder安装包
+2. 运行安装程序，按照提示完成安装
+3. 安装完成后，环境变量会自动更新，可以立即使用。如果命令未识别，请重启命令行终端或手动刷新环境变量。
+4. 验证安装：`FPGABuilder --version`
+
+### 从源代码安装
+
+```bash
+# 克隆仓库
+git clone https://github.com/yhn20112011/FPGABuilder.git
+cd FPGABuilder
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 安装FPGABuilder
+python setup.py install
+```
+
+## 构建与打包
+
+FPGABuilder提供了完整的构建和打包工具，支持生成Wheel包、源代码分发包、独立可执行文件和Windows安装程序。
+
+### 快速构建Wheel包
+
+Wheel包是Python的标准分发格式，可以在不编译的情况下快速安装。
+
+```bash
+# 方法1：使用setup.py直接构建
+python setup.py bdist_wheel
+
+# 方法2：使用打包脚本（推荐）
+python scripts/package.py --wheel
+
+# 生成的Wheel文件位于 dist/ 目录
+# 例如：dist/FPGABuilder-0.1.0-py3-none-any.whl
+```
+
+### 完整打包流程
+
+使用打包脚本可以一次性生成所有分发格式：
+
+```bash
+# 清理所有构建文件
+python scripts/package.py --clean
+
+# 构建所有分发格式（sdist + wheel + exe + installer）
+python scripts/package.py --all
+
+# 或者分别构建
+python scripts/package.py --sdist    # 源代码分发包
+python scripts/package.py --wheel    # Wheel包
+python scripts/package.py --exe      # 独立可执行文件
+python scripts/package.py --installer  # Windows安装程序（仅Windows）
+python scripts/package.py --offline-installer  # Windows离线安装程序（包含Python和所有依赖）
+```
+
+### Windows离线安装程序
+
+FPGABuilder 0.2.0及以上版本提供了增强的Windows离线安装程序，专为离线环境设计：
+
+**主要特性：**
+- 🚀 **完全离线**：无需网络连接，包含所有Python依赖
+- 🐍 **自包含运行时**：通过PyInstaller打包为独立可执行文件，无需安装Python或任何依赖
+- 🔧 **自动环境配置**：安装时可选"将FPGABuilder添加到系统PATH"
+- 🛡️ **管理员权限**：自动请求管理员权限以修改系统环境变量
+- 📦 **依赖检查**：安装前检查系统Python状态和依赖
+- 🔄 **智能卸载**：卸载时自动从PATH中移除安装目录
+
+**使用场景：**
+- 企业内网环境
+- 无Python环境的Windows系统
+- 需要一键部署FPGABuilder的生产环境
+- 需要自动配置PATH的批量部署
+
+**构建命令：**
+```bash
+# 构建离线安装程序（需要Inno Setup 6+）
+python scripts/package.py --offline-installer
+
+# 或构建所有格式（包括离线安装程序）
+python scripts/package.py --all
+```
+
+**安装程序功能：**
+1. 多语言界面（英文/简体中文）
+2. 桌面快捷方式（可选）
+3. 自动PATH环境变量管理
+4. 安装后启动FPGABuilder（可选）
+5. 完善的依赖和Python环境检查
+6. 安装后验证（自动运行`FPGABuilder --version`验证安装）
+
+**注意事项：**
+- 需要Windows 7及以上版本（64位推荐）
+- 需要管理员权限以修改系统PATH
+- 安装程序使用Inno Setup 6+构建，确保已安装Inno Setup
+
+### 故障排除
+
+如果在安装或使用过程中遇到问题，请参考以下解决方案：
+
+#### 安装后命令不可用
+
+**问题**：安装完成后，在命令行中运行`FPGABuilder --version`提示"命令未找到"。
+
+**解决方案**：
+1. **重启终端**：关闭并重新打开命令行窗口，使环境变量变更生效。
+2. **手动刷新环境变量**：
+   - 在命令提示符中运行：`refreshenv`（如果可用）
+   - 或在PowerShell中运行：`$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")`
+3. **检查PATH环境变量**：
+   ```cmd
+   echo %PATH% | findstr /i "FPGABuilder"
+   ```
+   如果未找到，请手动将安装目录添加到PATH环境变量。
+4. **使用完整路径**：直接运行安装目录下的可执行文件：
+   ```cmd
+   "C:\Program Files\FPGABuilder\FPGABuilder.exe" --version
+   ```
+
+#### 插件加载失败
+
+**问题**：运行Vivado相关命令时提示插件加载失败。
+
+**解决方案**：
+1. **验证安装完整性**：运行安装验证工具：
+   ```bash
+   python scripts/install_verifier.py
+   ```
+2. **检查插件文件**：确保`plugins/vivado/`目录下的所有文件存在。
+3. **重新安装**：如果问题持续，尝试重新安装FPGABuilder。
+
+#### 依赖项找不到
+
+**问题**：运行时提示缺少Python模块或依赖项。
+
+**解决方案**：
+1. **离线安装程序**：确保使用的是最新的离线安装程序，它包含了所有必需的依赖。
+2. **Python环境**：如果从源代码运行，请安装所有依赖：
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. **PyInstaller打包问题**：如果使用打包版本，请报告issue。
+
+#### 安装验证工具
+
+FPGABuilder提供了安装验证工具，可以自动检测和诊断常见问题：
+
+```bash
+# 运行完整验证
+python scripts/install_verifier.py
+
+# 快速验证
+python scripts/install_verifier.py --quick
+
+# 指定安装目录验证
+python scripts/install_verifier.py --install-dir "C:\Program Files\FPGABuilder"
+
+# 保存验证报告
+python scripts/install_verifier.py --output verification_report.json
+```
+
+验证工具会检查以下项目：
+- ✅ 可执行文件是否存在
+- ✅ PATH环境变量设置
+- ✅ 基本命令功能（--version, --help）
+- ✅ Python环境状态
+- ✅ 插件加载能力
+
+#### 获取帮助
+
+如果以上解决方案无法解决问题，请：
+1. 查看[GitHub Issues](https://github.com/yhn20112011/FPGABuilder/issues)中是否有类似问题
+2. 提交新的Issue，包含：
+   - 操作系统版本
+   - FPGABuilder版本
+   - 错误信息和日志
+   - 验证工具输出报告
+
+### 清理构建文件
+
+构建过程中会产生临时文件，建议在提交代码前或重新构建前进行清理：
+
+```bash
+# 使用打包脚本清理
+python scripts/package.py --clean
+
+# 或者手动清理
+rm -rf build/ dist/ *.egg-info/ __pycache__/
+```
+
+打包脚本的`clean()`方法会清理以下目录和文件：
+- `build/` - 构建临时目录
+- `dist/` - 分发文件目录
+- `*.egg-info/` - Egg信息目录
+- `__pycache__/` - Python缓存文件
+- `.pytest_cache/` - 测试缓存
+- `.mypy_cache/` - 类型检查缓存
+
+### 打包脚本选项
+
+```bash
+python scripts/package.py --help
+
+用法: package.py [-h] [--clean] [--sdist] [--wheel] [--exe] [--installer] [--all] [--output OUTPUT] [--version]
+
+选项:
+  -h, --help            显示帮助信息
+  --clean               清理构建文件
+  --sdist               构建源代码分发包
+  --wheel               构建wheel包
+  --exe                 构建独立可执行文件
+  --installer           构建Windows安装程序
+  --all                 打包所有格式
+  --output OUTPUT, -o OUTPUT
+                        输出目录 (默认: "dist")
+  --version, -V         显示版本
+```
+
+### 构建环境要求
+
+- **Python**: 3.8或更高版本
+- **构建工具**: `pip install build` (用于`sdist`和`wheel`)
+- **可选依赖**:
+  - `pip install pyinstaller` (用于可执行文件)
+  - Inno Setup (用于Windows安装程序)
+
+### 开发构建工作流
+
+1. **开发阶段**：
+   ```bash
+   # 安装开发依赖
+   pip install -e .
+
+   # 测试功能
+   FPGABuilder --version
+   ```
+
+2. **构建测试**：
+   ```bash
+   # 清理并构建Wheel包
+   python scripts/package.py --clean --wheel
+
+   # 测试安装
+   pip install dist/FPGABuilder-*.whl
+   ```
+
+3. **发布准备**：
+   ```bash
+   # 完整构建所有分发格式
+   python scripts/package.py --clean --all
+
+   # 验证包文件
+   ls -la dist/
+   ```
+
+## 快速开始
+
+### 创建新工程
+
+```bash
+# 初始化一个新的FPGA工程
+FPGABuilder init my_project --vendor xilinx --part xc7z045ffg676-2
+```
+
+### 配置工程
+
+```bash
+# 进入工程目录
+cd my_project
+
+# 交互式配置
+FPGABuilder config
+```
+
+### 构建工程
+
+```bash
+# 完整构建（综合+实现+生成比特流）
+FPGABuilder build
+
+# 仅综合
+FPGABuilder synth
+
+# 生成比特流
+FPGABuilder bitstream
+```
+
+### 烧录设备
+
+```bash
+# 通过JTAG烧录
+FPGABuilder program --cable xilinx_tcf --target hw_server:3121
+```
+
+## 工程结构
+
+一个标准的FPGABuilder工程包含以下结构：
+
+```
+my_project/
+├── fpga_project.yaml      # 工程配置文件
+├── src/                   # 源代码目录
+│   ├── hdl/              # HDL源代码
+│   ├── constraints/      # 约束文件
+│   └── ip/               # IP核文件
+├── ip_repo/              # 第三方IP核仓库（git子模块）
+├── lib/                  # 第三方库（git子模块）
+├── docs/                 # 项目文档
+├── build/                # 构建输出
+│   ├── reports/          # 构建报告
+│   ├── bitstreams/       # 比特流文件
+│   └── logs/             # 构建日志
+└── tests/                # 测试文件
+```
+
+## 配置文件示例
+
+### fpga_project.yaml
+
+```yaml
+project:
+  name: "my_fpga_project"
+  version: "1.0.0"
+  description: "示例FPGA工程"
+
+fpga:
+  vendor: "xilinx"
+  family: "zynq-7000"
+  part: "xc7z045ffg676-2"
+  top_module: "system_wrapper"
+
+source:
+  hdl:
+    - path: "src/hdl/**/*.v"
+      language: "verilog"
+    - path: "src/hdl/**/*.vhd"
+      language: "vhdl"
+  constraints:
+    - path: "src/constraints/*.xdc"
+
+dependencies:
+  git_submodules:
+    - path: "lib/common"
+      url: "git@example.com:fpga/common.git"
+
+build:
+  synthesis:
+    strategy: "out_of_context"
+  implementation:
+    opt_design: true
+    place_design: true
+    route_design: true
+  hooks:
+    pre_build: |
+      echo "构建开始前执行的命令"
+      echo "可以执行环境检查、依赖下载等"
+    pre_synth: "scripts/pre_synth.tcl"
+    post_synth: "echo '综合完成'"
+    pre_impl: |
+      echo "实现前命令1"
+      echo "实现前命令2"
+    post_impl: "scripts/post_impl.py"
+    post_bitstream: |
+      echo "比特流生成后执行的命令"
+      echo "可以复制比特流文件、发送通知等"
+    bin_merge_script: "scripts/merge_bin.py"
+    custom_scripts:
+      custom1: "scripts/custom1.tcl"
+      custom2: "scripts/custom2.py"
+```
+
+## 命令行参考
+
+### 全局选项
+
+```
+FPGABuilder [全局选项] <命令> [命令选项]
+
+全局选项:
+  -c, --config FILE    指定配置文件
+  -v, --verbose        详细输出
+  --version            显示版本信息
+  -h, --help           显示帮助信息
+```
+
+### 常用命令
+
+| 命令 | 描述 |
+|------|------|
+| `init` | 初始化新工程 |
+| `create` | 创建工程结构 |
+| `config` | 配置工程（menuconfig界面） |
+| `build` | 构建工程 |
+| `synth` | 仅综合 |
+| `impl` | 仅实现（布局布线） |
+| `bitstream` | 生成比特流 |
+| `program` | 烧录设备 |
+| `ip` | 管理IP核 |
+| `hls` | 管理HLS工程 |
+| `docs` | 生成文档 |
+| `clean` | 清理构建文件 |
+| `pack` | 打包发布 |
+
+### 示例
+
+```bash
+# 查看所有可用命令
+FPGABuilder --help
+
+# 查看具体命令帮助
+FPGABuilder init --help
+
+# 创建IP核
+FPGABuilder ip create axi_uart --type axi4lite
+
+# 生成文档
+FPGABuilder docs --format mkdocs --output docs/
+
+# 清理构建文件
+FPGABuilder clean --all
+```
+
+## 插件系统
+
+FPGABuilder支持插件扩展，可以添加：
+
+1. **新FPGA厂商支持** - 添加新的FPGA工具链插件
+2. **构建流程扩展** - 自定义构建步骤
+3. **报告生成器** - 添加新的报告格式
+4. **部署方式** - 支持新的烧录方式
+
+### 开发插件
+
+参考`src/plugins/vivado/`示例开发新插件。
+
+## 文档
+
+- [用户指南](docs/user_guide/) - 详细使用说明
+- [开发者指南](docs/developer_guide/) - 插件开发和贡献指南
+- [API参考](docs/api/) - 代码API文档
+
+## 支持
+
+- 问题反馈：[GitHub Issues](https://github.com/yhn20112011/FPGABuilder/issues)
+- 功能请求：[GitHub Discussions](https://github.com/yhn20112011/FPGABuilder/discussions)
+- 文档：[在线文档](https://yhn20112011.github.io/FPGABuilder/)
+
+## 许可证
+
+本项目采用 Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0)。详见[LICENSE](LICENSE)文件。
+
+未经本人书面授权任何人不得商用，本人保留一切权力。
+
+## 开发指南
+
+如果您想要理解FPGABuilder的架构设计，手动介入开发工作，或了解工具链与开发项目的解耦机制，请参阅：
+
+- [开发指南总览](docs/developer_guide/index.md) - 完整的开发指南
+- [快速入门](docs/developer_guide/quickstart.md) - 快速上手手动开发
+- [架构设计详解](docs/developer_guide/architecture.md) - 深入理解系统架构
+
+## 贡献
+
+欢迎贡献代码、报告问题或提出改进建议。请参阅[贡献指南](CONTRIBUTING.md)。

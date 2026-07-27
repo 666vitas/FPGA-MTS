@@ -1,0 +1,47 @@
+name: Upload Packages to TestPyPI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: "true"
+
+      - name: Build Linien
+        uses: ./.github/actions/build-linien
+
+      - name: Publish linien-common to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: linien-common/dist/
+          password: ${{ secrets.TEST_PYPI_API_TOKEN_COMMON }}
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Publish linien-server to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: linien-server/dist/
+          password: ${{ secrets.TEST_PYPI_API_TOKEN_SERVER }}
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Publish linien-client to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: linien-client/dist/
+          password: ${{ secrets.TEST_PYPI_API_TOKEN_CLIENT }}
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Publish linien-gui to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: linien-gui/dist/
+          password: ${{ secrets.TEST_PYPI_API_TOKEN_GUI }}
+          repository-url: https://test.pypi.org/legacy/

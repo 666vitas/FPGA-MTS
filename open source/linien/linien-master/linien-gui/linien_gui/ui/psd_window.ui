@@ -1,0 +1,339 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1200</width>
+    <height>1000</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>MainWindow</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QHBoxLayout" name="horizontalLayout">
+    <item>
+     <widget class="PSDPlotWidget" name="PSDPlot">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>100</width>
+        <height>100</height>
+       </size>
+      </property>
+      <property name="sizeIncrement">
+       <size>
+        <width>10000</width>
+        <height>0</height>
+       </size>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <layout class="QVBoxLayout" name="verticalLayout">
+      <item>
+       <widget class="QGroupBox" name="groupBox">
+        <property name="title">
+         <string>Maximum measurement time</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_3">
+         <item>
+          <widget class="QComboBox" name="maxMeasurementTimeComboBox">
+           <property name="currentIndex">
+            <number>5</number>
+           </property>
+           <item>
+            <property name="text">
+             <string>0.5 s</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>1.1 s</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>2.1 s</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>4.3 s</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>8.6 s</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>17.2 s</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>34.4 s</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>68.7 s</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>137 s</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>275 s</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>9 min</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>18 min</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>36 min</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>73 min</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>147 min</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>293 min</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>586 min</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>20 h</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>40 h</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>78 h</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>7 days</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="algorithmGroupBox">
+        <property name="title">
+         <string>Algorithm</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_2">
+         <item>
+          <widget class="QComboBox" name="PSDAlgorithmComboBox">
+           <item>
+            <property name="text">
+             <string>LPSD</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Scipy (faster but prone to glitches)</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="PSDNotRunningContainer">
+        <property name="title">
+         <string>Single PSD measurement</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_4">
+         <item>
+          <widget class="QPushButton" name="startPSDPushButton">
+           <property name="font">
+            <font>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">background: #00aa00</string>
+           </property>
+           <property name="text">
+            <string>Start single PSD measurement</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="PSDRunningContainer" native="true">
+        <layout class="QVBoxLayout" name="verticalLayout_5">
+         <item>
+          <widget class="QLabel" name="label_2">
+           <property name="font">
+            <font>
+             <pointsize>20</pointsize>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>PSD measurement running!</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="stopPSDPushButton">
+           <property name="styleSheet">
+            <string notr="true">background-color: #d40000;</string>
+           </property>
+           <property name="text">
+            <string>Stop PSD measurement</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="PSDTableWidget" name="curveTable">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <column>
+         <property name="text">
+          <string>Display</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>Color</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>Time</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>P</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>I</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>D</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>∫ Noise</string>
+         </property>
+        </column>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="deleteCurveButton">
+        <property name="text">
+         <string>Delete selected</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_2">
+        <property name="spacing">
+         <number>6</number>
+        </property>
+        <item>
+         <widget class="QPushButton" name="importPSDPushButton">
+          <property name="text">
+           <string>Import traces</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="exportPSDPushButton">
+          <property name="text">
+           <string>Export traces</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>PSDPlotWidget</class>
+   <extends>QGraphicsView</extends>
+   <header location="global">psd_plot_widget.h</header>
+  </customwidget>
+  <customwidget>
+   <class>PSDTableWidget</class>
+   <extends>QTableWidget</extends>
+   <header location="global">psd_table_widget.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>

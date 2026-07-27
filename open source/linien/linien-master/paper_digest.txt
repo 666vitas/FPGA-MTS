@@ -1,0 +1,529 @@
+==========================================================================================
+FILE: E:\new\yan1\论文\前言\redpitaya\Wiegand 等 - 2022 - Linien A versatile, user-friendly, open-source FPGA-based tool for frequency stabilization and spec.pdf
+PAGES: 7
+EXTRACTED_CHARS: 31520
+FAILED_PAGES: 0
+FIRST_SNIPPETS:
+  p1: ViewOnline
+ExportCitation
+RESEARCH ARTICLE |  JUNE 29 2022
+Linien: A versatile, user-friendly, open-source FPGA-based
+tool for frequency stabilization and spectroscopy parameter
+optimization
+B. Wiegand 
+  ; B. Leykauf 
+  ; R. Jördens 
+  
+  p2: Review of
+Scientific Instruments ARTICLE scitation.org/journal/rsi
+Linien: A versatile, user-friendly, open-source
+FPGA-based tool for frequency stabilization
+and spectroscopy parameter optimization
+Cite as: Rev. Sci. Instrum. 93, 063001 (2
+  p3: Review of
+Scientific Instruments ARTICLE scitation.org/journal/rsi
+FIG. 1. Software architecture of Linien. The server component (green) is capable of operating autonomously and may be controlled by one or more clients (red).
+FPGA firmware 
+KEY_HITS:
+  FPGA: p1:satile, user-friendly, open-source FPGA-based
+tool for frequency stabilization and spectroscopy parameter
+optimization
+B. Wiegand | p2:satile, user-friendly, open-source
+FPGA-based tool for frequency stabilization
+and spectroscopy parameter optimization
+Cite as: Re
+  Red Pitaya: p1:n the STEMlab platform (originally Red Pitaya)
+Rev. Sci. Instrum. (August 2020)
+Field-programmable-gate-array-based digital freque | p7:, and S. Deléglise, “PyRPL (Python Red Pitaya Lockbox)—An open-
+source software package for FPGA-controlled quantum optics experim
+  Linien: p1:n
+RESEARCH ARTICLE |  JUNE 29 2022
+Linien: A versatile, user-friendly, open-source FPGA-based
+tool for frequency stabilization and | p2: ARTICLE scitation.org/journal/rsi
+Linien: A versatile, user-friendly, open-source
+FPGA-based tool for frequency stabilization
+and
+  PID: p2: proportional–integral–derivative (PID) operation. Besides allowing for sinusoidal
+modulation (up to 50 MHz), triangular ramp scan | p3:are is based on the
+heritage of Redpid.21
+Figure 3 gives a simplified overview of the signal flow for a feed-
+back loop of a spect
+  demod: p2: scanning, in-phase and quadrature demodulation (1–5 f ), infinite impulse response, and PID
+filtering, Linien features two differ | p3: fed to a fast input of RedPitaya,
+demodulated by Linien and used as the error signal for the PID. After filtering,
+the output sig
+  lock: p2:on. Its main focus is spectroscopy locking, but the software is
+suitable for lock-in techniques in general as well as bare proport | p3:r-level functions, such as the autolock
+(cf. Sec. II B), and provides a communication interface.
+If desired, the server may be con
+  sweep: p4:orded while the laser frequency
+is sweeped. Then, another spectrum is recorded, which is used to
+determine the current laser frequ
+  ADC: p2:-bit analog-to-digital converters (ADCs) and digital-to-analog
+converters (DACs) in a small form factor.
+For this platform, we dev | p3:may
+be used.
+using the RedPitaya’s ADCs at a rate of 125 MHz, mapping the input
+range of ±1 V to a 14-bit integer. Starting at thi
+  DAC: p2: and digital-to-analog
+converters (DACs) in a small form factor.
+For this platform, we developed Linien: an open-source tool for
+l | p3:aya’s digital-to-analog converter
+(DAC) with a sampling rate of 125 MS s−1 maps this signal to ±1 V
+and enables the user to close 
+==========================================================================================
+FILE: E:\new\yan1\论文\前言\智能化\Chen Benyong 等 - 2024 - 基于卷积神经网络智能识别吸收峰的激光稳频方法.pdf
+PAGES: 11
+EXTRACTED_CHARS: 42754
+FAILED_PAGES: 0
+FIRST_SNIPPETS:
+  p1: 第  51  卷  第  17  期 / 2024  年  9  月 / 中国激光
+1701005
+-
+1
+研究论文
+基于卷积神经网络智能识别吸收峰的激光稳频方法
+陈本永 ，  赵勇 ，  楼盈天
+**
+，  严利平
+*
+，  谢建东 ，  于良 ，  唐健钧
+浙江理工大学信息科学与工程学院精密测量技术实验室 ， 浙江  杭州  310018
+摘要  针对饱和吸收光谱激光稳频技术中多吸收峰难以自动识别 、 误差信号灵敏度低的问题 ， 提出了一种基于卷积
+神经网络 （ CNN 
+  p2: 1701005
+-
+2
+研究论文 第  51  卷  第  17  期 / 2024  年  9  月 / 中国激光
+卷 积 神 经 网 络 （ CNN ） 作 为 一 种 大 数 据 驱 动 的 智
+能 算 法 ， 通 过 对 输 入 数 据 进 行 特 征 提 取 来 建 立 底 层
+信 号 与 高 层 语 义 的 映 射 关 系 ， 具 有 灵 活 的 可 扩 展 性 、
+良 好 的 鲁 棒 性 以 及 强 大 的 泛 化 能 力 ， 在 图 像 分 类 、 图
+形 识
+  p3: 1701005
+-
+3
+研究论文 第  51  卷  第  17  期 / 2024  年  9  月 / 中国激光
+探 测 ， 获 得 消 除 多 普 勒 背 景 的 饱 和 吸 收 光 谱 信 号
+S s a ( t )
+［ 10 ， 21 ］
+。 信号处理单元主要包括频率扫描 / 锁定控制
+模块和误差信号解调模块 。 激光频率锁定包括两个阶
+段 ： 1 ）  向 ECDL 激 光 器 PZT 端 施 加 三 角 波 扫 描 信 号
+S t r i ( t ) ， 驱动激
+KEY_HITS:
+  FPGA: p1:于上位机卷积神经网络智能寻峰 +
+现 场 可 编 程 门 阵 列 （ FPGA ） 实 时 信 号 处 理 的 激 光 频 率 锁 定 系 统 ， 锁 定 后 的 激 光 频 率 与 光 频 梳 拍 频 结 果 表 明 ： 在
+7500  s 内 ， 激 光  | p2:SAS 光 学 单 元 、 上
+位机系统以及基于现场可编程门阵列 （ FPGA ） 的激光
+信 号 处 理 单 元 。 ECDL 输 出 激 光 经 过 光 纤 分 束 器
+（ FS ） 分 为 两 束 ， 一 束 进 入 波 长 计 进 行 激 光 频 率 
+  Red Pitaya: p6: 。 误差信号解调 、 激光频率扫描和锁定等
+信 号 处 理 采 用 Red Pitaya 公 司 的 STEM 125
+-
+14 开 发 板
+实 现 ， 板 载 ZYNQ
+-
+XC 7 Z 010  FPGA 主 控 芯 片 ， 工 作 频
+率 为 125  | p7: 。 误差信号解调 、 激光频率扫描和锁定等
+信 号 处 理 采 用 Red Pitaya 公 司 的 STEM 125
+-
+14 开 发 板
+实 现 ， 板 载 ZYNQ
+-
+XC 7 Z 010  FPGA 主 控 芯 片 ， 工 作 频
+率 为 125 
+  PID: p1: 数 误
+差 信 号 超 过 某 一 特 定 正 阈 值 时 开 启 PID （ proportional 
+integral differential ） 闭 环 控 制 ， 实 现 激 光 器 自 动 锁 定 。
+鱼 志 健 等
+［ 12 ］
+对 误 差  | p2: S e r r ， 鉴 频 误 差 信 号 作 为 快 慢 反 馈
+PID 的输入 ； 当三角波扫描信号扫描至 V l o c k 时 ， 自动切
+换至频率锁定模式 ， PZT 端控制信号切换为慢反馈 PID
+模 块 的 输 出 信 号 与 V l o c 
+  demod: p6: Schematic diagram of error signal demodulation based on phase delay automatic extraction and matching
+图 8 　 不同相位延迟 Δ φ 下的误差信号 。 （ | p7: Schematic diagram of error signal demodulation based on phase delay automatic extraction and matching
+图 8 　 不同相位延迟 Δ φ 下的误差信号 。 （
+  lock: p8:s before and after laser frequency locking .  ( a )  Scanning control signal of PZT ;  ( b )  saturation 
+absorption spectral sign | p9:  et al .  Comparison of frequency locking 
+of 780  nm diode laser via rubidium saturated absorption and 
+polarization spectroscop
+  sweep: p11:ully connected 
+layers .  A linear sweep of the laser frequency was then performed to acquire a spectrum signal from rubidium atom
+  ADC: p6:Hz ， 且 具 有 两 路 14  bit 的 模 数 转 换 （ ADC ）
+和 数 模 转 换 （ DAC ） 通 道 。 上 位 机 软 件 在 LabVIEW 平
+台 上 实 现 ， 具 有 调 用 卷 积 神 经 网 络 模 型 、 保 存 数 据 | p7:Hz ， 且 具 有 两 路 14  bit 的 模 数 转 换 （ ADC ）
+和 数 模 转 换 （ DAC ） 通 道 。 上 位 机 软 件 在 LabVIEW 平
+台 上 实 现 ， 具 有 调 用 卷 积 神 经 网 络 模 型 、 保 存 数 据
+  DAC: p6: bit 的 模 数 转 换 （ ADC ）
+和 数 模 转 换 （ DAC ） 通 道 。 上 位 机 软 件 在 LabVIEW 平
+台 上 实 现 ， 具 有 调 用 卷 积 神 经 网 络 模 型 、 保 存 数 据 、 显
+示 波 形 、 收 发 指 | p7: bit 的 模 数 转 换 （ ADC ）
+和 数 模 转 换 （ DAC ） 通 道 。 上 位 机 软 件 在 LabVIEW 平
+台 上 实 现 ， 具 有 调 用 卷 积 神 经 网 络 模 型 、 保 存 数 据 、 显
+示 波 形 、 收 发 指
+  CNN: p1:别 、 误差信号灵敏度低的问题 ， 提出了一种基于卷积
+神经网络 （ CNN ） 智能识别铷原子吸收峰的激光频率锁定方法 。 首先设计了大 、 小卷积核相结合的 5 个卷积
+-
+ReLU
+-
+最 大 池 化 模 块 + 两 层 全 连 接 层 的 一 维 卷  | p2:2024  年  9  月 / 中国激光
+卷 积 神 经 网 络 （ CNN ） 作 为 一 种 大 数 据 驱 动 的 智
+能 算 法 ， 通 过 对 输 入 数 据 进 行 特 征 提 取 来 建 立 底 层
+信 号 与 高 层 语 义 的 映 射 关 系
+  卷积: p1: 年  9  月 / 中国激光
+1701005
+-
+1
+研究论文
+基于卷积神经网络智能识别吸收峰的激光稳频方法
+陈本永 ，  赵勇 ，  楼盈天
+**
+，  严利平
+*
+，  谢建东 ，  于良 ，  唐健钧
+浙江理工大学信息科学与工程学院精密测量技术实验室  | p2:域 被 广 泛
+应 用
+［ 18
+-
+20 ］
+。
+笔者提出了一种基于卷积神经网络智能识别铷原
+子吸收峰和正交解调相位自动匹配的激光频率锁定方
+法 。 首 先 ， 通 过 向 激 光 器 压 电 换 能 器 （ PZT ） 端 施 加 三
+角 波 电 压 来 
+  吸收峰: p1: 中国激光
+1701005
+-
+1
+研究论文
+基于卷积神经网络智能识别吸收峰的激光稳频方法
+陈本永 ，  赵勇 ，  楼盈天
+**
+，  严利平
+*
+，  谢建东 ，  于良 ，  唐健钧
+浙江理工大学信息科学与工程学院精密测量技术实验室 ， 浙江  杭州   | p2:18
+-
+20 ］
+。
+笔者提出了一种基于卷积神经网络智能识别铷原
+子吸收峰和正交解调相位自动匹配的激光频率锁定方
+法 。 首 先 ， 通 过 向 激 光 器 压 电 换 能 器 （ PZT ） 端 施 加 三
+角 波 电 压 来 大 范 围 预 扫 描 激 
+  稳频: p1:1701005
+-
+1
+研究论文
+基于卷积神经网络智能识别吸收峰的激光稳频方法
+陈本永 ，  赵勇 ，  楼盈天
+**
+，  严利平
+*
+，  谢建东 ，  于良 ，  唐健钧
+浙江理工大学信息科学与工程学院精密测量技术实验室 ， 浙江  杭州  310018 | p2: 能 识 别 吸 收 峰 + 自 动 匹 配 相 位 的
+SAS 激光稳频
+笔者提出的基于卷积神经网络智能识别吸收峰和
+自动匹配相位的 SAS 激光稳频方法如 图 1 所示 。 实现
+该 方 法 的 系 统 主 要 包 括 激 光 光 源 、 SAS 光 学 
+  扫频: p2:扫 描 信 号
+S t r i ( t ) ， 驱动激光频率大范围线性扫频 ， 采集饱和吸收光
+谱信号并将其上传至上位机 ， 上位机中的卷积神经网络
+模块对饱和吸收光谱信号进行峰值识别 ， 通过峰值序号
+与三角波扫描信号的对应关系提取待锁定吸收峰对应
+的 电  | p3:扫 描 信 号
+S t r i ( t ) ， 驱动激光频率大范围线性扫频 ， 采集饱和吸收光
+谱信号并将其上传至上位机 ， 上位机中的卷积神经网络
+模块对饱和吸收光谱信号进行峰值识别 ， 通过峰值序号
+与三角波扫描信号的对应关系提取待锁定吸收峰对应
+的 电 
+  调制: p1:S ） 稳 频 技 术 的 工 作 原 理 为 ： 对
+激光器进行频率调制 ， 调制后的激光与原子相互作用 ，
+获 得 饱 和 吸 收 光 谱 信 号 ， 对 该 信 号 进 行 解 调 获 得 鉴 频
+误差信号 ， 用该信号反馈控制激光器的电流 、 温度或者 | p2: V ( t ) = V m s i n ( ω m t ) 进行频率调制 （ V
+m
+和 ω
+m
+分别表示调制信号的振幅和角频率 ） ， 正交本振信
+号 s i n ( ω m t ) 、 c o s ( ω m t ) 和饱和吸收光谱信号 S s a ( 
+  解调: p1:据 ， 利用训练后的卷积神经网络实现吸收峰的智能识别 ； 最后采用正交解调技术精确提取饱和吸收光谱
+信号的相位 ， 使本振信号相位与其自动匹配 ， 提高误差信号的灵敏度 。 设计了基于上位机卷积神经网络智能寻峰 +
+现 场 可 编 程 门 阵 列 （ FPGA | p2:0 ］
+。
+笔者提出了一种基于卷积神经网络智能识别铷原
+子吸收峰和正交解调相位自动匹配的激光频率锁定方
+法 。 首 先 ， 通 过 向 激 光 器 压 电 换 能 器 （ PZT ） 端 施 加 三
+角 波 电 压 来 大 范 围 预 扫 描 激 光 频 率 
+  误差信号: p1:18
+摘要  针对饱和吸收光谱激光稳频技术中多吸收峰难以自动识别 、 误差信号灵敏度低的问题 ， 提出了一种基于卷积
+神经网络 （ CNN ） 智能识别铷原子吸收峰的激光频率锁定方法 。 首先设计了大 、 小卷积核相结合的 5 个卷积
+-
+ReLU
+-
+最 大 | p2: ， 21 ］
+。 信号处理单元主要包括频率扫描 / 锁定控制
+模块和误差信号解调模块 。 激光频率锁定包括两个阶
+段 ： 1 ）  向 ECDL 激 光 器 PZT 端 施 加 三 角 波 扫 描 信 号
+S t r i ( t ) ， 驱动激光频率大范围线
+  锁定: p1:一种基于卷积
+神经网络 （ CNN ） 智能识别铷原子吸收峰的激光频率锁定方法 。 首先设计了大 、 小卷积核相结合的 5 个卷积
+-
+ReLU
+-
+最 大 池 化 模 块 + 两 层 全 连 接 层 的 一 维 卷 积 神 经 网 络 ； 然 后 对 激 光 | p2:基于卷积神经网络智能识别铷原
+子吸收峰和正交解调相位自动匹配的激光频率锁定方
+法 。 首 先 ， 通 过 向 激 光 器 压 电 换 能 器 （ PZT ） 端 施 加 三
+角 波 电 压 来 大 范 围 预 扫 描 激 光 频 率 ， 记 录 包 含 所 有
+==========================================================================================
+FILE: E:\new\yan1\论文\前言\智能化\基于FPGA加速卷积神经网络识别吸收峰的激光稳频方法_严利平.pdf
+PAGES: 20
+EXTRACTED_CHARS: 29900
+FAILED_PAGES: 0
+FIRST_SNIPPETS:
+  p1: 激光与光电子学进展 
+Laser & Optoelectronics Progress 
+ISSN 1006-4125,CN 31-1690/TN 
+ 
+ 
+ 
+ 
+《激光与光电子学进展》网络首发论文 
+ 
+题目： 基于 FPGA 加速卷积神经网络识别吸收峰的激光稳频方法 
+作者： 严利平，孟令纪，楼盈天，谢建东，陈本永 
+收稿日期： 2025-08-08 
+网络首发日期： 2025-09-24 
+引用格式： 严利平，孟令纪，楼盈天，谢建东，陈本永．基于 FPGA 加速卷积神
+  p2: 基金项目：国家自然科学基金（52375552）、浙江省“领雁”计划项目（2024C01174）、浙江省科技创
+新领军人才项目（2022R52052） 
+通信作者：*E-mail：xiejiangdong@yeah.net; **E-mail：chenby@zstu.edu.cn. 
+基于 FPGA 加速卷积神经网络识别吸收峰的激光稳
+频方法 
+严利平，孟令纪，楼盈天，谢建东*，陈本永** 
+浙江理工大学精密测量技术实验室，浙江 杭州 310018 
+ 
+摘 要 针对现有激光稳
+  p3: 管这类方法能实现激光器的自动锁定， 但受环境温度影响， 激光器工作点易而发生漂移， 仍
+需事先手动将激光频率调节至目标吸收峰附近。 另一类研究则通过对激光频率进行大范围扫
+描获取多个吸收峰， 并利用人工智能算法识别目标吸收峰， 从而实现激光频率的全自动锁定。
+例如，李期学[20]采用互相关技术和支持向量机对铷原子多峰饱和吸收光谱信号进行峰群分
+类与吸收峰定位，最终实现了 780 nm ECDL 激光器的一键式自动稳频与失锁后自动重锁，
+平均重锁定时间为 56 秒。Winkle
+KEY_HITS:
+  FPGA: p1:
+ 
+ 
+ 
+《激光与光电子学进展》网络首发论文 
+ 
+题目： 基于 FPGA 加速卷积神经网络识别吸收峰的激光稳频方法 
+作者： 严利平，孟令纪，楼盈天，谢建东，陈本永 
+收稿日期： 2025-08-08 
+网络首发日期： 2025-09-24 
+引用格式： | p2:; **E-mail：chenby@zstu.edu.cn. 
+基于 FPGA 加速卷积神经网络识别吸收峰的激光稳
+频方法 
+严利平，孟令纪，楼盈天，谢建东*，陈本永** 
+浙江理工大学精密测量技术实验室，浙江 杭州 310018 
+ 
+摘 要 针对现有激光稳
+  Red Pitaya: p10:Q-7010 F PGA 芯片的开发板
+（STEMlab125-14，Red pitaya），具备双核 ARM Cortex-A9 处理器与 FPGA 的集成架构，
+FPGA 工作频率高达 125MHz，为轻量化 1D-CNN 的硬件加速实现提供了保障。此外，
+  PID: p2:误差信号；最后，结合吸收峰识别结果和误差信号，通过比例-积分-微
+分（PID）闭环反馈控制实现激光频率的自动锁定。搭建了基于调制转移光谱（MTS）技术
+的光路系统， 进一步构建了基于 FPGA 在线智能寻峰的激光稳频装置。与光学频率梳的拍频
+测量结果表明， 锁 | p3:中， 实现吸收峰的实时在线识别，
+获得对应激光扫描电压值；最后，通过 PID 闭环反馈控制实现激光频率的自动锁定。锁定
+后， 系统持续监测误差信号幅值， 一旦该幅值超过设定阈值时， 即判定为激光器失锁， 系统
+将自动触发激光频率重新扫描与自动锁定操作。这种机制
+  demod: p9:t)
+Vlock
+Locking Control
+Laser
+ADC
+Demodulation PID feedback
+Scan control
+Fully connected
+Absorption peak 
+Calculation
+DAC
+Max-Poo | p18:ication of the absorption peak and demodulation 
+of the error signal. Finally, the laser frequency  is automatically locked throug
+  lock: p3:机中的 CNN 模块进行峰值识别，确定待锁定吸收峰对应的工作电
+压（Vlock） 并将其下传至FPGA， 最终实现了锁定后激光频率相对Allan 方差为 3.5010-12@64s。
+虽然此类方法在识别吸收峰时表现出较高的鲁棒性， 减少了人工干预， 提高了激 | p4:ecognition
+Phase 
+shiftDAC1
+V1(t)
+Vlock Vtri(t)
+Serr
+V2(t) DAC2
+PZT
+(b) FPGA-based signal processing unit
+(a) Laser & MTS detectio
+  ADC: p4:2
+HWP1
+COL2
+Rb cell PD
+Beam2 Beam1
+ADC
+1D-CNN module for 
+peak recognition
+Phase 
+shiftDAC1
+V1(t)
+Vlock Vtri(t)
+Serr
+V2(t) DAC2
+PZ | p9:sat(t)
+Vlock
+Locking Control
+Laser
+ADC
+Demodulation PID feedback
+Scan control
+Fully connected
+Absorption peak 
+Calculation
+DAC
+Max
+  DAC: p4: for 
+peak recognition
+Phase 
+shiftDAC1
+V1(t)
+Vlock Vtri(t)
+Serr
+V2(t) DAC2
+PZT
+(b) FPGA-based signal processing unit
+(a) Laser &  | p9:ected
+Absorption peak 
+Calculation
+DAC
+Max-Pool1
+Data buffer
+ Conv2
+Data buffer
+ Conv3
+ Conv4
+Data buffer
+Max-Pool2
+ Conv1
+Train a
+  CNN: p2:等问题，提出了一种基于现
+场可编程门阵列（FPGA）加速卷积神经网络（CNN）的智能识别铷原子吸收峰的激光稳频
+方法。首先，设计了轻量化的一维卷积神经网络（1D-CNN）模型，利用激光器线性扫频采
+集的铷原子饱和吸收光谱信号构建数据集， 在电脑端训练网络获得模 | p3:56 秒。Winkler L 等[21]设计了一种基于卷积神经网络 （CNN） 的目标吸收
+谱线识别策略。 该策略仅使用IodineSpec 软件生成的模拟数据集训练网络， 最终实现了碘分
+子目标谱线的精准定位与 633 nm 激光器的自动锁定，整个吸收谱线识
+  卷积: p1:《激光与光电子学进展》网络首发论文 
+ 
+题目： 基于 FPGA 加速卷积神经网络识别吸收峰的激光稳频方法 
+作者： 严利平，孟令纪，楼盈天，谢建东，陈本永 
+收稿日期： 2025-08-08 
+网络首发日期： 2025-09-24 
+引用格式： 严利平，孟令 | p2:ail：chenby@zstu.edu.cn. 
+基于 FPGA 加速卷积神经网络识别吸收峰的激光稳
+频方法 
+严利平，孟令纪，楼盈天，谢建东*，陈本永** 
+浙江理工大学精密测量技术实验室，浙江 杭州 310018 
+ 
+摘 要 针对现有激光稳频系统大多自动
+  吸收峰: p1:进展》网络首发论文 
+ 
+题目： 基于 FPGA 加速卷积神经网络识别吸收峰的激光稳频方法 
+作者： 严利平，孟令纪，楼盈天，谢建东，陈本永 
+收稿日期： 2025-08-08 
+网络首发日期： 2025-09-24 
+引用格式： 严利平，孟令纪，楼盈天，谢建 | p2:by@zstu.edu.cn. 
+基于 FPGA 加速卷积神经网络识别吸收峰的激光稳
+频方法 
+严利平，孟令纪，楼盈天，谢建东*，陈本永** 
+浙江理工大学精密测量技术实验室，浙江 杭州 310018 
+ 
+摘 要 针对现有激光稳频系统大多自动化程度低、锁定速
+  稳频: p1:发论文 
+ 
+题目： 基于 FPGA 加速卷积神经网络识别吸收峰的激光稳频方法 
+作者： 严利平，孟令纪，楼盈天，谢建东，陈本永 
+收稿日期： 2025-08-08 
+网络首发日期： 2025-09-24 
+引用格式： 严利平，孟令纪，楼盈天，谢建东，陈本永． | p2:密测量技术实验室，浙江 杭州 310018 
+ 
+摘 要 针对现有激光稳频系统大多自动化程度低、锁定速度慢等问题，提出了一种基于现
+场可编程门阵列（FPGA）加速卷积神经网络（CNN）的智能识别铷原子吸收峰的激光稳频
+方法。首先，设计了轻量化的一维卷积神经网络
+  扫频: p2:先，设计了轻量化的一维卷积神经网络（1D-CNN）模型，利用激光器线性扫频采
+集的铷原子饱和吸收光谱信号构建数据集， 在电脑端训练网络获得模型参数； 然后， 将训练
+好的模型部署于 FPGA 信号处理平台 （Xilinx ZYNQ-7010） ， 实现待锁定吸 | p3:频方法研
+究[22]，基于 FPGA 的信号处理单元将激光器大范围线性扫频过程中采集到的饱和吸收光谱
+信号上传至上位机，上位机中的 CNN 模块进行峰值识别，确定待锁定吸收峰对应的工作电
+压（Vlock） 并将其下传至FPGA， 最终实现了锁定后激光频率相对A
+  调制: p2:-积分-微
+分（PID）闭环反馈控制实现激光频率的自动锁定。搭建了基于调制转移光谱（MTS）技术
+的光路系统， 进一步构建了基于 FPGA 在线智能寻峰的激光稳频装置。与光学频率梳的拍频
+测量结果表明， 锁定后的相对阿伦方差可达1.16×10-11@256s； | p4: 信号，另一束用于激光频率测
+量。在 MTS 光学单元中，泵浦光经电光调制器（EOM）进行相位调制产生激光边带，由准
+直器（COL1）转换为 S 偏振态的空间光，经偏振分光棱镜（PBS1）反射、半波片（HWP1）
+透射和偏振分光棱镜（PBS2）反射后，入射至铷
+  解调: p2:linx ZYNQ-7010） ， 实现待锁定吸收峰的在线智能
+识别并解调获得对应误差信号；最后，结合吸收峰识别结果和误差信号，通过比例-积分-微
+分（PID）闭环反馈控制实现激光频率的自动锁定。搭建了基于调制转移光谱（MTS）技术
+的光路系统， 进一步构建了 | p5:主要用于实现激光频率扫描/锁定控制、CNN 在线识别吸收
+峰和误差信号解调等功能。 激光频率锁定过程包括初始化、 扫描、 锁定和重锁四个阶段。 （1）
+初始化准备阶段： 向EOM 施加正弦调制信号 V1(t)=Vmsin(ωmt)进行相位调制， 使泵浦光生成
+
+  误差信号: p2:YNQ-7010） ， 实现待锁定吸收峰的在线智能
+识别并解调获得对应误差信号；最后，结合吸收峰识别结果和误差信号，通过比例-积分-微
+分（PID）闭环反馈控制实现激光频率的自动锁定。搭建了基于调制转移光谱（MTS）技术
+的光路系统， 进一步构建了基于 FPG | p3: PID 闭环反馈控制实现激光频率的自动锁定。锁定
+后， 系统持续监测误差信号幅值， 一旦该幅值超过设定阈值时， 即判定为激光器失锁， 系统
+将自动触发激光频率重新扫描与自动锁定操作。这种机制有效保障了激光器的长期稳定锁
+定。 
+2 基于 FPGA 加速 CN
+  锁定: p2:州 310018 
+ 
+摘 要 针对现有激光稳频系统大多自动化程度低、锁定速度慢等问题，提出了一种基于现
+场可编程门阵列（FPGA）加速卷积神经网络（CNN）的智能识别铷原子吸收峰的激光稳频
+方法。首先，设计了轻量化的一维卷积神经网络（1D-CNN）模型，利用 | p3:管这类方法能实现激光器的自动锁定， 但受环境温度影响， 激光器工作点易而发生漂移， 仍
+需事先手动将激光频率调节至目标吸收峰附近。 另一类研究则通过对激光频率进行大范围扫
+描获取多个吸收峰， 并利用人工智能算法识别目标吸收峰， 从而实现激光频率的全
+==========================================================================================
+FILE: E:\new\yan1\论文\自己\毕业论文\基于FPGA的DBR半导体激光器稳频系统的研究_李朗.pdf
+PAGES: 78
+EXTRACTED_CHARS: 77
+FAILED_PAGES: 78
+FIRST_SNIPPETS:
+  (no text extracted in early pages)
+KEY_HITS:
+  (none)
+==========================================================================================
+FILE: E:\new\yan1\论文\自己\毕业论文\基于FPGA的半导体激光器稳频系统_张沛.pdf
+PAGES: 70
+EXTRACTED_CHARS: 69
+FAILED_PAGES: 70
+FIRST_SNIPPETS:
+  (no text extracted in early pages)
+KEY_HITS:
+  (none)
+==========================================================================================
+FILE: E:\new\yan1\论文\自己\毕业论文\基于FPGA的激光稳频系统的设计与实现_张兴平.pdf
+PAGES: 84
+EXTRACTED_CHARS: 83
+FAILED_PAGES: 84
+FIRST_SNIPPETS:
+  (no text extracted in early pages)
+KEY_HITS:
+  (none)
+==========================================================================================
+FILE: E:\new\yan1\论文\自己\毕业论文\基于卷积神经网络的饱和吸收激光自动稳频方法研究_赵勇.pdf
+PAGES: 68
+EXTRACTED_CHARS: 67
+FAILED_PAGES: 68
+FIRST_SNIPPETS:
+  (no text extracted in early pages)
+KEY_HITS:
+  (none)

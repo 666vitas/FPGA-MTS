@@ -1,0 +1,135 @@
+﻿E:\new\yan1\论文\关\2025-刘子捷-Turn-key Voigt optical frequency standard.pdf
+E:\new\yan1\论文\关\A Faraday laser operating on Cs 852 nm transition.pdf
+E:\new\yan1\论文\关\Proof-[Revised] PR-571562_AUTHOR_1.pdf
+E:\new\yan1\论文\关\常鹏媛-法拉第半导体激光器与光谱技术研究.pdf
+E:\new\yan1\论文\关\王志洋-法拉第激光器及其稳频与相干性研究_20250603.pdf
+E:\new\yan1\论文\前言\22The developing condition analysis of semiconductor laser frequency.pdf
+E:\new\yan1\论文\前言\33The developing condition analysis of semiconductor laser frequency.pdf
+E:\new\yan1\论文\前言\Compact embedded device for lock-in.pdf
+E:\new\yan1\论文\前言\redpitaya\A scalable scanning transfer cavity laser stabilization scheme.pdf
+E:\new\yan1\论文\前言\redpitaya\Advancing frequency locking Modified FPGA-Guided direct modulation spectroscopy for laser stabilization.pdf
+E:\new\yan1\论文\前言\redpitaya\Digital laser frequency and intensity stemlab .pdf
+E:\new\yan1\论文\前言\redpitaya\fms+mts+linein.pdf
+E:\new\yan1\论文\前言\redpitaya\IceLock锁频控制器.pdf
+E:\new\yan1\论文\前言\redpitaya\Red Pitaya FPGA quantum.pdf
+E:\new\yan1\论文\前言\redpitaya\Redpitaya用户手册.pdf
+E:\new\yan1\论文\前言\redpitaya\TR-IceLock 激光锁频控制器 User Manual.pdf
+E:\new\yan1\论文\前言\redpitaya\Wiegand 等 - 2022 - Linien A versatile, user-friendly, open-source FPGA-based tool for frequency stabilization and spec.pdf
+E:\new\yan1\论文\前言\参数优化\Enhanced laser frequency stabilization to a.pdf
+E:\new\yan1\论文\前言\参数优化\Ultra-low frequency noise external cavity diode.pdf
+E:\new\yan1\论文\前言\参数优化\优化参数_.pdf
+E:\new\yan1\论文\前言\小型化便携性\Compact laser modulation system for a.pdf
+E:\new\yan1\论文\前言\小型化便携性\Miniaturized optical system for a chip-based.pdf
+E:\new\yan1\论文\前言\小型化便携性\基于 Ramsey 干涉的小型化冷原子微波钟研究进展.pdf
+E:\new\yan1\论文\前言\小型化便携性\基于PDH技术的小型化972.26+nm波长稳频激光器_中国激光.pdf
+E:\new\yan1\论文\前言\智能化\Amodio 等 - 2025 - Pointing stabilization of a 1 Hz high-power laser via machine learning.pdf
+E:\new\yan1\论文\前言\智能化\Artificial neural networks for laser frequency.pdf
+E:\new\yan1\论文\前言\智能化\Bakhtiyari 等 - 2021 - A review on applications of artificial intelligence in modeling and optimization of laser beam machi.pdf
+E:\new\yan1\论文\前言\智能化\Berger 等 - 2025 - Artificial intelligence time series forecasting for feed-forward laser stabilization.pdf
+E:\new\yan1\论文\前言\智能化\Chen Benyong 等 - 2024 - 基于卷积神经网络智能识别吸收峰的激光稳频方法.pdf
+E:\new\yan1\论文\前言\智能化\Compact plug and play optical frequency.pdf
+E:\new\yan1\论文\前言\智能化\Digital laser frequency and intensity.pdf
+E:\new\yan1\论文\前言\智能化\Elhamali 等 - 2025 - Artificial intelligence meets laser technology A review of recent advances.pdf
+E:\new\yan1\论文\前言\智能化\Enhancing photoacoustic trace gas detection via a CNN–transformer denoising framework.pdf
+E:\new\yan1\论文\前言\智能化\Laser frequency locking for quantum sensing.pdf
+E:\new\yan1\论文\前言\智能化\Laser technologies in manufacturing functional materials and applications of machine learning-assisted design and fabrication.pdf
+E:\new\yan1\论文\前言\智能化\Li 等 - 2020 - Intelligent and automatic laser frequency locking system using pattern recognition technology.pdf
+E:\new\yan1\论文\前言\智能化\Li 等 - 2022 - Deep reinforcement with spectrum series learning control for a mode-locked fiber laser.pdf
+E:\new\yan1\论文\前言\智能化\Mangipudi 等 - 2025 - Laser frequency locking for quantum sensing applications using AIML techniques.pdf
+E:\new\yan1\论文\前言\智能化\Marti 等 - 2023 - FPGA-Based Real-Time Laser Beam Profiling and Stabilization System for Quantum Simulation Applicatio.pdf
+E:\new\yan1\论文\前言\智能化\Ma和Yu - 2023 - Artificial Intelligence-Enabled Mode-Locked Fiber Laser A Review.pdf
+E:\new\yan1\论文\前言\智能化\nature Machine learning and applications in ultrafast.pdf
+E:\new\yan1\论文\前言\智能化\Neural_Network_Assisted_Laser_Frequency_Locking_System.pdf
+E:\new\yan1\论文\前言\智能化\Ruksasakchai 等 - 2022 - A microcontroller based self-locking laser system.pdf
+E:\new\yan1\论文\前言\智能化\Tahersima 等 - 2019 - Deep Neural Network Inverse Design of Integrated Photonic Power Splitters.pdf
+E:\new\yan1\论文\前言\智能化\Winkler和Nölleke - 2023 - Artificial neural networks for laser frequency stabilization.pdf
+E:\new\yan1\论文\前言\智能化\Yasar和Yuksel - 2025 - A Comprehensive Review of Machine Learning Applications in Laser Optics.pdf
+E:\new\yan1\论文\前言\智能化\Zhang 等 - 2025 - Laser technologies in manufacturing functional materials and applications of machine learning-assist.pdf
+E:\new\yan1\论文\前言\智能化\Zhu 等 - 2024 - Intelligent recognition of atomic saturated absorption spectra based on 1D Convolution Neural Networ.pdf
+E:\new\yan1\论文\前言\智能化\基于FPGA加速卷积神经网络识别吸收峰的激光稳频方法_严利平.pdf
+E:\new\yan1\论文\前言\智能化\李期学 - 2021 - 面向原子干涉仪的智能化激光自动稳频技术研究.pdf
+E:\new\yan1\论文\前言\智能化\用 SVM 做饱和吸收谱“模式识别.pdf
+E:\new\yan1\论文\前言\智能化\面向精密测量实验的智能控制系统_郝志敏.pdf
+E:\new\yan1\论文\前言\智能化数字化fpga\FPGA-based automatic laser frequency.pdf
+E:\new\yan1\论文\前言\智能化数字化fpga\Portable Laser-Pumped Rb Atomic Clock with Digital Circuits.pdf
+E:\new\yan1\论文\前言\综述\11Semiconductor laser active frequency stabilization technologies_ a review.pdf
+E:\new\yan1\论文\前言\综述\11半导体激光器稳频技术综述.pdf
+E:\new\yan1\论文\原理部分\Atomic Physics for Everyone.pdf
+E:\new\yan1\论文\原理部分\HandbookofOptics.pdf
+E:\new\yan1\论文\原理部分\Laser Stabilization - Hall, Taubman & Ye.pdf
+E:\new\yan1\论文\原理部分\Laser Stabilization - Hall, Taubman & Ye_翻译版.pdf
+E:\new\yan1\论文\原理部分\MTS\11Modulation transfer processes in optical heterodyne saturation.pdf
+E:\new\yan1\论文\原理部分\MTS\11Modulation transfer spectroscopy in atomic.pdf
+E:\new\yan1\论文\原理部分\MTS\MTS原理.pdf
+E:\new\yan1\论文\原理部分\MTS\Revisiting the laser frequency locking method.pdf
+E:\new\yan1\论文\原理部分\MTS\Stabilization_and_frequency_measurement_of_the_I_sub_2_-stabilized_NdYAG_laser.pdf
+E:\new\yan1\论文\原理部分\MTS\基于Rb+87调制转移光谱稳频技术研究_中国激光.pdf
+E:\new\yan1\论文\原理部分\MTS\基于Rb87调制转移光谱稳频技术研究_洪毅.pdf
+E:\new\yan1\论文\原理部分\MTS\基于调制转移光谱多参量相关的激光稳频特性.pdf
+E:\new\yan1\论文\原理部分\MTS\基于调制转移光谱多参量相关的激光稳频特性研究.pdf
+E:\new\yan1\论文\原理部分\MTS\基于调制转移光谱的激光自动锁频系统研究_陈俊杰.pdf
+E:\new\yan1\论文\原理部分\MTS\基于铷原子调制转移光谱技术的1560nm光纤激光器频率锁定研究_喻晓.pdf
+E:\new\yan1\论文\原理部分\MTS\自动锁频MTS.pdf
+E:\new\yan1\论文\原理部分\MTS\谢日升 - 2021 - 基于调制转移谱的激光自动稳频技术研究.pdf
+E:\new\yan1\论文\原理部分\PDH\pdh原理绘制.pdf
+E:\new\yan1\论文\原理部分\饱和吸收\saturation_spectroscopy11.pdf
+E:\new\yan1\论文\原理部分\饱和吸收\伯克利实验手册饱和吸收26页.pdf
+E:\new\yan1\论文\神经网络\Neural network assisted laser frequency locking system.pdf
+E:\new\yan1\论文\自己\accuracy-comparison-of-absolute-optical-frequency-2z71b84icy.pdf
+E:\new\yan1\论文\自己\An_Iodine-Stabilized_Laser_at_the_Telecom_Wavelength_Using_a_Dual-Pitch_PPLN_Waveguide.pdf
+E:\new\yan1\论文\自己\High-Performance Molecular Iodine-Stabilized Laser.pdf
+E:\new\yan1\论文\自己\期刊\Absolute frequency measurement ofthe iodine-stabilized He−Nelaser.pdf
+E:\new\yan1\论文\自己\期刊\Compact iodine-stabilized laser.pdf
+E:\new\yan1\论文\自己\期刊\Yan Chenxi 等 - 2024 - 基于铷原子的780 nm激光稳频系统设计与实现.pdf
+E:\new\yan1\论文\自己\期刊\基于模数混合控制方法的633+nm碘稳频激光器_中国激光.pdf
+E:\new\yan1\论文\自己\期刊\基于碘分子调制转移谱与光学腔的583+nm激光稳频实验_激光与光电子学进展.pdf
+E:\new\yan1\论文\自己\期刊\基于铷原子的780+nm激光稳频系统设计与实现_激光与光电子学进展.pdf
+E:\new\yan1\论文\自己\期刊\基于铷原子调制转移光谱技术的1560+nm光纤激光器频率锁定研究_中国激光.pdf
+E:\new\yan1\论文\自己\期刊\小型化碘稳频1064nm.pdf
+E:\new\yan1\论文\自己\期刊\温控和碘吸收池技术的发射激光稳频技术.pdf
+E:\new\yan1\论文\自己\期刊\激光稳频技术在大气探测激光雷达中的应用研究进展_黄聪.pdf
+E:\new\yan1\论文\自己\毕业论文\刘孝兵 - 2025 - 2μm波段单频DBR光纤激光器频率稳定技术的研究.pdf
+E:\new\yan1\论文\自己\毕业论文\双腔双频固体激光器正交解调Pound-Drever-Hall稳频方法及实验研究_苏娟.pdf
+E:\new\yan1\论文\自己\毕业论文\基于F-P标准具的单纵模光纤激光器稳频系统研究_张孝源.pdf
+E:\new\yan1\论文\自己\毕业论文\基于FPGA的DBR半导体激光器稳频系统的研究_李朗.pdf
+E:\new\yan1\论文\自己\毕业论文\基于FPGA的半导体激光器稳频系统_张沛.pdf
+E:\new\yan1\论文\自己\毕业论文\基于FPGA的激光稳频系统的设计与实现_张兴平.pdf
+E:\new\yan1\论文\自己\毕业论文\基于PDH技术的激光稳频控制研究与实现_曹开明.pdf
+E:\new\yan1\论文\自己\毕业论文\基于卷积神经网络的饱和吸收激光自动稳频方法研究_赵勇.pdf
+E:\new\yan1\论文\自己\毕业论文\碘分子激光稳频及其中剩余幅度调制的研究_支允琳.pdf
+E:\new\yan1\论文\自己\目标课题\254-FPGA在319 nm波长单频紫外激光系统锁频中的应用-苏雯静.pdf
+E:\new\yan1\论文\自己\目标课题\Adaptive phase locking in coherent beam.pdf
+E:\new\yan1\论文\自己\目标课题\Controlling Optical Cavities using.pdf
+E:\new\yan1\论文\自己\目标课题\Intelligent programmable mode-locked fiber laser.pdf
+E:\new\yan1\论文\自己\目标课题\user-friendly open-source FPGA-based.pdf
+E:\new\yan1\论文\自己\目标课题\自动锁模光纤激光器.pdf
+E:\new\yan1\论文\英文\Frequency Comb-Assisted QCL Stabilization for High Resolution Molecular Spectroscopy.pdf
+E:\new\yan1\论文\英文\frequnecy stabilized laser.pdf
+E:\new\yan1\论文\英文\Laser Spectroscopy Induced by Bichromatic or Polychromatic Laser for Laser Frequency Stabilization.pdf
+E:\new\yan1\论文\英文\Laser_Phase_and_Frequency_Stabilization_Using_an_Optical_Resonator.pdf
+E:\new\yan1\论文\英文\Ultra stable optical frequency.pdf
+E:\new\yan1\论文\近五年论文\仪器光梳参考与光反馈\Microcomb technology from principles to applications.pdf
+E:\new\yan1\论文\近五年论文\仪器光梳参考与光反馈\Shot‑Noise‑Limited Laser Frequency Stabilization Using.pdf
+E:\new\yan1\论文\近五年论文\仪器光梳参考与光反馈\Ultra-low frequency noise external cavity diode.pdf
+E:\new\yan1\论文\近五年论文\仪器光梳参考与光反馈\数字化稳频技术.pdf
+E:\new\yan1\论文\近五年论文\光学谐振腔\A practical guide to feedback control for Pound–Drever–Hall laser linewidth.pdf
+E:\new\yan1\论文\近五年论文\光学谐振腔\Enhanced laser frequency stabilization to a high-finesse cavity through a combined feed-back and feed-forward correction.pdf
+E:\new\yan1\论文\近五年论文\光学谐振腔\Laser frequency stabilization based on Fano resonance in a microcylinder cavity.pdf
+E:\new\yan1\论文\近五年论文\光学谐振腔\基于PDH技术的小型化972.26+nm波长稳频激光器_中国激光.pdf
+E:\new\yan1\论文\近五年论文\利用原子\A Portable Data Acquisition System for Online.pdf
+E:\new\yan1\论文\近五年论文\利用原子\mts\A Method of Laser Frequency Stabilization Based on the Effect of Linear Dichroism in Alkali Metal Vapors in a Modulated Transverse Magnetic Field.pdf
+E:\new\yan1\论文\近五年论文\利用原子\mts\Absolute Te2 reference for barium ion at 455.4 nm.pdf
+E:\new\yan1\论文\近五年论文\利用原子\mts\Compact optical frequency standard based on a miniature.pdf
+E:\new\yan1\论文\近五年论文\利用原子\mts\Compact optical frequency standard using.pdf
+E:\new\yan1\论文\近五年论文\利用原子\mts\Laser frequency stabilization by modulation.pdf
+E:\new\yan1\论文\近五年论文\利用原子\mts\Research on the Frequency Stabilization System of an External.pdf
+E:\new\yan1\论文\近五年论文\利用原子\mts\Wideband laser locking to an atomic（mts优化）.pdf
+E:\new\yan1\论文\近五年论文\利用原子\mts\结合combining modulationtransfer and frequency modulation spectroscopy.pdf
+E:\new\yan1\论文\近五年论文\利用原子\sas、ps\FPGA-based automatic laser frequency.pdf
+E:\new\yan1\论文\近五年论文\利用原子\sas、ps\Miniaturized optical system for a chip-based.pdf
+E:\new\yan1\论文\近五年论文\利用原子\sas、ps\Portable Laser-Pumped Rb Atomic Clock with Digital Circuits.pdf
+E:\new\yan1\论文\高\2024-张佳-PhysRevApplied.22.034045.pdf
+E:\new\yan1\论文\高\基于饱和吸收谱的激光稳频实验系统设计_王青.pdf
+E:\new\yan1\论文\高\铯原子7D_(5_2)激发...裂测量及超精细作用常数确定_王泽荣.pdf
+E:\new\yan1\论文\高\冷原子\2018空心光束积分球-王鑫.pdf
+E:\new\yan1\论文\高\冷原子\Quasi-one-dimensional diffuse laser cooling of atoms.pdf

@@ -1,0 +1,1237 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""
+Vivado TCL模板系统
+提供模块化的TCL脚本生成功能
+"""
+
+from typing import Dict, List, Any, Optional, Tuple
+from pathlib import Path
+import os
+
+
+class TCLTemplateBase:
+    """TCL模板基类"""
+
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        self.project_name = config.get('project', {}).get('name', 'fpga_project')
+        self.fpga_part = config.get('fpga', {}).get('part', 'xc7z045ffg676-2')
+        self.top_module = config.get('fpga', {}).get('top_module', '')
+
+    def render(self) -> str:
+        """渲染模板为TCL脚本"""
+        raise NotImplementedError
+
+    def _is_tcl_command(self, command: str) -> Tuple[bool, str]:
+        """判断命令是否是TCL命令
+
+        Args:
+            command: 命令字符串
+
+        Returns:
+            (is_tcl, processed_command):
+                is_tcl: 是否是TCL命令（应该在TCL脚本中执行）
+                processed_command: 处理后的命令（对于TCL命令）
+        """
+        # TCL关键字列表
+        tcl_keywords = {
+            'source', 'puts', 'set', 'if', 'else', 'elseif', 'for', 'foreach', 'while',
+            'break', 'continue', 'return', 'error', 'catch', 'exec', 'system',
+            'proc', 'namespace', 'variable', 'upvar', 'uplevel', 'global',
+            'array', 'list', 'dict', 'string', 'regexp', 'regsub', 'scan', 'format',
+            'file', 'open', 'close', 'read', 'write', 'seek', 'tell', 'eof',
+            'gets', 'flush', 'chan', 'fconfigure', 'socket', 'after', 'update',
+            'info', 'trace', 'rename', 'unset', 'append', 'lappend', 'incr',
+            'expr', 'switch', 'case', 'default', 'package', 'load', 'apply',
+            'eval', 'subst', 'uplevel', 'upvar', 'vwait', 'event',
+            'get_property', 'set_property', 'create_project', 'launch_runs',
+            'wait_on_run', 'reset_runs', 'open_project', 'close_project',
+            'add_files', 'update_compile_order', 'make_wrapper', 'generate_target',
+            'open_bd_design', 'current_bd_design', 'get_files', 'get_runs',
+            'file', 'glob', 'cd', 'pwd', 'exit'
+        }
+
+        # 检查是否是文件路径
+        first_word = command.split()[0] if command.strip() else ''
+        path = Path(first_word)
+
+        if path.exists() and path.is_file():
+            # 检查文件扩展名
+            ext = path.suffix.lower()
+            if ext in ['.tcl', '.script']:
+                # TCL脚本文件，使用source命令
+                return True, f'source {{{command}}}'
+            elif ext in ['.py', '.pyw', '.sh', '.bat', '.cmd', '.ps1', '.exe']:
+                # 非TCL脚本文件或可执行文件
+                return False, command
+            # 其他扩展名默认为非TCL文件
+
+        # 检查是否已经是exec或system命令
+        if first_word in {'exec', 'system'}:
+            return True, command
+
+        # 检查是否是TCL关键字
+        if first_word in tcl_keywords:
+            return True, command
+
+        # 默认认为不是TCL命令
+        return False, command
+
+    def _get_hook_commands(self, hook_name: str) -> List[str]:
+        """获取钩子脚本命令（返回TCL命令）"""
+        hooks = self.config.get('build', {}).get('hooks', {})
+        hook_script = hooks.get(hook_name)
+
+        if not hook_script:
+            return []
+
+        commands = []
+        # 支持字符串或字符串数组
+        if isinstance(hook_script, list):
+            script_items = hook_script
+        else:
+            # 字符串，按换行符分割，过滤空行
+            script_items = [line.strip() for line in str(hook_script).split('\n') if line.strip()]
+
+        for item in script_items:
+            is_tcl, processed_cmd = self._is_tcl_command(item)
+            if is_tcl:
+                commands.append(processed_cmd)
+            else:
+                # 非TCL命令，使用exec包装以便在TCL中执行
+                # 这是为了向后兼容，但调用者可以选择不在TCL中执行
+                commands.append(f'exec {{{item}}}')
+
+        return commands
+
+    def _analyze_hook_commands(self, hook_name: str) -> Tuple[List[str], List[str]]:
+        """分析钩子命令，返回(TCL命令列表, 非TCL命令列表)"""
+        hooks = self.config.get('build', {}).get('hooks', {})
+        hook_script = hooks.get(hook_name)
+
+        if not hook_script:
+            return [], []
+
+        tcl_commands = []
+        non_tcl_commands = []
+
+        # 支持字符串或字符串数组
+        if isinstance(hook_script, list):
+            script_items = hook_script
+        else:
+            # 字符串，按换行符分割，过滤空行
+            script_items = [line.strip() for line in str(hook_script).split('\n') if line.strip()]
+
+        for item in script_items:
+            is_tcl, processed_cmd = self._is_tcl_command(item)
+            if is_tcl:
+                tcl_commands.append(processed_cmd)
+            else:
+                non_tcl_commands.append(item)
+
+        return tcl_commands, non_tcl_commands
+
+    def _execute_hook(self, hook_name: str, tcl_script_lines: List[str]):
+        """执行钩子脚本"""
+        hook_commands = self._get_hook_commands(hook_name)
+        if hook_commands:
+            tcl_script_lines.append(f'\n# {hook_name} 钩子脚本')
+            for cmd in hook_commands:
+                tcl_script_lines.append(cmd)
+
+
+class BasicProjectTemplate(TCLTemplateBase):
+    """基本工程创建模板"""
+
+    def __init__(self, config: Dict[str, Any], file_scanner_results: Optional[Dict[str, Any]] = None):
+        super().__init__(config)
+        self.file_scanner_results = file_scanner_results or {}
+        self.project_dir = config.get('project_dir', './build')
+
+    def render(self) -> str:
+        """渲染基本工程创建模板"""
+        lines = [
+            '# Vivado工程创建脚本 - 由FPGABuilder生成 BY YiHok',
+            f'# 项目: {self.project_name}',
+            f'# 器件: {self.fpga_part}',
+            ''
+        ]
+
+        # 创建工程
+        lines.append('# 创建工程')
+        lines.append(f'create_project {self.project_name} "{self.project_dir}" -part {self.fpga_part} -force')
+        lines.append('')
+
+        # 设置工程属性
+        lines.append('# 设置工程属性')
+        lines.append('set_property default_lib work [current_project]')
+        lines.append('set_property target_language Verilog [current_project]')
+        lines.append('')
+
+        # 设置IP库路径
+        lines.append('# 设置IP库路径')
+        ip_repo_paths = self.config.get('source', {}).get('ip_repo_paths', ['ip_repo'])
+        if ip_repo_paths:
+            # 将路径列表转换为TCL列表格式
+            paths_list = ' '.join(['{' + path + '}' for path in ip_repo_paths])
+            lines.append(f'set_property IP_REPO_PATHS [list {paths_list}] [current_project]')
+            # 刷新IP目录
+            lines.append('update_ip_catalog')
+        lines.append('')
+
+        return '\n'.join(lines)
+
+
+class BDRecoveryTemplate(TCLTemplateBase):
+    """BD恢复和包装生成模板"""
+
+    def __init__(self, config: Dict[str, Any], bd_config: Dict[str, Any]):
+        super().__init__(config)
+        self.bd_config = bd_config
+        self.bd_file = bd_config.get('bd_file')
+        self.tcl_script = bd_config.get('tcl_script')
+        self.is_top = bd_config.get('is_top', False)
+        self.wrapper_name = bd_config.get('wrapper_name', f'{self.project_name}_wrapper')
+        self.auto_wrapper = bd_config.get('auto_wrapper', True)
+        self.generate_wrapper = bd_config.get('generate_wrapper', True)
+        self.wrapper_language = bd_config.get('wrapper_language', 'verilog')
+        # 获取项目目录
+        self.project_dir = config.get('project_dir', './build')
+
+    def render(self) -> str:
+        """渲染BD恢复模板"""
+        lines = [
+            '# Block Design恢复脚本',
+            ''
+        ]
+
+        # 如果有TCL脚本，使用TCL脚本恢复BD
+        if self.tcl_script:
+            lines.append('# 从TCL脚本恢复Block Design')
+            lines.append(f'set tcl_script_path [file normalize {{{self.tcl_script}}}]')
+            lines.append('source $tcl_script_path')
+        # 否则直接加载BD文件
+        elif self.bd_file:
+            lines.append('# 加载Block Design文件')
+            lines.append(f'set bd_file [get_files {{{self.bd_file}}}]')
+            lines.append(f'open_bd_design $bd_file')
+        else:
+            lines.append('# 错误：未指定BD文件或TCL脚本')
+            lines.append('puts "ERROR: No BD file or TCL script specified"')
+            return '\n'.join(lines)
+
+        lines.append('')
+        # 确保BD被加载（特别是当使用TCL脚本时）
+        lines.append('# 确保Block Design被加载')
+        lines.append('if {[current_bd_design] == ""} {')
+        lines.append('    # 尝试查找并打开BD文件')
+        lines.append('    set bd_files [get_files *.bd]')
+        lines.append('    if {[llength $bd_files] > 0} {')
+        lines.append('        open_bd_design [lindex $bd_files 0]')
+        lines.append('        puts "已打开BD文件: [lindex $bd_files 0]"')
+        lines.append('    } else {')
+        lines.append('        puts "警告: 未找到BD文件，包装器生成可能失败"')
+        lines.append('    }')
+        lines.append('}')
+        lines.append('')
+
+        # 生成包装器
+        if self.generate_wrapper:
+            lines.append('# 生成Block Design包装器')
+            if self.auto_wrapper:
+                # 获取BD名称
+                lines.append('# 获取BD名称')
+                lines.append('set bd_name [current_bd_design]')
+                lines.append('if {$bd_name == ""} {')
+                lines.append('    # 尝试从BD文件路径推断名称')
+                lines.append('    set bd_files [get_files *.bd]')
+                lines.append('    if {[llength $bd_files] > 0} {')
+                lines.append('        set bd_file_path [lindex $bd_files 0]')
+                lines.append('        set bd_name [file rootname [file tail $bd_file_path]]')
+                lines.append('        puts "从文件路径推断BD名称: $bd_name"')
+                lines.append('    } else {')
+                lines.append('        set bd_name "system"')
+                lines.append('        puts "警告: 使用默认BD名称: $bd_name"')
+                lines.append('    }')
+                lines.append('}')
+                lines.append('set bd_file [get_files [current_bd_design]]')
+                lines.append('if {$bd_file == ""} {')
+                lines.append('    # 如果无法通过current_bd_design获取，尝试使用找到的BD文件')
+                lines.append('    set bd_files [get_files *.bd]')
+                lines.append('    if {[llength $bd_files] > 0} {')
+                lines.append('        set bd_file [lindex $bd_files 0]')
+                lines.append('    }')
+                lines.append('}')
+                lines.append(f'set project_name "{self.project_name}"')
+                lines.append(f'set project_dir "{self.project_dir}"')
+                lines.append('')
+
+                # 用户脚本风格：按照手动开发常用流程
+
+
+                lines.append('# 按照手动开发常用流程生成HDL包装器')
+
+
+                lines.append('puts "开始生成HDL包装器..."')
+
+
+                lines.append('update_compile_order -fileset sources_1')
+
+
+                lines.append('puts "编译顺序已更新"')
+
+
+                lines.append('')
+
+
+                lines.append('puts "生成BD目标文件..."')
+
+
+                lines.append('generate_target all $bd_file')
+
+
+                lines.append('puts "BD目标文件生成完成"')
+
+
+                lines.append('')
+                # 根据包装器语言选择文件扩展名以及目标语言
+                wrapper_ext = '.vhd' if self.wrapper_language == 'vhdl' else '.v'
+                target_language = 'VHDL' if self.wrapper_language == 'vhdl' else 'Verilog'
+
+                lines.append(f'set_property target_language {target_language} [current_project]')
+
+                lines.append('puts "生成HDL包装器..."')
+
+
+                lines.append('make_wrapper -files $bd_file -top')
+
+
+                lines.append('puts "HDL包装器生成命令执行完成"')
+
+
+                lines.append('')
+
+
+                lines.append('# 构建包装器文件路径并添加')
+                
+                lines.append(f'set wrapper_path [file join $project_dir "${{project_name}}.srcs" "sources_1" "bd" $bd_name "hdl" "${{bd_name}}_wrapper{wrapper_ext}"]')
+
+
+                lines.append('puts "包装器文件路径: $wrapper_path"')
+
+
+                lines.append('# 等待文件生成')
+
+
+                lines.append('after 2000')
+
+
+                lines.append('if {[file exists $wrapper_path]} {')
+
+
+                lines.append('    add_files -norecurse $wrapper_path')
+
+
+                lines.append('    puts "已添加包装器文件: $wrapper_path"')
+
+
+                lines.append('} else {')
+
+
+                lines.append('    puts "警告: 包装器文件不存在，尝试通过get_files查找..."')
+
+
+                lines.append('    set wrapper_files [get_files -filter {NAME =~ "*wrapper*" && (FILE_TYPE == "Verilog" || FILE_TYPE == "VHDL")}]')
+
+
+                lines.append('    if {[llength $wrapper_files] == 0} {')
+
+
+                lines.append('        set wrapper_files [get_files -of_objects $bd_file -filter {NAME =~ "*wrapper*" && (FILE_TYPE == "Verilog" || FILE_TYPE == "VHDL")}]')
+
+
+                lines.append('    }')
+
+
+                lines.append('    if {[llength $wrapper_files] > 0} {')
+
+
+                lines.append('        puts "找到包装器文件: $wrapper_files"')
+
+
+                lines.append('        add_files -norecurse [lindex $wrapper_files 0]')
+
+
+                lines.append('        puts "已添加Vivado生成的包装器文件"')
+
+
+                lines.append('    } else {')
+
+
+                lines.append('        puts "错误: 包装器文件生成失败，检查Vivado日志"')
+
+
+                lines.append('    }')
+
+
+                lines.append('}')
+
+
+                lines.append('')
+
+
+                lines.append('update_compile_order -fileset sources_1')
+
+
+                lines.append('')
+
+
+                lines.append('set_property top ${bd_name}_wrapper [current_fileset]')
+
+
+                lines.append('')
+
+
+                lines.append('update_compile_order -fileset sources_1')
+
+
+                lines.append('')
+            else:
+                # 手动设置包装器
+                lines.append(f'# 手动设置顶层模块: {self.wrapper_name}')
+                lines.append(f'set_property top {self.wrapper_name} [current_fileset]')
+                lines.append('')
+
+        # 如果BD是顶层，设置顶层模块
+        if self.is_top:
+            # 如果已经生成了包装器并设置为顶层，则不需要再设置BD为顶层
+            # 包装器已经是顶层模块，BD是顶层设计
+            if not (self.generate_wrapper and self.auto_wrapper):
+                lines.append('# 设置Block Design为顶层')
+                lines.append(f'set_property top [current_bd_design] [current_fileset]')
+                lines.append('')
+            else:
+                # 包装器已由自动包装器生成逻辑设置，BD是顶层设计
+                # 无需额外操作，顶层模块已在前面的自动包装器生成逻辑中设置
+                lines.append('# 包装器已由自动包装器生成逻辑设置，BD是顶层设计')
+                lines.append('# 顶层模块已在前面的自动包装器生成逻辑中设置')
+                lines.append('')
+
+        return '\n'.join(lines)
+
+
+class BuildFlowTemplate(TCLTemplateBase):
+    """完整构建流程模板（综合→实现→比特流）"""
+
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        self.build_config = config.get('build', {})
+        self.synthesis_config = self.build_config.get('synthesis', {})
+        self.implementation_config = self.build_config.get('implementation', {})
+        self.bitstream_config = self.build_config.get('bitstream', {})
+        # 收集非TCL钩子命令
+        self.non_tcl_hooks: Dict[str, List[str]] = {}
+
+    def _execute_hook_smart(self, hook_name: str, tcl_script_lines: List[str]):
+        """智能执行钩子：TCL命令添加到脚本，非TCL命令收集起来"""
+        tcl_commands, non_tcl_commands = self._analyze_hook_commands(hook_name)
+
+        # 保存非TCL命令
+        if non_tcl_commands:
+            self.non_tcl_hooks[hook_name] = non_tcl_commands
+
+        # 添加TCL命令到脚本
+        if tcl_commands:
+            tcl_script_lines.append(f'\n# {hook_name} 钩子脚本')
+            for cmd in tcl_commands:
+                tcl_script_lines.append(cmd)
+
+    def render(self) -> str:
+        """渲染构建流程模板"""
+        lines = [
+            '# Vivado构建流程脚本',
+            ''
+        ]
+
+        # 构建前钩子
+        self._execute_hook_smart('pre_build', lines)
+
+        # 综合前钩子
+        self._execute_hook('pre_synth', lines)
+
+        # 设置综合策略
+        synth_strategy = self.synthesis_config.get('strategy', 'Vivado Synthesis Defaults')
+        lines.append('# 设置综合策略')
+        lines.append(f'set_property strategy "{synth_strategy}" [get_runs synth_1]')
+        lines.append('')
+
+        # 运行综合
+        lines.append('# 运行综合')
+        lines.append('launch_runs synth_1')
+        lines.append('wait_on_run synth_1')
+        lines.append('')
+
+        # 检查综合结果
+        lines.append('# 检查综合结果')
+        lines.append('if {[get_property PROGRESS [get_runs synth_1]] != "100%"} {')
+        lines.append('    error "综合失败"')
+        lines.append('}')
+        lines.append('')
+
+        # 综合后钩子
+        self._execute_hook('post_synth', lines)
+
+        # 实现前钩子
+        self._execute_hook('pre_impl', lines)
+
+        # 设置实现选项
+        impl_options = self.implementation_config.get('options', {})
+        if impl_options:
+            lines.append('# 设置实现选项')
+            for opt_name, opt_value in impl_options.items():
+                lines.append(f'set_property {opt_name} {opt_value} [get_runs impl_1]')
+            lines.append('')
+
+        # 运行实现
+        lines.append('# 运行实现')
+        lines.append('launch_runs impl_1')
+        lines.append('wait_on_run impl_1')
+        lines.append('')
+
+        # 检查实现结果
+        lines.append('# 检查实现结果')
+        lines.append('if {[get_property PROGRESS [get_runs impl_1]] != "100%"} {')
+        lines.append('    error "实现失败"')
+        lines.append('}')
+        lines.append('')
+
+        # 实现后钩子
+        self._execute_hook('post_impl', lines)
+
+        # 生成比特流
+        lines.append('# 生成比特流')
+        # 降低未约束端口DRC错误的严重性，允许生成比特流用于测试
+        lines.append('set_property SEVERITY {Warning} [get_drc_checks UCIO-1]')
+
+        # 设置比特流输出目录
+        bitstream_output_dir = self.bitstream_config.get('output_dir', 'build/bitstreams')
+        lines.append(f'# 设置比特流输出目录: {bitstream_output_dir}')
+        lines.append(f'file mkdir "{bitstream_output_dir}"')
+        # 使用绝对路径并确保正斜杠
+        lines.append(f'set bitstream_output_dir [file normalize "{bitstream_output_dir}"]')
+        # 设置比特流输出目录，添加错误处理
+        lines.append('if {[current_design] != ""} {')
+        lines.append(f'    catch {{set_property BITSTREAM.OUTPUT_DIR "$bitstream_output_dir" [current_design]}}')
+        lines.append('}')
+        lines.append('if {[get_runs -quiet impl_1] != ""} {')
+        lines.append(f'    catch {{set_property BITSTREAM.OUTPUT_DIR "$bitstream_output_dir" [get_runs impl_1]}}')
+        lines.append('}')
+        lines.append('')
+
+        bitstream_options = self.bitstream_config.get('options', {})
+        if bitstream_options:
+            lines.append('# 设置比特流选项')
+            for opt_name, opt_value in bitstream_options.items():
+                # 映射常见的比特流选项名称到正确的属性名
+                if opt_name == 'bin_file':
+                    # 生成bin文件的正确属性
+                    prop_name = 'STEPS.WRITE_BITSTREAM.ARGS.BIN_FILE'
+                    # 将Python布尔值转换为TCL布尔值
+                    prop_value = 'true' if opt_value in [True, 'true', 'True'] else 'false'
+                    lines.append(f'set_property {prop_name} {prop_value} [get_runs impl_1]')
+                elif opt_name == 'mask_file':
+                    prop_name = 'STEPS.WRITE_BITSTREAM.ARGS.MASK_FILE'
+                    prop_value = 'true' if opt_value in [True, 'true', 'True'] else 'false'
+                    lines.append(f'set_property {prop_name} {prop_value} [get_runs impl_1]')
+                else:
+                    # 其他选项直接传递
+                    lines.append(f'set_property {opt_name} {opt_value} [get_runs impl_1]')
+
+        # 重置比特流步骤（如果之前已经运行过）
+        lines.append('catch {reset_run impl_1 -from_step route_design}')
+        lines.append('launch_runs impl_1 -to_step write_bitstream')
+        lines.append('wait_on_run impl_1')
+        lines.append('')
+
+        # 检查比特流生成结果并复制文件到输出目录
+        lines.append('# 检查比特流生成结果并复制文件')
+        lines.append('set run_dir [get_property DIRECTORY [get_runs impl_1]]')
+        lines.append('puts "运行目录: $run_dir"')
+        lines.append('set bit_files [glob -nocomplain "$run_dir/*.bit"]')
+        lines.append('# 如果运行目录没找到，检查当前目录')
+        lines.append('if {[llength $bit_files] == 0} {')
+        lines.append('    set bit_files [glob -nocomplain "*.bit"]')
+        lines.append('    puts "在当前目录查找比特流文件"')
+        lines.append('}')
+        lines.append('if {[llength $bit_files] == 0} {')
+        lines.append('    error "比特流生成失败：未找到比特流文件"')
+        lines.append('}')
+        lines.append('puts "比特流生成成功，找到 [llength $bit_files] 个文件"')
+        lines.append('')
+        lines.append('# 复制比特流文件到输出目录')
+        lines.append('set copy_success 0')
+        lines.append('foreach bit_file $bit_files {')
+        lines.append('    set filename [file tail $bit_file]')
+        lines.append('    set dest_file [file join $bitstream_output_dir $filename]')
+        lines.append('    if {[catch {file copy -force $bit_file $dest_file} error_msg]} {')
+        lines.append('        puts "警告: 复制文件失败: $filename -> $error_msg"')
+        lines.append('    } else {')
+        lines.append('        puts "已复制比特流文件: $filename -> $bitstream_output_dir"')
+        lines.append('        set copy_success 1')
+        lines.append('    }')
+        lines.append('}')
+        lines.append('if {$copy_success == 0} {')
+        lines.append('    puts "警告: 未能复制任何比特流文件到输出目录"')
+        lines.append('}')
+        lines.append('')
+        # 复制.ltx调试文件（如果存在）
+        lines.append('# 复制.ltx调试文件（如果存在）')
+        lines.append('set ltx_files [glob -nocomplain "$run_dir/*.ltx"]')
+        lines.append('# 如果运行目录没找到，检查当前目录')
+        lines.append('if {[llength $ltx_files] == 0} {')
+        lines.append('    set ltx_files [glob -nocomplain "*.ltx"]')
+        lines.append('    puts "在当前目录查找.ltx调试文件"')
+        lines.append('}')
+        lines.append('if {[llength $ltx_files] > 0} {')
+        lines.append('    puts "找到 [llength $ltx_files] 个.ltx调试文件"')
+        lines.append('    foreach ltx_file $ltx_files {')
+        lines.append('        set filename [file tail $ltx_file]')
+        lines.append('        set dest_file [file join $bitstream_output_dir $filename]')
+        lines.append('        if {[catch {file copy -force $ltx_file $dest_file} error_msg]} {')
+        lines.append('            puts "警告: 复制.ltx文件失败: $filename -> $error_msg"')
+        lines.append('        } else {')
+        lines.append('            puts "已复制.ltx调试文件: $filename -> $bitstream_output_dir"')
+        lines.append('        }')
+        lines.append('    }')
+        lines.append('} else {')
+        lines.append('    puts "未找到.ltx调试文件"')
+        lines.append('}')
+
+        # 复制.bin二进制文件（如果存在）
+        lines.append('# 复制.bin二进制文件（如果存在）')
+        lines.append('set bin_files [glob -nocomplain "$run_dir/*.bin"]')
+        lines.append('# 如果运行目录没找到，检查当前目录')
+        lines.append('if {[llength $bin_files] == 0} {')
+        lines.append('    set bin_files [glob -nocomplain "*.bin"]')
+        lines.append('    puts "在当前目录查找.bin二进制文件"')
+        lines.append('}')
+        lines.append('if {[llength $bin_files] > 0} {')
+        lines.append('    puts "找到 [llength $bin_files] 个.bin二进制文件"')
+        lines.append('    foreach bin_file $bin_files {')
+        lines.append('        set filename [file tail $bin_file]')
+        lines.append('        set dest_file [file join $bitstream_output_dir $filename]')
+        lines.append('        if {[catch {file copy -force $bin_file $dest_file} error_msg]} {')
+        lines.append('            puts "警告: 复制.bin文件失败: $filename -> $error_msg"')
+        lines.append('        } else {')
+        lines.append('            puts "已复制.bin二进制文件: $filename -> $bitstream_output_dir"')
+        lines.append('        }')
+        lines.append('    }')
+        lines.append('} else {')
+        lines.append('    puts "未找到.bin二进制文件"')
+        lines.append('}')
+        lines.append('')
+
+        # 比特流后钩子
+        self._execute_hook_smart('post_bitstream', lines)
+
+        # 二进制合并脚本
+        bin_merge_script = self.config.get('build', {}).get('hooks', {}).get('bin_merge_script')
+        if bin_merge_script:
+            lines.append('# 执行二进制合并脚本')
+            bin_script_path = Path(bin_merge_script)
+            if bin_script_path.exists():
+                # 检查是否是TCL脚本文件
+                ext = bin_script_path.suffix.lower()
+                if ext in ['.tcl', '.script']:
+                    # TCL脚本文件，添加到TCL脚本中
+                    lines.append(f'source {{{bin_merge_script}}}')
+                else:
+                    # 非TCL脚本文件，收集到非TCL钩子中
+                    self.non_tcl_hooks['bin_merge_script'] = [bin_merge_script]
+                    lines.append(f'# 注意：非TCL脚本将在Python层面执行: {bin_merge_script}')
+            else:
+                # 文件不存在，检查是否是命令
+                is_tcl, processed_cmd = self._is_tcl_command(bin_merge_script)
+                if is_tcl:
+                    # TCL命令，添加到TCL脚本中
+                    lines.append(processed_cmd)
+                else:
+                    # 非TCL命令，收集到非TCL钩子中
+                    self.non_tcl_hooks['bin_merge_script'] = [bin_merge_script]
+                    lines.append(f'# 注意：非TCL命令将在Python层面执行: {bin_merge_script}')
+            lines.append('')
+
+        lines.append('puts "构建流程完成"')
+        return '\n'.join(lines)
+
+
+class CleanTemplate(TCLTemplateBase):
+    """清理模板"""
+
+    def __init__(self, config: Dict[str, Any], clean_level: str = 'soft'):
+        """
+        Args:
+            config: 项目配置
+            clean_level: 清理级别 ('soft', 'hard', 'all')
+        """
+        super().__init__(config)
+        self.clean_level = clean_level
+        self.project_name = config.get('project', {}).get('name', 'fpga_project')
+
+    def render(self) -> str:
+        """渲染清理模板"""
+        lines = [
+            f'# Vivado清理脚本 - 级别: {self.clean_level}',
+            ''
+        ]
+
+        if self.clean_level == 'soft':
+            # 软清理：只清理构建文件
+            lines.append('# 软清理：删除构建文件')
+            lines.append('reset_runs synth_1')
+            lines.append('reset_runs impl_1')
+            # 递归删除所有.log和.jou文件
+            lines.append('foreach file [glob -nocomplain -type f *.log */*.log */*/*.log */*/*/*.log] {')
+            lines.append('    file delete -force $file')
+            lines.append('}')
+            lines.append('foreach file [glob -nocomplain -type f *.jou */*.jou */*/*.jou */*/*/*.jou] {')
+            lines.append('    file delete -force $file')
+            lines.append('}')
+            lines.append('file delete -force {*.str}')
+
+        elif self.clean_level == 'hard':
+            # 硬清理：删除工程目录
+            lines.append('# 硬清理：删除工程目录')
+            lines.append(f'if {{[file exists "{self.project_name}"]}} {{')
+            lines.append(f'    file delete -force "{self.project_name}"')
+            lines.append('    puts "已删除工程目录: {self.project_name}"')
+            lines.append('}')
+
+        elif self.clean_level == 'all':
+            # 全部清理：删除所有生成文件
+            lines.append('# 全部清理：删除所有生成文件')
+            lines.append(f'if {{[file exists "{self.project_name}"]}} {{')
+            lines.append(f'    file delete -force "{self.project_name}"')
+            lines.append('}')
+            lines.append('file delete -force {*.log}')
+            lines.append('file delete -force {*.jou}')
+            lines.append('file delete -force {*.str}')
+            lines.append('file delete -force {*.bit}')
+            lines.append('file delete -force {*.bin}')
+            lines.append('file delete -force {*.mcs}')
+            lines.append('file delete -force {*.prm}')
+
+        lines.append('')
+        lines.append('puts "清理完成"')
+
+        return '\n'.join(lines)
+
+
+class GUITemplate(TCLTemplateBase):
+    """GUI打开模板"""
+
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        self.project_dir = config.get('project_dir', './build')
+
+    def render(self) -> str:
+        """渲染GUI模板"""
+        lines = [
+            '# Vivado GUI打开脚本',
+            '# 此脚本用于在GUI模式下打开工程',
+            ''
+        ]
+
+        # 打开工程
+        lines.append('# 打开工程')
+        # 工程路径：project_dir/project_name（Vivado会自动查找.xpr文件）
+        project_path = f'{self.project_dir}/{self.project_name}'
+        lines.append(f'open_project {{{project_path}}}')
+        lines.append('')
+
+        # 设置GUI视图
+        lines.append('# 设置GUI视图')
+        lines.append('start_gui')
+        lines.append('')
+
+        # 打开设计
+        lines.append('# 打开设计')
+        lines.append('open_bd_design [get_files *.bd]')
+        lines.append('')
+
+        # # 打开综合设计
+        # lines.append('# 打开综合设计')
+        # lines.append('open_run synth_1')
+        # lines.append('')
+
+        # # 打开实现设计
+        # lines.append('# 打开实现设计')
+        # lines.append('open_run impl_1')
+        # lines.append('')
+
+        lines.append('puts "GUI已打开"')
+        return '\n'.join(lines)
+
+
+class TCLScriptGenerator:
+    """TCL脚本生成器"""
+
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        self.project_name = config.get('project', {}).get('name', 'fpga_project')
+        self.non_tcl_hooks: Dict[str, List[str]] = {}
+
+    def generate_full_build_script(self, file_scanner_results: Optional[Dict[str, Any]] = None) -> str:
+        """生成完整构建脚本"""
+        script_parts = []
+
+        # 1. 基本工程创建
+        basic_template = BasicProjectTemplate(self.config, file_scanner_results)
+        script_parts.append(basic_template.render())
+
+        # 2. 文件添加命令
+        if file_scanner_results:
+            script_parts.append(self._generate_file_add_commands(file_scanner_results))
+
+        # 3. Block Design恢复
+        bd_config = self.config.get('source', {}).get('block_design')
+        if bd_config:
+            bd_template = BDRecoveryTemplate(self.config, bd_config)
+            script_parts.append(bd_template.render())
+
+        # 4. 设置顶层模块
+        script_parts.append(self._generate_top_module_setup())
+
+        # 5. 构建流程
+        build_template = BuildFlowTemplate(self.config)
+        script_parts.append(build_template.render())
+
+        # 保存非TCL钩子供外部访问
+        self.non_tcl_hooks = getattr(build_template, 'non_tcl_hooks', {})
+
+        return '\n'.join(script_parts)
+
+    def generate_clean_script(self, clean_level: str = 'soft') -> str:
+        """生成清理脚本"""
+        clean_template = CleanTemplate(self.config, clean_level)
+        return clean_template.render()
+
+    def generate_gui_script(self) -> str:
+        """生成GUI脚本"""
+        gui_template = GUITemplate(self.config)
+        return gui_template.render()
+
+    def generate_synthesis_only_script(self, file_scanner_results: Optional[Dict[str, Any]] = None) -> str:
+        """生成仅综合脚本"""
+        script_parts = []
+
+        # 基本工程创建
+        basic_template = BasicProjectTemplate(self.config, file_scanner_results)
+        script_parts.append(basic_template.render())
+
+        # 文件添加命令
+        if file_scanner_results:
+            script_parts.append(self._generate_file_add_commands(file_scanner_results))
+
+        # Block Design恢复
+        bd_config = self.config.get('source', {}).get('block_design')
+        if bd_config:
+            bd_template = BDRecoveryTemplate(self.config, bd_config)
+            script_parts.append(bd_template.render())
+
+        # 设置顶层模块
+        script_parts.append(self._generate_top_module_setup())
+
+        # 仅综合
+        script_parts.append(self._generate_synthesis_part())
+
+        return '\n'.join(script_parts)
+
+    def generate_gui_preparation_script(self, file_scanner_results: Optional[Dict[str, Any]] = None) -> str:
+        """生成GUI准备脚本（创建工程、添加文件、恢复BD，但不运行构建流程）"""
+        script_parts = []
+
+        # 基本工程创建
+        basic_template = BasicProjectTemplate(self.config, file_scanner_results)
+        script_parts.append(basic_template.render())
+
+        # 文件添加命令
+        if file_scanner_results:
+            script_parts.append(self._generate_file_add_commands(file_scanner_results))
+
+        # Block Design恢复
+        bd_config = self.config.get('source', {}).get('block_design')
+        if bd_config:
+            bd_template = BDRecoveryTemplate(self.config, bd_config)
+            script_parts.append(bd_template.render())
+
+        # 设置顶层模块
+        script_parts.append(self._generate_top_module_setup())
+
+        # GUI打开命令
+        script_parts.append(self.generate_gui_script())
+
+        return '\n'.join(script_parts)
+
+    def generate_preparation_script_without_gui(self, file_scanner_results: Optional[Dict[str, Any]] = None) -> str:
+        """生成准备脚本（创建工程、添加文件、恢复BD，但不包含GUI命令）"""
+        script_parts = []
+
+        # 基本工程创建
+        basic_template = BasicProjectTemplate(self.config, file_scanner_results)
+        script_parts.append(basic_template.render())
+
+        # 文件添加命令
+        if file_scanner_results:
+            script_parts.append(self._generate_file_add_commands(file_scanner_results))
+
+        # Block Design恢复
+        bd_config = self.config.get('source', {}).get('block_design')
+        if bd_config:
+            bd_template = BDRecoveryTemplate(self.config, bd_config)
+            script_parts.append(bd_template.render())
+
+        # 设置顶层模块
+        script_parts.append(self._generate_top_module_setup())
+
+        return '\n'.join(script_parts)
+
+    def _generate_file_add_commands(self, file_scanner_results: Dict[str, Any]) -> str:
+        """生成文件添加命令"""
+        lines = ['# 添加源文件', '']
+
+        # 使用FileScanner生成准确的Vivado命令
+        try:
+            from .file_scanner import FileScanner
+
+            # 创建FileScanner实例（使用配置中的项目目录作为基础路径）
+            project_dir = self.config.get('project_dir', './build')
+            scanner = FileScanner(Path(project_dir))
+
+            # 生成命令
+            commands = scanner.generate_vivado_file_commands(file_scanner_results)
+
+            # 添加HDL命令
+            if commands.get('hdl_commands'):
+                lines.append('# HDL文件')
+                for cmd in commands['hdl_commands']:
+                    lines.append(cmd)
+                lines.append('')
+
+            # 添加约束命令
+            if commands.get('constraint_commands'):
+                lines.append('# 约束文件')
+                for cmd in commands['constraint_commands']:
+                    lines.append(cmd)
+                lines.append('')
+
+            # 添加IP核命令
+            if commands.get('ip_commands'):
+                lines.append('# IP核文件')
+                for cmd in commands['ip_commands']:
+                    lines.append(cmd)
+                lines.append('')
+
+            # 添加Block Design命令
+            if commands.get('bd_commands'):
+                lines.append('# Block Design文件')
+                for cmd in commands['bd_commands']:
+                    lines.append(cmd)
+                lines.append('')
+
+        except ImportError:
+            # 回退到简单实现
+            lines.append('# 注意：FileScanner不可用，使用简单文件添加命令')
+            hdl_files = file_scanner_results.get('hdl', [])
+            for file_info in hdl_files:
+                lines.append(f'add_files {{{file_info["path"]}}}')
+
+            if hdl_files:
+                lines.append('')
+
+            constraint_files = file_scanner_results.get('constraints', [])
+            for file_info in constraint_files:
+                lines.append(f'add_files -fileset constrs_1 {{{file_info["path"]}}}')
+
+            if constraint_files:
+                lines.append('')
+
+        return '\n'.join(lines)
+
+    def _generate_top_module_setup(self) -> str:
+        """生成顶层模块设置
+        优先级：BD is_top > 配置top_module > 自动检测
+        """
+        lines = ['# 设置顶层模块', '']
+
+        # 检查BD配置
+        bd_config = self.config.get('source', {}).get('block_design')
+        if bd_config and bd_config.get('is_top', False):
+            # BD被设置为顶层，BD恢复模板会处理顶层设置
+            # 这里不需要额外设置，但可以添加注释
+            lines.append('# Block Design已设置为顶层，跳过顶层模块设置')
+            lines.append('')
+            return '\n'.join(lines)
+
+        # 使用配置中的顶层模块
+        top_module = self.config.get('fpga', {}).get('top_module')
+        if top_module:
+            lines.append(f'set_property top {top_module} [current_fileset]')
+            lines.append(f'puts "设置顶层模块: {top_module}"')
+            lines.append('')
+            return '\n'.join(lines)
+
+        # 尝试自动检测
+        # 这里可以添加自动检测逻辑，例如扫描文件寻找可能的顶层模块
+        # 暂时返回空，让Vivado使用默认行为
+        lines.append('# 未指定顶层模块，使用Vivado默认行为')
+        lines.append('')
+        return '\n'.join(lines)
+
+    def _generate_synthesis_part(self) -> str:
+        """生成综合部分"""
+        lines = [
+            '# 运行综合',
+            ''
+        ]
+
+        # 综合前钩子
+        hooks = self.config.get('build', {}).get('hooks', {})
+        pre_synth = hooks.get('pre_synth')
+        if pre_synth:
+            lines.append(f'# 综合前钩子')
+            lines.append(f'source {{{pre_synth}}}')
+            lines.append('')
+
+        # 设置综合策略
+        synth_strategy = self.config.get('build', {}).get('synthesis', {}).get('strategy', 'Vivado Synthesis Defaults')
+        lines.append(f'set_property strategy "{synth_strategy}" [get_runs synth_1]')
+        lines.append('')
+
+        # 运行综合
+        lines.append('launch_runs synth_1')
+        lines.append('wait_on_run synth_1')
+        lines.append('')
+
+        # 检查综合结果
+        lines.append('if {[get_property PROGRESS [get_runs synth_1]] != "100%"} {')
+        lines.append('    error "综合失败"')
+        lines.append('}')
+        lines.append('')
+
+        # 综合后钩子
+        post_synth = hooks.get('post_synth')
+        if post_synth:
+            lines.append(f'# 综合后钩子')
+            lines.append(f'source {{{post_synth}}}')
+            lines.append('')
+
+        lines.append('puts "综合完成"')
+        return '\n'.join(lines)
+
+    def generate_program_device_script(self, flash_mode: bool = False) -> str:
+        """生成设备编程脚本"""
+        program_template = ProgramDeviceTemplate(self.config, flash_mode)
+        return program_template.render()
+
+
+class ProgramDeviceTemplate(TCLTemplateBase):
+    """设备编程模板"""
+
+    def __init__(self, config: Dict[str, Any], flash_mode: bool = False):
+        super().__init__(config)
+        self.programming_config = config.get('programming', {})
+        self.flash_mode = flash_mode
+        self.cable = self.programming_config.get('cable', 'xilinx_tcf')
+        self.target = self.programming_config.get('target', 'localhost:3121')
+        self.bitfile = self.programming_config.get('bitfile', '')
+        # 解析目标服务器
+        if ':' in self.target:
+            self.hw_server, self.hw_port = self.target.split(':', 1)
+        else:
+            self.hw_server = self.target
+            self.hw_port = '3121'
+
+    def render(self) -> str:
+        """渲染编程模板"""
+        if self.flash_mode:
+            return self._render_flash_programming()
+        else:
+            return self._render_jtag_programming()
+
+    def _render_jtag_programming(self) -> str:
+        """渲染JTAG编程模板"""
+        lines = [
+            '# Vivado JTAG设备编程脚本',
+            '# 通过硬件服务器连接并编程FPGA',
+            ''
+        ]
+
+        # 打开硬件管理器
+        lines.append('# 打开硬件管理器')
+        lines.append('open_hw_manager')
+        lines.append('')
+
+        # 连接硬件服务器
+        lines.append('# 连接硬件服务器')
+        lines.append(f'connect_hw_server -host {self.hw_server} -port {self.hw_port}')
+        lines.append('')
+
+        # 打开硬件目标
+        lines.append('# 打开硬件目标')
+        if self.cable and self.cable != 'xilinx_tcf':
+            lines.append(f'open_hw_target {{{self.cable}}}')
+        else:
+            lines.append(f'open_hw_target')
+        lines.append('')
+
+        # 获取当前硬件设备
+        lines.append('# 获取当前硬件设备')
+        lines.append('set hw_device [get_hw_devices]')
+        lines.append('if {[llength $hw_device] == 0} {')
+        lines.append('    error "未找到硬件设备"')
+        lines.append('}')
+        lines.append('set hw_device [lindex $hw_device 0]')
+        lines.append('current_hw_device $hw_device')
+        lines.append('')
+
+        # 设置编程文件
+        lines.append('# 设置编程文件')
+        if self.bitfile:
+            lines.append(f'set bitfile [file normalize {{{self.bitfile}}}]')
+            lines.append('if {![file exists $bitfile]} {')
+            lines.append('    error "比特流文件不存在: $bitfile"')
+            lines.append('}')
+        else:
+            # 尝试从项目构建输出中查找比特流文件
+            lines.append('# 自动查找比特流文件')
+            lines.append('set bitstream_dir "build/bitstreams"')
+            lines.append('if {![file exists $bitstream_dir]} {')
+            lines.append('    set bitstream_dir "."')
+            lines.append('}')
+            lines.append('set bit_files [glob -nocomplain "$bitstream_dir/*.bit"]')
+            lines.append('if {[llength $bit_files] == 0} {')
+            lines.append('    error "未找到比特流文件，请指定--bitfile参数"')
+            lines.append('}')
+            lines.append('set bitfile [lindex $bit_files 0]')
+        lines.append(f'set_property PROGRAM.FILE $bitfile [current_hw_device]')
+        lines.append('')
+
+        # 编程设备
+        lines.append('# 编程设备')
+        lines.append('program_hw_devices [current_hw_device]')
+        lines.append('')
+
+        # 验证编程
+        lines.append('# 验证编程')
+        lines.append('refresh_hw_device [current_hw_device]')
+        lines.append('')
+
+        # 断开连接
+        lines.append('# 断开连接')
+        lines.append('close_hw_target')
+        lines.append('disconnect_hw_server')
+        lines.append('close_hw_manager')
+        lines.append('')
+
+        lines.append('puts "JTAG编程完成"')
+        return '\n'.join(lines)
+
+    def _render_flash_programming(self) -> str:
+        """渲染Flash编程模板"""
+        lines = [
+            '# Vivado Flash设备编程脚本',
+            '# 通过硬件服务器连接并编程Flash',
+            ''
+        ]
+
+        # 打开硬件管理器
+        lines.append('# 打开硬件管理器')
+        lines.append('open_hw_manager')
+        lines.append('')
+
+        # 连接硬件服务器
+        lines.append('# 连接硬件服务器')
+        lines.append(f'connect_hw_server -host {self.hw_server} -port {self.hw_port}')
+        lines.append('')
+
+        # 打开硬件目标
+        lines.append('# 打开硬件目标')
+        if self.cable and self.cable != 'xilinx_tcf':
+            lines.append(f'open_hw_target {{{self.cable}}}')
+        else:
+            lines.append(f'open_hw_target')
+        lines.append('')
+
+        # 获取当前硬件设备
+        lines.append('# 获取当前硬件设备')
+        lines.append('set hw_device [get_hw_devices]')
+        lines.append('if {[llength $hw_device] == 0} {')
+        lines.append('    error "未找到硬件设备"')
+        lines.append('}')
+        lines.append('set hw_device [lindex $hw_device 0]')
+        lines.append('current_hw_device $hw_device')
+        lines.append('')
+
+        # 查找MCS文件
+        lines.append('# 查找MCS文件')
+        # 首先检查配置中是否有MCS文件路径
+        mcs_config = self.config.get('build', {}).get('flash', {})
+        mcs_output_path = mcs_config.get('output_path', '')
+        if mcs_output_path:
+            lines.append(f'# 使用配置中的MCS文件路径')
+            lines.append(f'set mcs_file [file normalize {{{mcs_output_path}}}]')
+            lines.append('if {![file exists $mcs_file]} {')
+            lines.append('    puts "警告: 配置的MCS文件不存在: $mcs_file"')
+            lines.append('    # 尝试查找其他MCS文件')
+            lines.append('    set mcs_files [glob -nocomplain "*.mcs"]')
+            lines.append('    if {[llength $mcs_files] == 0} {')
+            lines.append('        error "未找到MCS文件，请先生成MCS文件"')
+            lines.append('    }')
+            lines.append('    set mcs_file [lindex $mcs_files 0]')
+            lines.append('}')
+        else:
+            # 未指定路径，查找MCS文件
+            lines.append('set mcs_files [glob -nocomplain "*.mcs"]')
+            lines.append('if {[llength $mcs_files] == 0} {')
+            lines.append('    error "未找到MCS文件，请先生成MCS文件"')
+            lines.append('}')
+            lines.append('set mcs_file [lindex $mcs_files 0]')
+        lines.append('')
+
+        # 创建硬件配置存储器
+        lines.append('# 创建硬件配置存储器')
+        lines.append('create_hw_cfgmem -hw_device [current_hw_device] -mem_dev [lindex [get_cfgmem_parts {*}] 0]')
+        lines.append('set hw_cfgmem [get_property PROGRAM.HW_CFGMEM [current_hw_device]]')
+        lines.append('')
+
+        # 设置MCS文件
+        lines.append('# 设置MCS文件')
+        lines.append(f'set_property PROGRAM.FILES [list $mcs_file] $hw_cfgmem')
+        lines.append('set_property PROGRAM.ERASE 1 $hw_cfgmem')
+        lines.append('set_property PROGRAM.BLANK_CHECK 1 $hw_cfgmem')
+        lines.append('set_property PROGRAM.VERIFY 1 $hw_cfgmem')
+        lines.append('set_property PROGRAM.CHECKSUM 0 $hw_cfgmem')
+        lines.append('')
+
+        # 编程配置存储器
+        lines.append('# 编程配置存储器')
+        lines.append('program_hw_cfgmem $hw_cfgmem')
+        lines.append('')
+
+        # 验证编程
+        lines.append('# 验证编程')
+        lines.append('refresh_hw_device [current_hw_device]')
+        lines.append('')
+
+        # 断开连接
+        lines.append('# 断开连接')
+        lines.append('close_hw_target')
+        lines.append('disconnect_hw_server')
+        lines.append('close_hw_manager')
+        lines.append('')
+
+        lines.append('puts "Flash编程完成"')
+        return '\n'.join(lines)
