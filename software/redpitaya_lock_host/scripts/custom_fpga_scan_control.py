@@ -338,6 +338,7 @@ def read_status(regs):
     acq_state_raw = regs.read(REGISTERS["ACQ_STATE"])
     acq_state = acq_state_raw & 0x7
     l1_capability = regs.read(REGISTERS["L1_CAPABILITY"])
+    fault_detail = regs.read(REGISTERS["FAULT_DETAIL"])
     return {
         "magic": f"0x{magic:08X}",
         "version": f"0x{version:08X}",
@@ -349,6 +350,7 @@ def read_status(regs):
             else "UNKNOWN"
         ),
         "l1_capability": f"0x{l1_capability:08X}",
+        "fault_detail": f"0x{fault_detail:08X}",
         "mode": regs.read(REGISTERS["MODE"]),
         "enable": regs.read(REGISTERS["ENABLE"]) & 1,
         "status_raw": f"0x{status:08X}",
@@ -418,7 +420,92 @@ def read_acquisition_event_coherent(regs, retries=8):
 def acquisition_status(regs):
     status = read_status(regs)
     status["acquisition_event"] = read_acquisition_event_coherent(regs)
+    status["config_generation"] = int(
+        status["acquisition_event"].get("config_generation", 0)
+    )
     return status
+
+
+def wait_for_acquisition_state(
+    regs,
+    expected_states,
+    timeout_s=0.2,
+    poll_interval_s=0.001,
+    clock=None,
+    sleeper=None,
+    diagnostic_context=None,
+):
+    monotonic = time.monotonic if clock is None else clock
+    sleep = time.sleep if sleeper is None else sleeper
+    expected = tuple(int(state) for state in expected_states)
+    timeout = max(0.0, float(timeout_s))
+    interval = max(0.0, float(poll_interval_s))
+    deadline = monotonic() + timeout
+    last = {}
+    while True:
+        last = acquisition_status(regs)
+        if diagnostic_context:
+            last.update(diagnostic_context)
+        state = int(last.get("acquisition_state", -1))
+        if state in expected:
+            return last
+        diagnostic = dict(last)
+        diagnostic["expected_states"] = list(expected)
+        diagnostic["timeout_s"] = timeout
+        if state in (6, 7):
+            name = str(last.get("acquisition_state_name", ACQ_STATE_NAMES.get(state, "UNKNOWN")))
+            raise SystemExit(
+                f"FPGA acquisition entered {name}: "
+                + json.dumps(diagnostic, sort_keys=True)
+            )
+        if state != 1:
+            name = str(last.get("acquisition_state_name", ACQ_STATE_NAMES.get(state, "UNKNOWN")))
+            raise SystemExit(
+                f"FPGA acquisition entered unexpected state {name}: "
+                + json.dumps(diagnostic, sort_keys=True)
+            )
+        now = monotonic()
+        if now >= deadline:
+            raise SystemExit(
+                "ARM state readback timeout: "
+                + json.dumps(diagnostic, sort_keys=True)
+            )
+        sleep(min(interval, max(0.0, deadline - now)))
+
+
+def wait_for_safe_readback(
+    regs,
+    timeout_s=0.2,
+    poll_interval_s=0.001,
+    clock=None,
+    sleeper=None,
+):
+    monotonic = time.monotonic if clock is None else clock
+    sleep = time.sleep if sleeper is None else sleeper
+    timeout = max(0.0, float(timeout_s))
+    interval = max(0.0, float(poll_interval_s))
+    deadline = monotonic() + timeout
+    while True:
+        last = acquisition_status(regs)
+        if (
+            int(last.get("mode", -1)) == 0
+            and int(last.get("enable", -1)) == 0
+            and int(last.get("acquisition_state", -1)) == 0
+        ):
+            last["safe_confirmed"] = True
+            return last
+        now = monotonic()
+        if now >= deadline:
+            diagnostic = dict(last)
+            diagnostic["expected_mode"] = 0
+            diagnostic["expected_enable"] = 0
+            diagnostic["expected_acquisition_state"] = 0
+            diagnostic["timeout_s"] = timeout
+            raise SystemExit(
+                "SAFE COMMAND FAILED / MANUAL HARDWARE CHECK REQUIRED: "
+                + json.dumps(diagnostic, sort_keys=True)
+            )
+        sleep(min(interval, max(0.0, deadline - now)))
 
 
 def write_acquisition_shadow(regs, args):
@@ -476,14 +563,26 @@ def run_preload_acquisition(regs, args, arm, validate=False):
             "VERSION mismatch: expected D1 0x00030100 or SIMPLE 0x00030200, "
             f"got {before['version']}"
         )
-    if int(before["mode"]) != 1 or int(before["enable"]) != 1:
-        raise SystemExit("FPGA acquisition requires MODE=1 SCAN and ENABLE=1")
-    if bool(before["saturated"]):
-        raise SystemExit("FPGA acquisition refused because STATUS reports saturation")
-    if int(before["acquisition_state"]) == 2:
-        raise SystemExit("target configuration writes are forbidden while acquisition is ARMED")
     if before["build_capability"] != "L1_ERROR_CROSSING":
         raise SystemExit("LOCK-MVP-L1 capability 0x4C310001 is required")
+    state = int(before["acquisition_state"])
+    state_name = str(before["acquisition_state_name"])
+    if state in (2, 3, 4, 5):
+        raise SystemExit(
+            f"FPGA acquisition is already active: {state_name}. "
+            "Execute SAFE or ABORT and verify state=SAFE before arming again."
+        )
+    if state in (6, 7):
+        raise SystemExit(
+            f"FPGA acquisition is in {state_name}. "
+            "SAFE recovery is required before a new scan or ARM."
+        )
+    if int(before["mode"]) != 1 or int(before["enable"]) != 1 or state != 1:
+        raise SystemExit(
+            "FPGA acquisition requires MODE=1 SCAN, ENABLE=1, and acquisition state=SCAN"
+        )
+    if bool(before["saturated"]):
+        raise SystemExit("FPGA acquisition refused because STATUS reports saturation")
     regs.write(REGISTERS["POLARITY"], int(args.preloaded_polarity) & 1)
     write_acquisition_shadow(regs, args)
     write_l1_acquisition_config(regs, args)
@@ -492,7 +591,19 @@ def run_preload_acquisition(regs, args, arm, validate=False):
         raise SystemExit(f"FPGA acquisition shadow validation failed: 0x{validation:08X}")
     if arm:
         regs.write(REGISTERS["ACQ_COMMAND"], 8 if validate else 1)
-    result = acquisition_status(regs)
+    expected_states = (2,) if validate else (3, 4, 5)
+    result = (
+        wait_for_acquisition_state(
+            regs,
+            expected_states,
+            diagnostic_context={
+                "config_validation": f"0x{validation:08X}",
+                "config_generation": int(args.config_generation),
+            },
+        )
+        if arm
+        else acquisition_status(regs)
+    )
     result["config_validation"] = f"0x{validation:08X}"
     result["config_generation"] = int(args.config_generation)
     result["target_out2_counts"] = int(args.target_out2_counts)
@@ -503,11 +614,6 @@ def run_preload_acquisition(regs, args, arm, validate=False):
         args.required_error_crossing_direction
     )
     result["initial_polarity_suggestion"] = int(args.initial_polarity_suggestion)
-    expected_states = (2,) if validate else (3, 4, 5)
-    if arm and int(result["acquisition_state"]) not in expected_states:
-        raise SystemExit(
-            "ARM command was written once, but FPGA did not report ARMED or P_LOCK"
-        )
     result["lock_state"] = result["acquisition_state_name"]
     result["arm_intent"] = "VALIDATE" if validate else "ACTIVE"
     return result
@@ -824,6 +930,13 @@ def main():
             require_magic(regs)
             regs.write(REGISTERS["ENABLE"], 0)
             regs.write(REGISTERS["MODE"], 0)
+            regs.write(REGISTERS["KP"], 0)
+            regs.write(REGISTERS["KI"], 0)
+            regs.write(REGISTERS["INTEGRAL_RESET"], 1)
+            regs.write(REGISTERS["ACQ_COMMAND"], 2)
+            status = wait_for_safe_readback(regs)
+            print(json.dumps(status, indent=2, sort_keys=True))
+            return
         elif args.op == "scan":
             require_magic(regs)
             regs.write(REGISTERS["ENABLE"], 0)

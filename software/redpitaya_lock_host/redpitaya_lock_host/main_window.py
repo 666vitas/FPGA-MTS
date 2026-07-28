@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import csv
+import json
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
@@ -56,6 +57,8 @@ from .custom_fpga_backend import (
     SUPPORTED_VERSIONS,
     BasicLockConfig,
     CustomFpgaBackendError,
+    CustomFpgaTransportError,
+    custom_fpga_error_from_detail,
     build_basic_lock_config,
     find_zero_crossing_candidates,
     interpolate_zero_crossing,
@@ -981,10 +984,17 @@ class MainWindow(QMainWindow):
         self.basic_lock_config: BasicLockConfig | None = None
         self.basic_lock_candidates: list[Any] = []
         self.current_custom_operation: str | None = None
+        self.pending_custom_operation: tuple[str, bool] | None = None
         self.connection_state = DISCONNECTED
         self.system_identity_matched = False
         self.system_identity_communication_ok = False
         self.system_identity_saturated = False
+        self.system_l1_capability_matched = False
+        self.last_fpga_status_payload: dict[str, Any] = {}
+        self.last_arm_diagnostic_payload: dict[str, Any] = {}
+        self.last_arm_intent = "NONE"
+        self.last_arm_result = "NOT REQUESTED"
+        self.last_fpga_error_detail = ""
         self.p_lock_ready = False
         self.acquisition_state = 0
         self.last_identity_probe_time: datetime | None = None
@@ -1195,6 +1205,8 @@ class MainWindow(QMainWindow):
         self.system_identity_matched = False
         self.system_identity_communication_ok = False
         self.system_identity_saturated = False
+        self.system_l1_capability_matched = False
+        self.last_fpga_status_payload = {}
         self.p_lock_ready = False
         self.system_connection_value.setText(connection)
         self.system_fpga_version_value.setText("--")
@@ -1243,6 +1255,13 @@ class MainWindow(QMainWindow):
         self.system_identity_communication_ok = True
         self.system_identity_matched = identity_payload_matches(payload)
         self.system_identity_saturated = saturated
+        self.system_l1_capability_matched = (
+            version == 0x00030200
+            and parse_register_value(payload.get("l1_capability")) == 0x4C310001
+            and build_capability == "L1_ERROR_CROSSING"
+        )
+        self.last_fpga_status_payload = dict(payload)
+        self.acquisition_state = int(payload.get("acquisition_state", self.acquisition_state))
         self.system_connection_value.setText("Connected")
         self.system_fpga_version_value.setText(format_fpga_version(version))
         self.system_identity_value.setText(
@@ -1436,6 +1455,14 @@ class MainWindow(QMainWindow):
             ("kp", "Kp"),
             ("saturation", "Saturation"),
             ("hold_delta", "Selected -> HOLD readback delta"),
+            ("acquisition_state", "Acquisition state"),
+            ("last_fpga_readback", "Last FPGA state readback"),
+            ("arm_intent", "Last ARM intent"),
+            ("arm_result", "Last ARM result"),
+            ("config_validation", "Last config validation"),
+            ("fault_detail", "Last fault detail"),
+            ("acquisition_event", "Last acquisition event"),
+            ("validate_event_count", "Validate event count"),
         )
         grid = QGridLayout()
         grid.setHorizontalSpacing(10)
@@ -1624,6 +1651,67 @@ class MainWindow(QMainWindow):
                 SELECTION_DELTA_ERROR_MV,
             ),
         )
+        fpga = self.last_fpga_status_payload
+        arm_fpga = self.last_arm_diagnostic_payload
+        acquisition_state = str(
+            fpga.get(
+                "acquisition_state_name",
+                {
+                    0: "SAFE",
+                    1: "SCAN",
+                    2: "VALIDATING",
+                    3: "ARMED",
+                    4: "ACQUIRING",
+                    5: "P_LOCKED",
+                    6: "FAILED",
+                    7: "FAULT",
+                }.get(self.acquisition_state, "UNKNOWN"),
+            )
+        )
+        event = fpga.get("acquisition_event")
+        event = event if isinstance(event, dict) else {}
+        arm_event = arm_fpga.get("acquisition_event")
+        arm_event = arm_event if isinstance(arm_event, dict) else event
+        last_arm_state = str(
+            arm_fpga.get("acquisition_state_name", "--")
+        )
+        event_text = (
+            f"{arm_event.get('event_type_name', '--')} / "
+            f"generation {arm_event.get('config_generation', '--')}"
+        )
+        for key, text, level in (
+            ("acquisition_state", acquisition_state, "normal" if fpga else "missing"),
+            (
+                "last_fpga_readback",
+                last_arm_state,
+                "normal" if arm_fpga else "missing",
+            ),
+            ("arm_intent", self.last_arm_intent, "normal"),
+            (
+                "arm_result",
+                self.last_arm_result,
+                "error"
+                if self.last_arm_result in {"REJECTED", "TIMEOUT", "FAILED", "FAULT"}
+                else "normal",
+            ),
+            (
+                "config_validation",
+                str(arm_fpga.get("config_validation", "--")),
+                "normal" if arm_fpga.get("config_validation") is not None else "missing",
+            ),
+            (
+                "fault_detail",
+                str(arm_fpga.get("fault_detail", "--")),
+                "error" if last_arm_state in {"FAILED", "FAULT"} else "normal",
+            ),
+            ("acquisition_event", event_text, "normal" if event else "missing"),
+            (
+                "validate_event_count",
+                str(arm_fpga.get("validate_event_count", "--")),
+                "normal" if arm_fpga.get("validate_event_count") is not None else "missing",
+            ),
+        ):
+            self._set_operator_diagnostic_value(key, text, level)
 
         if hold:
             state = "HOLD DIAGNOSTIC / Kp=0 / NOT LOCKED"
@@ -1667,6 +1755,14 @@ class MainWindow(QMainWindow):
             f"hold_selected_counts: {self._raw_diagnostic_value(hold.get('hold_selected_counts'))}",
             f"hold_readback_counts: {self._raw_diagnostic_value(hold.get('hold_readback_counts'))}",
             f"hold_delta_counts: {self._raw_diagnostic_value(hold.get('hold_delta_counts'))}",
+            f"last_arm_intent: {self.last_arm_intent}",
+            f"last_arm_result: {self.last_arm_result}",
+            f"last_fpga_state_readback: {last_arm_state}",
+            f"last_config_validation: {self._raw_diagnostic_value(arm_fpga.get('config_validation'))}",
+            f"last_fault_detail: {self._raw_diagnostic_value(arm_fpga.get('fault_detail'))}",
+            f"last_acquisition_event: {self._raw_diagnostic_value(arm_event)}",
+            f"validate_event_count: {self._raw_diagnostic_value(arm_fpga.get('validate_event_count'))}",
+            f"last_error_detail: {self.last_fpga_error_detail or 'unavailable'}",
             f"calibration_center_gain: {OUT2_CENTER_GAIN}",
             f"calibration_center_offset: {OUT2_CENTER_OFFSET}",
             f"calibration_amplitude_gain: {OUT2_AMPLITUDE_GAIN}",
@@ -2992,6 +3088,28 @@ class MainWindow(QMainWindow):
         self._update_capture_time_window_label()
 
     def _start_custom_fpga_operation(self, operation: str, *, preserve_basic: bool = False) -> None:
+        arm_operation = operation in {"lock", "validate-lock"}
+        if arm_operation and self.live_capture_active:
+            self._stop_live_capture("ARM requested; Live stopped")
+        worker_active = self.worker is not None and (
+            not hasattr(self.worker, "isRunning") or self.worker.isRunning()
+        )
+        if worker_active or self.current_custom_operation is not None:
+            active = self.current_custom_operation or "worker"
+            if operation == "safe" or (arm_operation and active == "capture"):
+                self.pending_custom_operation = (operation, preserve_basic)
+                message = (
+                    f"Custom FPGA worker busy with {active}; {operation} queued until it finishes"
+                )
+            else:
+                message = (
+                    f"Custom FPGA worker busy with {active}; {operation} was not started"
+                )
+            self.operator_alert_label.setText(message)
+            self.custom_warning_text.setPlainText(message)
+            self.statusBar().showMessage(message)
+            self._apply_button_state(self.connection_state)
+            return
         if operation == "capture" and self.capture_in_flight:
             self.statusBar().showMessage("Capture already in flight; skipped")
             return
@@ -3153,6 +3271,12 @@ class MainWindow(QMainWindow):
                 "servo_update_div": 125,
                 "out2_slew_limit_counts": 1,
             }
+            self.last_arm_intent = (
+                "VALIDATE" if operation == "validate-lock" else "ACTIVE"
+            )
+            self.last_arm_result = "NOT REQUESTED"
+            self.last_fpga_error_detail = ""
+            self.last_arm_diagnostic_payload = {}
         elif operation == "capture":
             self._update_capture_time_window_label()
             params = {
@@ -4192,7 +4316,14 @@ class MainWindow(QMainWindow):
                     self.operator_alert_label.setText("FPGA identity mismatch")
                 elif "OUT2" in hazard:
                     self.operator_alert_label.setText("OUT2 outside safe PZT range")
-        if operation == "hold-selected-count":
+        if operation == "safe":
+            self.acquisition_state = 0
+            self.p_lock_ready = False
+            self.operator_state_label.setText("SAFE CONFIRMED")
+            self.operator_scan_state_label.setText("SAFE CONFIRMED")
+            self.operator_alert_label.setText("")
+            self.statusBar().showMessage("SAFE CONFIRMED")
+        elif operation == "hold-selected-count":
             hold_diagnostics = build_hold_selected_diagnostics(self.selected_lock_point, payload)
             self.last_hold_selected_diagnostics = hold_diagnostics
             failure = self._hold_selected_readback_failure(payload)
@@ -4221,6 +4352,8 @@ class MainWindow(QMainWindow):
                 self._refresh_operator_lock_diagnostics()
         elif operation == "validate-lock":
             self.acquisition_state = int(payload.get("acquisition_state", 2))
+            self.last_arm_result = "ACCEPTED"
+            self.last_arm_diagnostic_payload = dict(payload)
             self.operator_state_label.setText("FPGA VALIDATING")
             self.operator_alert_label.setText("")
             self.custom_warning_text.setPlainText(
@@ -4253,6 +4386,16 @@ class MainWindow(QMainWindow):
             )
             state = int(payload.get("acquisition_state", -1))
             self.acquisition_state = state
+            self.last_arm_diagnostic_payload = dict(payload)
+            self.last_arm_result = (
+                "FAULT"
+                if state == 7
+                else "FAILED"
+                if state == 6
+                else "ACCEPTED"
+                if state in (3, 4, 5)
+                else "REJECTED"
+            )
             triggered_kp = int(payload.get("kp", self.custom_kp.currentText()))
             triggered = (
                 operation_verified
@@ -4340,6 +4483,7 @@ class MainWindow(QMainWindow):
             self._apply_button_state(ERROR)
         else:
             self._restore_after_custom_fpga_operation()
+        self._refresh_operator_lock_diagnostics()
         self._continue_basic_lock_after_success(operation, payload)
         if operation == "capture" and self.live_capture_active:
             self._schedule_next_live_capture()
@@ -4348,11 +4492,114 @@ class MainWindow(QMainWindow):
         if request_safe_after:
             QTimer.singleShot(0, lambda: self._start_custom_fpga_operation("safe"))
 
-    def _on_custom_fpga_failed(self, text: str) -> None:
+    def _on_custom_fpga_failed(self, error: object) -> None:
         operation = self.current_custom_operation or "custom"
+        normalized = (
+            error
+            if isinstance(error, CustomFpgaBackendError)
+            else custom_fpga_error_from_detail(str(error))
+        )
+        text = str(normalized)
         if operation == "capture":
             self.capture_in_flight = False
             self._stop_live_capture("Capture failed; Live stopped")
+        if not isinstance(normalized, CustomFpgaTransportError):
+            payload = dict(normalized.payload)
+            safe_readback = payload.get("safe_readback")
+            failure_payload = {
+                key: value
+                for key, value in payload.items()
+                if key != "safe_readback"
+            }
+            if failure_payload:
+                self.last_arm_diagnostic_payload = failure_payload
+            if isinstance(safe_readback, dict):
+                self._update_system_identity_from_payload(
+                    safe_readback,
+                    record_probe=False,
+                )
+            else:
+                current_payload = dict(self.last_fpga_status_payload)
+                current_payload.update(
+                    {
+                        key: value
+                        for key, value in payload.items()
+                        if key != "safe_readback"
+                    }
+                )
+                self.last_fpga_status_payload = current_payload
+                if payload.get("acquisition_state") is not None:
+                    self.acquisition_state = int(payload["acquisition_state"])
+            self.last_fpga_error_detail = text
+            lowered = text.lower()
+            self.last_arm_result = (
+                "TIMEOUT"
+                if "timeout" in lowered
+                else "FAULT"
+                if "fault" in lowered
+                else "FAILED"
+                if "failed" in lowered
+                else "REJECTED"
+            )
+            action = (
+                "VALIDATE"
+                if operation == "validate-lock"
+                else "SAFE"
+                if operation == "safe"
+                else "ARM"
+            )
+            if normalized.safe_confirmed is True:
+                state_text = f"{action} FAILED / SAFE CONFIRMED"
+                needs_safe = False
+            elif normalized.safe_confirmed is False:
+                state_text = (
+                    f"{action} FAILED / SAFE COMMAND FAILED / "
+                    "MANUAL HARDWARE CHECK REQUIRED"
+                )
+                needs_safe = False
+            else:
+                state_text = f"{action} FAILED / SAFE REQUIRED"
+                needs_safe = True
+            self.operator_state_label.setText(state_text)
+            self.operator_alert_label.setText(text.splitlines()[0])
+            self.operator_connection_status_label.setText("Connected")
+            self.system_connection_value.setText("Connected")
+            self.system_identity_error_label.setText("")
+            details = text
+            if payload:
+                details += "\n\nLast FPGA diagnostic payload:\n" + json.dumps(
+                    payload,
+                    indent=2,
+                    sort_keys=True,
+                    default=str,
+                )
+            self.custom_register_summary.setText(
+                f"Custom FPGA {operation} failed | command/state error; "
+                "transport remains connected"
+            )
+            self.custom_warning_text.setPlainText(details)
+            self.statusBar().showMessage(text.splitlines()[0])
+            self._append_connection_log(f"Custom FPGA command/state error: {text}")
+            self.current_custom_operation = None
+            if needs_safe:
+                if self.worker is not None:
+                    self.pending_custom_operation = ("safe", False)
+                else:
+                    QTimer.singleShot(
+                        0, lambda: self._start_custom_fpga_operation("safe")
+                    )
+            self._restore_after_custom_fpga_operation()
+            self._refresh_operator_lock_diagnostics()
+            if self.basic_lock_active:
+                reason = (
+                    f"{operation} failed: "
+                    f"{text.splitlines()[0] if text else 'unknown'}"
+                )
+                self.basic_lock_active = False
+                self.basic_lock_queue = []
+                self.basic_status_label.setText(f"state: SAFE_FAIL | {reason}")
+                self.basic_candidate_label.setText("candidate: rejected")
+            return
         self._set_connection_state(ERROR)
         guidance = text
         if "actual magic:   0x00000000" in text:
@@ -4764,6 +5011,18 @@ class MainWindow(QMainWindow):
 
     def _clear_worker(self) -> None:
         self.worker = None
+        pending = self.pending_custom_operation
+        self.pending_custom_operation = None
+        if pending is not None:
+            operation, preserve_basic = pending
+            QTimer.singleShot(
+                0,
+                lambda op=operation, preserve=preserve_basic: self._start_custom_fpga_operation(
+                    op, preserve_basic=preserve
+                ),
+            )
+        else:
+            self._apply_button_state(self.connection_state)
 
     def save_csv(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
@@ -5109,16 +5368,67 @@ class MainWindow(QMainWindow):
         )
         for button in self.lock_bias_trim_buttons:
             button.setEnabled(self.pending_lock_point is not None or self.selected_lock_point is not None)
-        self.custom_lock_button.setEnabled(
-            identity_enabled and self.selected_lock_point is not None
-        )
-        self.custom_validate_lock_button.setEnabled(
-            identity_enabled and self.selected_lock_point is not None
-        )
         selected_is_current = (
             self.selected_lock_point is not None
             and self.selected_lock_point.get("capture_generation") == self.custom_capture_generation
         )
+        fpga_payload = self.last_fpga_status_payload
+        fpga_mode = int(fpga_payload.get("mode", -1))
+        fpga_enable = int(fpga_payload.get("enable", 0))
+        fpga_state = int(fpga_payload.get("acquisition_state", self.acquisition_state))
+        config_generation = int(
+            (self.selected_lock_point or {}).get("config_generation", 0)
+        )
+        worker_idle = (
+            self.worker is None
+            and self.current_custom_operation is None
+            and not self.capture_in_flight
+        )
+        arm_checks = (
+            (self.system_identity_communication_ok, "communication is not confirmed"),
+            (self.system_identity_matched, "MAGIC / VERSION identity mismatch"),
+            (
+                self.system_l1_capability_matched,
+                "LOCK-MVP-L1 capability mismatch",
+            ),
+            (fpga_mode == 1, "FPGA mode is not SCAN"),
+            (fpga_enable == 1, "FPGA output is not enabled"),
+            (fpga_state == 1, f"acquisition state is not SCAN ({fpga_state})"),
+            (not self.system_identity_saturated, "saturation is active"),
+            (self.selected_lock_point is not None, "no confirmed target"),
+            (selected_is_current, "confirmed target is stale"),
+            (config_generation > 0, "config generation is invalid"),
+            (worker_idle, "worker is busy"),
+            (not self.live_capture_active, "Live Capture is still running"),
+        )
+        arm_block_reason = next(
+            (reason for passed, reason in arm_checks if not passed),
+            "",
+        )
+        arm_common_enabled = identity_enabled and not arm_block_reason
+        active_kp = int(self.custom_kp.currentText())
+        self.custom_lock_button.setEnabled(
+            arm_common_enabled and active_kp in (0, 4)
+        )
+        self.custom_validate_lock_button.setEnabled(
+            arm_common_enabled and active_kp == 0
+        )
+        lock_reason = arm_block_reason or (
+            "" if active_kp in (0, 4) else "BASIC LOCK Kp must be 0 or 4"
+        )
+        validate_reason = arm_block_reason or (
+            "" if active_kp == 0 else "VALIDATE requires Kp=0"
+        )
+        self.custom_lock_button.setToolTip(lock_reason)
+        self.custom_validate_lock_button.setToolTip(validate_reason)
+        if (
+            arm_block_reason
+            and not self.last_lock_transition_diagnostics
+            and not self.last_hold_selected_diagnostics
+        ):
+            self.operator_lock_diagnostic_state_label.setText(
+                f"ARM blocked: {arm_block_reason}"
+            )
         self.hold_selected_count_button.setEnabled(
             identity_enabled
             and selected_is_current

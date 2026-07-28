@@ -10,16 +10,28 @@ from redpitaya_lock_host.common.lock_models import (
 )
 from redpitaya_lock_host.core.acquisition_service import AcquisitionService
 from redpitaya_lock_host.core.lock_service import LockService
-from redpitaya_lock_host.custom_fpga_backend import CustomFpgaBackendError
+from redpitaya_lock_host.custom_fpga_backend import (
+    CustomFpgaBackendError,
+    CustomFpgaStateError,
+)
 
 
 class FakeBackend:
-    def __init__(self, *, arm_state: int = 3, l1_capability: str = "0x4C310001") -> None:
+    def __init__(
+        self,
+        *,
+        arm_state: int = 3,
+        current_state: int = 1,
+        l1_capability: str = "0x4C310001",
+        safe_state: int = 0,
+    ) -> None:
         self.arm_state = arm_state
+        self.current_state = current_state
         self.safe_calls = 0
         self.arm_configs = []
         self.validate_configs = []
         self.l1_capability = l1_capability
+        self.safe_state = safe_state
 
     def read_status(self):
         return SimpleNamespace(
@@ -29,6 +41,7 @@ class FakeBackend:
                 "mode": 1,
                 "enable": 1,
                 "saturated": False,
+                "acquisition_state": self.current_state,
             }
         )
 
@@ -60,7 +73,13 @@ class FakeBackend:
 
     def set_mode_safe(self):
         self.safe_calls += 1
-        return SimpleNamespace(payload={"mode": 0, "enable": 0})
+        return SimpleNamespace(
+            payload={
+                "mode": 0,
+                "enable": 0,
+                "acquisition_state": self.safe_state,
+            }
+        )
 
 
 def make_target(*, capture_id: int = 7, slope: float = 0.5) -> LockTarget:
@@ -181,7 +200,7 @@ def test_same_version_without_l1_capability_is_safed_before_arm() -> None:
     acquisition.adopt_capture_id(7)
     service = LockService(backend, acquisition)
 
-    with pytest.raises(CustomFpgaBackendError, match="SAFE requested"):
+    with pytest.raises(CustomFpgaBackendError, match="SAFE CONFIRMED"):
         service.request_lock(
             BasicLockRequest(
                 target=make_target(),
@@ -201,7 +220,7 @@ def test_arm_readback_mismatch_requests_safe_and_enters_failed() -> None:
     acquisition.adopt_capture_id(7)
     service = LockService(backend, acquisition)
 
-    with pytest.raises(CustomFpgaBackendError, match="SAFE requested"):
+    with pytest.raises(CustomFpgaBackendError, match="SAFE CONFIRMED"):
         service.request_lock(
             BasicLockRequest(
                 target=make_target(),
@@ -213,4 +232,74 @@ def test_arm_readback_mismatch_requests_safe_and_enters_failed() -> None:
         )
 
     assert backend.safe_calls == 1
+    assert service.state is LockState.FAILED
+
+
+@pytest.mark.parametrize(
+    ("state", "name"),
+    (
+        (2, "VALIDATING"),
+        (3, "ARMED"),
+        (4, "ACQUIRING"),
+        (5, "P_LOCKED"),
+    ),
+)
+def test_repeated_arm_is_rejected_before_shadow_write_and_safed(
+    state: int, name: str
+) -> None:
+    backend = FakeBackend(current_state=state)
+    acquisition = AcquisitionService(backend)
+    acquisition.adopt_capture_id(7)
+    service = LockService(backend, acquisition)
+
+    with pytest.raises(
+        CustomFpgaStateError,
+        match=rf"already active: {name}.*SAFE CONFIRMED",
+    ):
+        service.request_lock(
+            BasicLockRequest(
+                target=make_target(),
+                kp=0,
+                polarity=0,
+                correction_limit_counts=12,
+                absolute_limit_counts=300,
+            )
+        )
+
+    assert backend.arm_configs == []
+    assert backend.validate_configs == []
+    assert backend.safe_calls == 1
+
+
+def test_safe_requires_authoritative_acquisition_safe_readback() -> None:
+    backend = FakeBackend(safe_state=1)
+    service = LockService(backend)
+
+    with pytest.raises(
+        CustomFpgaStateError,
+        match="SAFE COMMAND FAILED / MANUAL HARDWARE CHECK REQUIRED",
+    ) as raised:
+        service.safe()
+
+    assert raised.value.safe_confirmed is False
+    assert service.state is LockState.FAILED
+
+
+def test_safe_command_exception_is_not_retried_or_reported_confirmed() -> None:
+    backend = FakeBackend()
+
+    def fail_safe():
+        raise CustomFpgaStateError(
+            "SAFE COMMAND FAILED: acquisition_state=FAULT",
+            payload={"acquisition_state": 7},
+        )
+
+    backend.set_mode_safe = fail_safe
+    service = LockService(backend)
+
+    with pytest.raises(CustomFpgaStateError) as raised:
+        service.safe()
+
+    assert raised.value.safe_confirmed is False
+    assert "MANUAL HARDWARE CHECK REQUIRED" in str(raised.value)
     assert service.state is LockState.FAILED

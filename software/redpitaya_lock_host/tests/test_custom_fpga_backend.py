@@ -14,6 +14,8 @@ from redpitaya_lock_host.custom_fpga_backend import (
     ErrorCrossingDirection,
     ScanDirection,
     CustomFpgaBackendError,
+    CustomFpgaStateError,
+    CustomFpgaTransportError,
     build_acquisition_target_config,
     build_basic_lock_config,
     build_hold_config,
@@ -28,6 +30,7 @@ from redpitaya_lock_host.custom_fpga_backend import (
     resolve_target_transition,
     status_payload_has_expected_magic,
     missing_magic_guidance,
+    custom_fpga_error_from_detail,
     validate_basic_lock_capture,
 )
 from redpitaya_lock_host.out2_calibration import (
@@ -107,6 +110,12 @@ def load_scan_control_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def load_remote_helper_namespace() -> dict:
+    namespace = {"__name__": "_test_remote_helper"}
+    exec(load_scan_control_module().REMOTE_HELPER, namespace)
+    return namespace
 
 
 def test_out2_absolute_voltage_calibration_counts() -> None:
@@ -208,6 +217,23 @@ def test_system_identity_error_classification_is_specific() -> None:
     assert classify_identity_error("SSH connection closed") == "Communication lost"
 
 
+def test_backend_error_classification_separates_transport_from_fpga_state() -> None:
+    assert isinstance(
+        custom_fpga_error_from_detail("SSH command failed: connection refused"),
+        CustomFpgaTransportError,
+    )
+    assert isinstance(
+        custom_fpga_error_from_detail(
+            "ARM state readback timeout: last FPGA state=SCAN"
+        ),
+        CustomFpgaStateError,
+    )
+    assert isinstance(
+        custom_fpga_error_from_detail("FPGA acquisition entered FAULT"),
+        CustomFpgaStateError,
+    )
+
+
 def test_remote_helper_requires_magic_before_safe_and_scan_writes() -> None:
     source = (ROOT / "scripts" / "custom_fpga_scan_control.py").read_text(encoding="utf-8")
 
@@ -254,6 +280,21 @@ def test_remote_helper_safe_and_scan_read_back_status_after_writes() -> None:
     assert hold_start < readback_start
     assert p_lock_start < readback_start
     assert pi_lock_start < readback_start
+
+
+def test_remote_helper_safe_issues_one_abort_and_waits_for_safe_readback() -> None:
+    helper = load_scan_control_module().REMOTE_HELPER
+    safe_start = helper.index('if args.op == "safe":')
+    safe_end = helper.index('elif args.op == "scan":', safe_start)
+    safe_body = helper[safe_start:safe_end]
+
+    assert safe_body.count('regs.write(REGISTERS["ACQ_COMMAND"], 2)') == 1
+    assert 'regs.write(REGISTERS["KP"], 0)' in safe_body
+    assert 'regs.write(REGISTERS["KI"], 0)' in safe_body
+    assert 'regs.write(REGISTERS["ENABLE"], 0)' in safe_body
+    assert 'regs.write(REGISTERS["MODE"], 0)' in safe_body
+    assert 'regs.write(REGISTERS["INTEGRAL_RESET"], 1)' in safe_body
+    assert "wait_for_safe_readback(regs)" in safe_body
 
 
 def test_one_click_lock_bias_uses_out2_monitor_counts_not_voltage_estimate() -> None:
@@ -425,8 +466,12 @@ def test_acquisition_signed_count_encoding_and_independent_directions() -> None:
     assert config.required_scan_direction is ScanDirection.FALLING
     assert config.required_error_crossing_direction is ErrorCrossingDirection.NEG_TO_POS
     assert config.config_generation == 9
-    assert AcquisitionState(2).name == "ARMED"
-    assert AcquisitionState(4).name == "P_LOCK_KP0"
+    assert AcquisitionState(2).name == "VALIDATING"
+    assert AcquisitionState(3).name == "ARMED"
+    assert AcquisitionState(4).name == "ACQUIRING"
+    assert AcquisitionState(5).name == "P_LOCKED"
+    assert AcquisitionState(6).name == "FAILED"
+    assert AcquisitionState(7).name == "FAULT"
     assert AcquisitionEventType(2).name == "TRIGGERED"
 
     with np.testing.assert_raises(CustomFpgaBackendError):
@@ -445,7 +490,7 @@ def test_acquisition_signed_count_encoding_and_independent_directions() -> None:
         )
 
 
-def test_normal_arm_path_writes_complete_shadow_once_without_host_trigger_polling() -> None:
+def test_normal_arm_path_writes_complete_shadow_once_then_polls_state() -> None:
     module = load_scan_control_module()
     helper = module.REMOTE_HELPER
     run_start = helper.index("def run_preload_acquisition(regs, args, arm, validate=False):")
@@ -471,9 +516,150 @@ def test_normal_arm_path_writes_complete_shadow_once_without_host_trigger_pollin
     assert run_body.index('if not (validation & (1 << 7)):') < run_body.index(
         'regs.write(REGISTERS["ACQ_COMMAND"], 8 if validate else 1)'
     )
-    assert "time.sleep" not in run_body
-    assert "target_poll" not in run_body
+    assert "wait_for_acquisition_state(" in run_body
     assert "CAPTURE_LOCK_POINT" not in run_body
+
+
+class FakeMonotonicClock:
+    def __init__(self) -> None:
+        self.value = 0.0
+
+    def monotonic(self) -> float:
+        return self.value
+
+    def sleep(self, seconds: float) -> None:
+        self.value += max(0.0, float(seconds))
+
+
+def test_validate_wait_accepts_delayed_validating_state_without_rewriting_command() -> None:
+    namespace = load_remote_helper_namespace()
+    states = iter(
+        [
+            {"acquisition_state": 1, "acquisition_state_name": "SCAN"},
+            {"acquisition_state": 1, "acquisition_state_name": "SCAN"},
+            {"acquisition_state": 2, "acquisition_state_name": "VALIDATING"},
+        ]
+    )
+    namespace["acquisition_status"] = lambda _regs: next(states)
+    clock = FakeMonotonicClock()
+
+    result = namespace["wait_for_acquisition_state"](
+        object(),
+        (2,),
+        timeout_s=0.2,
+        poll_interval_s=0.001,
+        clock=clock.monotonic,
+        sleeper=clock.sleep,
+    )
+
+    assert result["acquisition_state"] == 2
+    assert result["acquisition_state_name"] == "VALIDATING"
+
+
+def test_active_arm_wait_accepts_armed_acquiring_and_fast_locked_states() -> None:
+    for accepted_state, accepted_name in (
+        (3, "ARMED"),
+        (4, "ACQUIRING"),
+        (5, "P_LOCKED"),
+    ):
+        namespace = load_remote_helper_namespace()
+        states = iter(
+            [
+                {"acquisition_state": 1, "acquisition_state_name": "SCAN"},
+                {
+                    "acquisition_state": accepted_state,
+                    "acquisition_state_name": accepted_name,
+                },
+            ]
+        )
+        namespace["acquisition_status"] = lambda _regs, values=states: next(values)
+        clock = FakeMonotonicClock()
+
+        result = namespace["wait_for_acquisition_state"](
+            object(),
+            (3, 4, 5),
+            timeout_s=0.2,
+            poll_interval_s=0.001,
+            clock=clock.monotonic,
+            sleeper=clock.sleep,
+        )
+
+        assert result["acquisition_state"] == accepted_state
+
+
+def test_arm_wait_timeout_includes_last_complete_diagnostic_payload() -> None:
+    namespace = load_remote_helper_namespace()
+    payload = {
+        "acquisition_state": 1,
+        "acquisition_state_name": "SCAN",
+        "mode": 1,
+        "enable": 1,
+        "status_raw": "0x00000001",
+        "saturated": False,
+        "config_validation": "0x00000080",
+        "fault_detail": "0x00000000",
+        "l1_capability": "0x4C310001",
+        "config_generation": 9,
+        "acquisition_event": {"event_type_name": "NONE"},
+        "validate_event_count": 0,
+    }
+    namespace["acquisition_status"] = lambda _regs: dict(payload)
+    clock = FakeMonotonicClock()
+
+    with np.testing.assert_raises(SystemExit) as raised:
+        namespace["wait_for_acquisition_state"](
+            object(),
+            (3, 4, 5),
+            timeout_s=0.003,
+            poll_interval_s=0.001,
+            clock=clock.monotonic,
+            sleeper=clock.sleep,
+        )
+
+    message = str(raised.exception)
+    assert "ARM state readback timeout" in message
+    for expected in (
+        '"acquisition_state": 1',
+        '"acquisition_state_name": "SCAN"',
+        '"mode": 1',
+        '"enable": 1',
+        '"status_raw": "0x00000001"',
+        '"saturated": false',
+        '"config_validation": "0x00000080"',
+        '"fault_detail": "0x00000000"',
+        '"l1_capability": "0x4C310001"',
+        '"config_generation": 9',
+        '"acquisition_event"',
+        '"validate_event_count": 0',
+        '"expected_states": [3, 4, 5]',
+        '"timeout_s": 0.003',
+    ):
+        assert expected in message
+
+
+def test_arm_wait_stops_immediately_on_failed_or_fault() -> None:
+    for state, name in ((6, "FAILED"), (7, "FAULT")):
+        namespace = load_remote_helper_namespace()
+        namespace["acquisition_status"] = lambda _regs, value=state, label=name: {
+            "acquisition_state": value,
+            "acquisition_state_name": label,
+            "fault_detail": "0x00020001",
+        }
+        clock = FakeMonotonicClock()
+
+        with np.testing.assert_raises(SystemExit) as raised:
+            namespace["wait_for_acquisition_state"](
+                object(),
+                (3, 4, 5),
+                timeout_s=0.2,
+                poll_interval_s=0.001,
+                clock=clock.monotonic,
+                sleeper=clock.sleep,
+            )
+
+        assert name in str(raised.exception)
+        assert "0x00020001" in str(raised.exception)
+        assert clock.value == 0.0
 
 
 def test_cli_and_worker_normal_lock_path_route_only_to_fpga_arm() -> None:
@@ -1085,7 +1271,18 @@ def test_system_identity_magic_and_version_mismatch_disable_dangerous_actions() 
     window = MainWindow({}, start_mock=True)
     try:
         window.mock_check.setChecked(False)
-        window._update_system_identity_from_payload(make_identity_payload(), record_probe=True)
+        window._update_system_identity_from_payload(
+            make_identity_payload(
+                version="0x00030200",
+                l1_capability="0x4C310001",
+                build_capability="L1_ERROR_CROSSING",
+                mode=1,
+                enable=1,
+                acquisition_state=1,
+                acquisition_state_name="SCAN",
+            ),
+            record_probe=True,
+        )
         window._apply_button_state("DISCONNECTED")
         assert window.custom_scan_button.isEnabled()
         assert window.custom_start_live_button.isEnabled()
@@ -1210,6 +1407,175 @@ def test_system_identity_failure_clears_stale_readback_and_classifies_authentica
         assert "No authentication methods available" in window.system_identity_error_label.toolTip()
         assert window.last_identity_probe_time == successful_time
         assert window.system_last_probe_title.text() == "Last successful probe"
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_fpga_state_failure_preserves_connection_identity_and_full_diagnostics() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        active = make_identity_payload(
+            version="0x00030200",
+            l1_capability="0x4C310001",
+            build_capability="L1_ERROR_CROSSING",
+            mode=1,
+            enable=1,
+            acquisition_state=1,
+            acquisition_state_name="SCAN",
+        )
+        safe = dict(active)
+        safe.update(
+            mode=0,
+            enable=0,
+            acquisition_state=0,
+            acquisition_state_name="SAFE",
+        )
+        window._update_system_identity_from_payload(active, record_probe=True)
+        window.current_custom_operation = "validate-lock"
+        error = CustomFpgaStateError(
+            "ARM state readback timeout; last FPGA state=SCAN",
+            payload={
+                "acquisition_state": 1,
+                "acquisition_state_name": "SCAN",
+                "fault_detail": "0x00000000",
+                "safe_readback": safe,
+            },
+            safe_confirmed=True,
+        )
+
+        window._on_custom_fpga_failed(error)
+
+        assert window.system_connection_value.text() == "Connected"
+        assert window.operator_connection_status_label.text() == "Connected"
+        assert window.system_identity_value.text() == "Matched"
+        assert window.system_fpga_version_value.text() == "v3.2.0"
+        assert "VALIDATE FAILED" in window.operator_state_label.text()
+        assert "SAFE CONFIRMED" in window.operator_state_label.text()
+        assert "ARM state readback timeout" in window.operator_alert_label.text()
+        assert "fault_detail" in window.custom_warning_text.toPlainText()
+        assert "Communication lost" not in window.custom_warning_text.toPlainText()
+        assert (
+            window.operator_lock_diagnostic_labels["acquisition_state"].text()
+            == "SAFE"
+        )
+        assert (
+            window.operator_lock_diagnostic_labels["last_fpga_readback"].text()
+            == "SCAN"
+        )
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_custom_fpga_busy_worker_rejects_second_ordinary_operation() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    original_worker = SimpleNamespace(isRunning=lambda: True)
+    try:
+        window.worker = original_worker
+        window.current_custom_operation = "capture"
+
+        window._start_custom_fpga_operation("status")
+
+        assert window.worker is original_worker
+        assert window.current_custom_operation == "capture"
+        assert "busy" in window.statusBar().currentMessage().lower()
+    finally:
+        window.worker = None
+        window.close()
+        app.processEvents()
+
+
+def test_arm_requested_during_live_capture_stops_live_and_queues_after_capture() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    original_worker = SimpleNamespace(isRunning=lambda: True)
+    try:
+        window.worker = original_worker
+        window.current_custom_operation = "capture"
+        window.capture_in_flight = True
+        window.live_capture_active = True
+
+        window._start_custom_fpga_operation("validate-lock")
+
+        assert not window.live_capture_active
+        assert window.worker is original_worker
+        assert window.current_custom_operation == "capture"
+        assert window.pending_custom_operation == ("validate-lock", False)
+        assert "queued" in window.statusBar().currentMessage().lower()
+    finally:
+        window.worker = None
+        window.close()
+        app.processEvents()
+
+
+def test_arm_buttons_require_l1_scan_readback_current_target_and_idle_worker() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PySide6.QtWidgets import QApplication
+        from redpitaya_lock_host.main_window import MainWindow
+    except ImportError:
+        return
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        window.mock_check.setChecked(False)
+        window.custom_capture_generation = 4
+        window.selected_lock_point = {
+            "capture_generation": 4,
+            "config_generation": 7,
+        }
+        ready = make_identity_payload(
+            version="0x00030200",
+            l1_capability="0x4C310001",
+            build_capability="L1_ERROR_CROSSING",
+            mode=1,
+            enable=1,
+            acquisition_state=1,
+            acquisition_state_name="SCAN",
+        )
+        window._update_system_identity_from_payload(ready, record_probe=True)
+        window.custom_kp.setCurrentText("0")
+        window._apply_button_state(window.connection_state)
+
+        assert window.custom_lock_button.isEnabled()
+        assert window.custom_validate_lock_button.isEnabled()
+
+        active = dict(ready)
+        active.update(acquisition_state=2, acquisition_state_name="VALIDATING")
+        window._update_system_identity_from_payload(active, record_probe=False)
+        assert not window.custom_lock_button.isEnabled()
+        assert not window.custom_validate_lock_button.isEnabled()
+
+        window._update_system_identity_from_payload(ready, record_probe=False)
+        window.live_capture_active = True
+        window._apply_button_state(window.connection_state)
+        assert not window.custom_lock_button.isEnabled()
+        assert "Live Capture" in window.custom_lock_button.toolTip()
     finally:
         window.close()
         app.processEvents()
@@ -2509,7 +2875,18 @@ def test_target_region_click_finds_error_zero_crossing_and_only_creates_pending(
     window = MainWindow({}, start_mock=True)
     try:
         window.mock_check.setChecked(False)
-        window._update_system_identity_from_payload(make_identity_payload(), record_probe=True)
+        window._update_system_identity_from_payload(
+            make_identity_payload(
+                version="0x00030200",
+                l1_capability="0x4C310001",
+                build_capability="L1_ERROR_CROSSING",
+                mode=1,
+                enable=1,
+                acquisition_state=1,
+                acquisition_state_name="SCAN",
+            ),
+            record_probe=True,
+        )
         window.show()
         window._render_custom_capture_payload(make_capture_payload())
         app.processEvents()

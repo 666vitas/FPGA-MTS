@@ -13,6 +13,10 @@ from ..common.lock_models import (
 )
 from ..custom_fpga_backend import (
     CustomFpgaBackendError,
+    CustomFpgaCommandError,
+    CustomFpgaStateError,
+    CustomFpgaTransportError,
+    CustomFpgaValidationError,
     build_acquisition_target_config,
 )
 from .acquisition_service import AcquisitionService
@@ -35,7 +39,31 @@ class LockService:
         return payload
 
     def safe(self):
-        response = self._backend.set_mode_safe()
+        try:
+            response = self._backend.set_mode_safe()
+        except CustomFpgaTransportError:
+            self.state = LockState.FAILED
+            raise
+        except CustomFpgaCommandError as exc:
+            self.state = LockState.FAILED
+            raise CustomFpgaStateError(
+                "SAFE COMMAND FAILED / MANUAL HARDWARE CHECK REQUIRED: "
+                f"{exc}",
+                payload=exc.payload,
+                safe_confirmed=False,
+            ) from exc
+        payload = response.payload
+        mode = int(payload.get("mode", -1))
+        enable = int(payload.get("enable", -1))
+        acquisition_state = int(payload.get("acquisition_state", -1))
+        if (mode, enable, acquisition_state) != (0, 0, 0):
+            self.state = LockState.FAILED
+            raise CustomFpgaStateError(
+                "SAFE COMMAND FAILED / MANUAL HARDWARE CHECK REQUIRED: "
+                f"mode={mode}, enable={enable}, acquisition_state={acquisition_state}",
+                payload=payload,
+                safe_confirmed=False,
+            )
         self.state = LockState.SAFE
         self.target = None
         return response
@@ -68,13 +96,40 @@ class LockService:
             return self._fail_safe("ARM requires MODE=SCAN and ENABLE=1")
         if bool(payload.get("saturated", False)):
             return self._fail_safe("ARM refused because saturation is active")
-        if int(payload.get("acquisition_state", 1)) == 2:
-            raise CustomFpgaBackendError(
-                "target configuration writes are forbidden while acquisition is ARMED"
+        acquisition_state = int(payload.get("acquisition_state", -1))
+        acquisition_name = str(
+            payload.get(
+                "acquisition_state_name",
+                {
+                    0: "SAFE",
+                    1: "SCAN",
+                    2: "VALIDATING",
+                    3: "ARMED",
+                    4: "ACQUIRING",
+                    5: "P_LOCKED",
+                    6: "FAILED",
+                    7: "FAULT",
+                }.get(acquisition_state, "UNKNOWN"),
+            )
+        )
+        if acquisition_state in (2, 3, 4, 5):
+            return self._fail_safe(
+                f"FPGA acquisition is already active: {acquisition_name}. "
+                "Execute SAFE or ABORT and verify state=SAFE before arming again."
+            )
+        if acquisition_state in (6, 7):
+            return self._fail_safe(
+                f"FPGA acquisition is in {acquisition_name}. "
+                "SAFE recovery is required before a new scan or ARM."
+            )
+        if acquisition_state != 1:
+            return self._fail_safe(
+                f"ARM requires FPGA acquisition state=SCAN, got {acquisition_name}"
             )
         if self.capability is not AcquisitionCapability.L1_ERROR_CROSSING:
             return self._fail_safe(
-                "loaded FPGA build does not advertise LOCK-MVP-L1 realtime crossing capability"
+                "loaded FPGA build does not advertise LOCK-MVP-L1 realtime crossing capability",
+                error_type=CustomFpgaValidationError,
             )
 
         target = request.target
@@ -105,11 +160,18 @@ class LockService:
             error_mean_limit_counts=request.error_mean_limit_counts,
             error_abs_limit_counts=request.error_abs_limit_counts,
         )
-        response = (
-            self._backend.validate_lock_target(config)
-            if request.validate_only
-            else self._backend.arm_lock_target(config)
-        )
+        try:
+            response = (
+                self._backend.validate_lock_target(config)
+                if request.validate_only
+                else self._backend.arm_lock_target(config)
+            )
+        except CustomFpgaCommandError as exc:
+            return self._fail_safe(
+                str(exc),
+                error_type=type(exc),
+                payload=exc.payload,
+            )
         readback = response.payload
         acq_state = int(readback.get("acquisition_state", -1))
         mode = int(readback.get("mode", -1))
@@ -141,9 +203,30 @@ class LockService:
         self.state = LockState.ACQUIRING if int(kp) == 0 else LockState.P_LOCKED
         return response
 
-    def _fail_safe(self, reason: str):
+    def _fail_safe(
+        self,
+        reason: str,
+        *,
+        error_type: type[CustomFpgaCommandError] = CustomFpgaStateError,
+        payload: dict | None = None,
+    ):
         try:
-            self._backend.set_mode_safe()
-        finally:
+            response = self.safe()
+        except CustomFpgaTransportError:
             self.state = LockState.FAILED
-        raise CustomFpgaBackendError(f"{reason}; SAFE requested")
+            raise
+        except CustomFpgaStateError as safe_error:
+            self.state = LockState.FAILED
+            raise CustomFpgaStateError(
+                f"{reason}; {safe_error}",
+                payload=safe_error.payload,
+                safe_confirmed=False,
+            ) from safe_error
+        self.state = LockState.FAILED
+        diagnostic = dict(payload or {})
+        diagnostic["safe_readback"] = dict(response.payload)
+        raise error_type(
+            f"{reason}; SAFE CONFIRMED",
+            payload=diagnostic,
+            safe_confirmed=True,
+        )

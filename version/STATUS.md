@@ -1,7 +1,7 @@
 Status: ACTIVE
 Effective-Gate: LOCK-MVP-L1
 Authority: STATUS
-Last-Updated: 2026-07-26
+Last-Updated: 2026-07-28
 Supersedes: previous LOCK-MVP-L0 status
 Superseded-By: NONE
 
@@ -10,8 +10,10 @@ Superseded-By: NONE
 ## 当前事实
 
 - Repository：`666vitas/FPGA-MTS`
-- Local branch/HEAD at task start：`main@56e49fb`；task start working tree clean。
-- 本轮工作区：有 4 个预期未提交文件；未 commit、未 push、未创建 PR。
+- Local branch/HEAD at task start：`main@a43f004`；任务开始时已有 5 个
+  Vivado project/cache 修改和 1 个未跟踪历史审查文件，本轮均未覆盖。
+- 本轮工作区：Host ARM control-chain 代码、测试和本状态文件有预期未提交
+  修改；未创建分支、未 commit、未 push、未创建 PR。
 - `MAGIC=0x4D545330`、`VERSION=0x00030200` 与旧 `0x00..0xE0` CSR 地址保持不变。
 - 新 L1 capability CSR 为 `0xE4 = 0x4C310001`；Host 同时检查 VERSION 与 capability。
 
@@ -35,6 +37,20 @@ Superseded-By: NONE
 - `[IMPLEMENTED]` 未修改 `simple_lock_acquisition`、crossing、Kp ramp、
   supervisor、event recorder、`red_pitaya_top`、CSR、`MAGIC`、
   `VERSION`、`L1_CAPABILITY`、XDC 或 PLL。
+- `[IMPLEMENTED]` Host 在单次写 `ACQ_COMMAND` 后使用 monotonic
+  200 ms 有界轮询；VALIDATE 接受 `VALIDATING`，ACTIVE 接受
+  `ARMED/ACQUIRING/P_LOCKED`，`FAILED/FAULT` 立即返回完整诊断。
+- `[IMPLEMENTED]` Host/GUI 统一 L1 acquisition state `0..7`，区分
+  Transport 与 FPGA Command/State/Validation 错误；逻辑失败保留
+  Connected/Identity，并显示 last ARM intent/result、state、validation、
+  fault、event 和 validate count。
+- `[IMPLEMENTED]` SAFE 先禁止输出，再清零 P/PI 状态，单次发出
+  acquisition ABORT，并只在 `MODE=SAFE`、`ENABLE=0`、
+  `acquisition_state=SAFE` 回读一致时报告 `SAFE CONFIRMED`。
+- `[IMPLEMENTED]` GUI 禁止并发 SSH register worker；Live Capture 的 ARM
+  请求先停止 Live，等待当前 capture worker 完成，再串行启动。ARM 按钮
+  绑定 L1 capability、SCAN/ENABLE/state、saturation、当前 confirmed
+  target/generation、Kp 和 worker/live 状态。
 
 ## 自动验证
 
@@ -44,7 +60,7 @@ Superseded-By: NONE
 - `[RTL SIMULATED]` 关键项：OUT2 controller 54/54、SIMPLE 32/32、
   plant 8/8、Kp ramp 6/6、supervisor 5/5、crossing 13/13、
   D1 register bank 166/166、deterministic 50/50、ramp 25/25。
-- `[UNIT TESTED]` `python -m pytest -q tests`：148 passed。
+- `[UNIT TESTED]` `python -m pytest -q tests`：164 passed。
 
 ## Timing 与硬件
 

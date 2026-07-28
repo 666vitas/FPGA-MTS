@@ -107,7 +107,7 @@ class DisconnectWorker(QThread):
 
 class CustomFpgaRegisterWorker(QThread):
     finished_ok = Signal(object)
-    failed = Signal(str)
+    failed = Signal(object)
 
     def __init__(
         self,
@@ -242,4 +242,4 @@ class CustomFpgaRegisterWorker(QThread):
                 raise ValueError(f"Unknown Custom FPGA operation: {self.operation}")
             self.finished_ok.emit(response.as_dict())
         except Exception as exc:
-            self.failed.emit(str(exc))
+            self.failed.emit(exc)

@@ -21,7 +21,7 @@ from .out2_calibration import (
     out2_counts_to_voltage,
     out2_voltage_to_counts,
 )
-from .ssh_client import RedPitayaSshClient, SshCommandResult
+from .ssh_client import RedPitayaSshClient, SshClientError, SshCommandResult
 
 
 EXPECTED_MAGIC = 0x4D545330
@@ -39,6 +39,43 @@ BASIC_LOCK_STEP_COUNTS = 1
 class CustomFpgaBackendError(RuntimeError):
     """Raised when the Custom FPGA register operation fails."""
 
+    category = "backend"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        safe_confirmed: bool | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.payload = dict(payload or {})
+        self.safe_confirmed = safe_confirmed
+
+
+class CustomFpgaTransportError(CustomFpgaBackendError):
+    """The SSH process or remote register helper could not be reached."""
+
+    category = "transport"
+
+
+class CustomFpgaCommandError(CustomFpgaBackendError):
+    """The remote helper ran, but the FPGA command was rejected or failed."""
+
+    category = "command"
+
+
+class CustomFpgaStateError(CustomFpgaCommandError):
+    """The authoritative FPGA state does not allow or confirm the command."""
+
+    category = "state"
+
+
+class CustomFpgaValidationError(CustomFpgaCommandError):
+    """The FPGA identity, capability, or shadow configuration was rejected."""
+
+    category = "validation"
+
 
 class ScanDirection(IntEnum):
     RISING = 1
@@ -53,11 +90,12 @@ class ErrorCrossingDirection(IntEnum):
 class AcquisitionState(IntEnum):
     SAFE = 0
     SCAN = 1
-    ARMED = 2
-    TRIGGER_CAPTURE = 3
-    P_LOCK_KP0 = 4
-    P_LOCK_ACTIVE = 5
-    FAULT = 6
+    VALIDATING = 2
+    ARMED = 3
+    ACQUIRING = 4
+    P_LOCKED = 5
+    FAILED = 6
+    FAULT = 7
 
 
 class AcquisitionEventType(IntEnum):
@@ -68,6 +106,7 @@ class AcquisitionEventType(IntEnum):
     CONFIG_REJECTED = 4
     COMMAND_REJECTED = 5
     FAULT = 6
+    VALIDATED = 7
 
 
 @dataclass(frozen=True)
@@ -965,8 +1004,85 @@ def _parse_json_stdout(stdout: str) -> dict[str, Any]:
         return {}
     start = text.find("{")
     if start < 0:
-        raise CustomFpgaBackendError(f"Remote command did not return JSON: {text}")
-    return json.loads(text[start:])
+        raise CustomFpgaTransportError(f"Remote command did not return JSON: {text}")
+    try:
+        return json.loads(text[start:])
+    except json.JSONDecodeError as exc:
+        raise CustomFpgaTransportError(
+            f"Remote command returned invalid JSON: {text}"
+        ) from exc
+
+
+def custom_fpga_error_from_detail(detail: str) -> CustomFpgaBackendError:
+    """Classify a launched remote helper failure without hiding FPGA state errors."""
+    text = str(detail).strip() or "remote command failed without diagnostics"
+    lowered = text.lower()
+    payload: dict[str, Any] = {}
+    json_start = text.find("{")
+    if json_start >= 0:
+        try:
+            decoded, _end = json.JSONDecoder().raw_decode(text[json_start:])
+            if isinstance(decoded, dict):
+                payload = decoded
+        except json.JSONDecodeError:
+            pass
+    transport_markers = (
+        "ssh command failed",
+        "authentication failed",
+        "no authentication methods",
+        "connection refused",
+        "no route to host",
+        "connection reset",
+        "timed out",
+        "socket timeout",
+        "dns resolution",
+        "getaddrinfo failed",
+        "name or service not known",
+        "temporary failure in name resolution",
+        "could not resolve hostname",
+    )
+    dev_mem_transport = "/dev/mem" in lowered and any(
+        marker in lowered
+        for marker in (
+            "permission denied",
+            "no such file",
+            "cannot open",
+            "failed to open",
+            "unable to open",
+            "oserror",
+            "filenotfounderror",
+        )
+    )
+    if dev_mem_transport or any(marker in lowered for marker in transport_markers):
+        return CustomFpgaTransportError(text, payload=payload)
+    if any(
+        marker in lowered
+        for marker in (
+            "config_validation",
+            "shadow validation",
+            "capability",
+            "version mismatch",
+            "magic mismatch",
+        )
+    ):
+        return CustomFpgaValidationError(text, payload=payload)
+    if any(
+        marker in lowered
+        for marker in (
+            "acquisition",
+            "arm state",
+            "mode=",
+            "enable=",
+            "saturation",
+            "failed",
+            "fault",
+            "rejected",
+            "generation",
+            "unexpected state",
+        )
+    ):
+        return CustomFpgaStateError(text, payload=payload)
+    return CustomFpgaCommandError(text, payload=payload)
 
 
 class CustomFpgaBackend:
@@ -1229,8 +1345,19 @@ class CustomFpgaBackend:
     ) -> CustomFpgaResponse:
         command = _remote_python_command(self.base_addr, operation, config)
         ssh = RedPitayaSshClient(self.host, self.username, self.password, timeout_s=self.timeout_s)
-        result: SshCommandResult = ssh.run(command, timeout_s=max(self.timeout_s, 20.0))
-        payload = _parse_json_stdout(result.stdout) if result.stdout.strip() else {}
+        try:
+            result: SshCommandResult = ssh.run(
+                command, timeout_s=max(self.timeout_s, 20.0)
+            )
+        except SshClientError as exc:
+            raise CustomFpgaTransportError(str(exc)) from exc
+        payload: dict[str, Any] = {}
+        if result.stdout.strip():
+            try:
+                payload = _parse_json_stdout(result.stdout)
+            except CustomFpgaTransportError:
+                if result.exit_code == 0:
+                    raise
         response = CustomFpgaResponse(
             operation=operation,
             payload=payload,
@@ -1241,7 +1368,11 @@ class CustomFpgaBackend:
         )
         if result.exit_code != 0 and not allow_nonzero:
             detail = result.stderr.strip() or result.stdout.strip() or f"exit_code={result.exit_code}"
-            raise CustomFpgaBackendError(detail)
+            raise custom_fpga_error_from_detail(detail)
+        if not payload:
+            raise CustomFpgaTransportError(
+                "Remote command completed without an interpretable result"
+            )
         return response
 
 
