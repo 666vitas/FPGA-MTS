@@ -450,6 +450,152 @@ def scope_auto_display_parameters(raw_y: np.ndarray) -> tuple[float, float]:
 class LockPointSelectionError(ValueError):
     """Raised when the current capture cannot yield a safe lock point."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "NO_SIGN_CHANGE",
+        diagnostics: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = str(code)
+        self.diagnostics = dict(diagnostics or {})
+
+
+@dataclass(frozen=True)
+class RampDirectionEstimate:
+    """A quantization-tolerant local CH4 direction estimate."""
+
+    direction: str
+    slope_counts_per_sample: float
+    predicted_delta_counts: float
+    fit_window: tuple[int, int]
+    confidence: float
+    valid: bool
+    rejection_reason: str | None
+
+
+def _least_squares_slope(values: np.ndarray, start_index: int) -> tuple[float, float]:
+    finite = np.isfinite(values)
+    if np.count_nonzero(finite) < 3:
+        return float("nan"), 0.0
+    x = np.arange(start_index, start_index + values.size, dtype=float)[finite]
+    y = values[finite]
+    x_centered = x - float(np.mean(x))
+    denominator = float(np.dot(x_centered, x_centered))
+    if denominator <= 0.0:
+        return float("nan"), 0.0
+    slope = float(np.dot(x_centered, y - float(np.mean(y))) / denominator)
+    fitted = float(np.mean(y)) + slope * x_centered
+    residual = float(np.sum((y - fitted) ** 2))
+    total = float(np.sum((y - float(np.mean(y))) ** 2))
+    r_squared = 1.0 if total <= 1e-12 else max(0.0, 1.0 - residual / total)
+    return slope, r_squared
+
+
+def estimate_local_ramp_direction(
+    out2_counts: np.ndarray | list[float],
+    center_index: int,
+    half_window: int = 16,
+) -> RampDirectionEstimate:
+    """Estimate CH4 direction from total local trend, tolerating repeated counts."""
+
+    out2 = np.asarray(out2_counts, dtype=float)
+    count = out2.size
+    center = int(center_index)
+    half = max(6, int(half_window))
+    left = max(0, center - half)
+    right = min(count - 1, center + half)
+    fit_window = (left, right)
+    if count == 0 or center < 0 or center >= count or right - left < 12:
+        return RampDirectionEstimate(
+            "undetermined", float("nan"), 0.0, fit_window, 0.0, False,
+            "RAMP_DIRECTION_UNDETERMINED",
+        )
+
+    values = out2[left:right + 1]
+    slope, r_squared = _least_squares_slope(values, left)
+    span = float(right - left)
+    predicted_delta = abs(slope) * span if np.isfinite(slope) else 0.0
+    segment_size = max(6, int(np.ceil(values.size / 3.0)))
+    left_values = values[:segment_size]
+    right_values = values[-segment_size:]
+    right_start = right - segment_size + 1
+    left_slope, _ = _least_squares_slope(left_values, left)
+    right_slope, _ = _least_squares_slope(right_values, right_start)
+    left_delta = abs(left_slope) * max(1, left_values.size - 1)
+    right_delta = abs(right_slope) * max(1, right_values.size - 1)
+    meaningful_half = 0.75
+    if (
+        np.isfinite(left_slope)
+        and np.isfinite(right_slope)
+        and left_delta >= meaningful_half
+        and right_delta >= meaningful_half
+        and np.sign(left_slope) != np.sign(right_slope)
+    ):
+        return RampDirectionEstimate(
+            "undetermined", slope, predicted_delta, fit_window, 0.0, False,
+            "RAMP_TURNAROUND_TOO_CLOSE",
+        )
+
+    min_predicted_delta = 2.0
+    if not np.isfinite(slope) or predicted_delta < min_predicted_delta:
+        return RampDirectionEstimate(
+            "undetermined", slope, predicted_delta, fit_window, 0.0, False,
+            "RAMP_DIRECTION_UNDETERMINED",
+        )
+
+    consistent_halves = (
+        np.isfinite(left_slope)
+        and np.isfinite(right_slope)
+        and (
+            left_delta < meaningful_half
+            or np.sign(left_slope) == np.sign(slope)
+        )
+        and (
+            right_delta < meaningful_half
+            or np.sign(right_slope) == np.sign(slope)
+        )
+    )
+    if not consistent_halves:
+        return RampDirectionEstimate(
+            "undetermined", slope, predicted_delta, fit_window, 0.0, False,
+            "RAMP_DIRECTION_UNDETERMINED",
+        )
+
+    confidence = min(1.0, predicted_delta / 6.0) * max(0.25, r_squared)
+    return RampDirectionEstimate(
+        "rising" if slope > 0.0 else "falling",
+        slope,
+        predicted_delta,
+        fit_window,
+        confidence,
+        True,
+        None,
+    )
+
+
+_SELECTION_REJECTION_MESSAGES = {
+    "NO_SIGN_CHANGE": "No ERROR sign change was found near the selected point.",
+    "EXACT_ZERO_NOT_BRACKETED": "An exact ERROR zero was not bracketed by stable opposite signs.",
+    "ERROR_SNR_TOO_LOW": "Local ERROR signal is too small relative to noise.",
+    "ERROR_SLOPE_TOO_LOW": "Local ERROR slope is too small for a reliable target.",
+    "RAMP_DIRECTION_UNDETERMINED": "CH4 ramp direction is undetermined in the selected region.",
+    "RAMP_TURNAROUND_TOO_CLOSE": "Selected crossing is too close to a CH4 ramp turnaround.",
+    "OUT2_OUTSIDE_SAFE_RANGE": "Selected OUT2 is outside the user PZT safe range.",
+    "CLICK_TOO_CLOSE_TO_CAPTURE_EDGE": "Selected ERROR point is too close to the capture edge.",
+    "SATURATION_ACTIVE": "Target selection refused because saturation is active.",
+    "MULTIPLE_AMBIGUOUS_CANDIDATES": "Multiple equally near ERROR crossings are ambiguous.",
+}
+
+
+def _raise_selection_error(code: str, diagnostics: dict[str, Any]) -> None:
+    raise LockPointSelectionError(
+        f"{code}: {_SELECTION_REJECTION_MESSAGES[code]}",
+        code=code,
+        diagnostics=diagnostics,
+    )
+
 
 def _interpolate_capture_value(values: np.ndarray | list[float], index: float) -> float:
     samples = np.asarray(values, dtype=float)
@@ -526,109 +672,177 @@ def resolve_direct_error_zero_crossing(
     clicked_index: int,
     safe_min_counts: int = -8191,
     safe_max_counts: int = 8191,
-    search_radius: int = 32,
+    search_radius: int = 64,
     target_window_counts: int = 64,
     saturated: bool = False,
-) -> dict[str, int | float | str]:
-    """Resolve an operator-selected region to its steepest valid CH3 zero crossing."""
+) -> dict[str, Any]:
+    """Resolve the nearest safe ERROR zero crossing using raw aligned counts."""
     error = np.asarray(error_counts, dtype=float)
     out2 = np.asarray(out2_counts, dtype=float)
     count = min(error.size, out2.size)
-    if saturated or count < 16:
-        raise LockPointSelectionError("No valid ERROR zero crossing in the selected region")
+    click = int(np.clip(clicked_index, 0, max(0, count - 1)))
+    diagnostics: dict[str, Any] = {
+        "clicked_index": click,
+        "search_left": None,
+        "search_right": None,
+        "candidate_count": 0,
+        "rejection_counts_by_reason": {},
+        "local_noise": 0.0,
+        "local_error_vpp": 0.0,
+        "ramp_fit_slope": None,
+        "ramp_predicted_delta": None,
+        "safe_min_counts": int(safe_min_counts),
+        "safe_max_counts": int(safe_max_counts),
+    }
+    if saturated:
+        _raise_selection_error("SATURATION_ACTIVE", diagnostics)
+    if count < 16:
+        _raise_selection_error("CLICK_TOO_CLOSE_TO_CAPTURE_EDGE", diagnostics)
     error = error[:count]
     out2 = out2[:count]
-    click = int(np.clip(clicked_index, 0, count - 1))
     edge = max(4, int(round(count * 0.03)))
     if click < edge or click >= count - edge:
-        raise LockPointSelectionError("Selected ERROR point is too close to the capture edge")
+        _raise_selection_error("CLICK_TOO_CLOSE_TO_CAPTURE_EDGE", diagnostics)
 
     left = max(edge, click - max(4, int(search_radius)))
     right = min(count - edge - 1, click + max(4, int(search_radius)))
+    diagnostics["search_left"] = left
+    diagnostics["search_right"] = right
     local_noise = max(robust_noise_counts(np.diff(error[left:right + 2])) * 0.25, 1.0)
     min_local_vpp = max(local_noise * 6.0, 3.0)
-    candidates: list[tuple[float, float, float, Any, str]] = []
-    for index in range(left, right + 1):
-        next_index = min(index + 1, count - 1)
+    diagnostics["local_noise"] = local_noise
+    diagnostics["local_error_vpp"] = signal_vpp(error[left:right + 1])
+    rejection_counts: dict[str, int] = diagnostics["rejection_counts_by_reason"]
+
+    def reject(code: str) -> None:
+        rejection_counts[code] = rejection_counts.get(code, 0) + 1
+
+    brackets: list[tuple[int, int, float, str]] = []
+    index = left
+    while index <= right:
         e0 = float(error[index])
-        e1 = float(error[next_index])
-        if not np.isfinite(e0) or not np.isfinite(e1):
+        if not np.isfinite(e0):
+            index += 1
             continue
-        if e0 * e1 >= 0.0:
+        if e0 == 0.0:
+            zero_start = index
+            zero_end = index
+            while zero_end + 1 <= right + 1 and float(error[zero_end + 1]) == 0.0:
+                zero_end += 1
+            left_sign = zero_start - 1
+            right_sign = zero_end + 1
+            if (
+                left_sign >= edge
+                and right_sign < count - edge
+                and right_sign - left_sign <= 8
+                and np.isfinite(error[left_sign])
+                and np.isfinite(error[right_sign])
+                and float(error[left_sign]) * float(error[right_sign]) < 0.0
+            ):
+                direction = "neg_to_pos" if error[left_sign] < error[right_sign] else "pos_to_neg"
+                brackets.append((left_sign, right_sign, (zero_start + zero_end) / 2.0, direction))
+            else:
+                reject("EXACT_ZERO_NOT_BRACKETED")
+            index = zero_end + 1
             continue
+        if index + 1 < count:
+            e1 = float(error[index + 1])
+            if np.isfinite(e1) and e1 != 0.0 and e0 * e1 < 0.0:
+                fraction = -e0 / (e1 - e0)
+                direction = "neg_to_pos" if e0 < e1 else "pos_to_neg"
+                brackets.append((index, index + 1, index + fraction, direction))
+        index += 1
 
-        try:
-            crossing = interpolate_zero_crossing(
-                error_counts=error,
-                out2_counts=out2,
-                left_index=index,
-            )
-        except CustomFpgaBackendError:
-            continue
-
-        local_left = max(edge, index - 8)
-        local_right = min(count - edge - 1, index + 8)
-        before = error[max(edge, index - 3):index + 1]
-        after = error[index + 1:min(count - edge, index + 5)]
+    candidates: list[dict[str, Any]] = []
+    for bracket_left, bracket_right, zero_index, error_direction in brackets:
+        center_index = int(round(zero_index))
+        local_left = max(edge, center_index - 8)
+        local_right = min(count - edge - 1, center_index + 8)
+        before = error[max(edge, bracket_left - 3):bracket_left + 1]
+        after = error[bracket_right:min(count - edge, bracket_right + 4)]
         if before.size < 2 or after.size < 2:
+            reject("CLICK_TOO_CLOSE_TO_CAPTURE_EDGE")
             continue
         before_level = float(np.nanmedian(before))
         after_level = float(np.nanmedian(after))
         if before_level * after_level >= 0.0:
+            reject("EXACT_ZERO_NOT_BRACKETED" if error[center_index] == 0.0 else "NO_SIGN_CHANGE")
             continue
         if min(abs(before_level), abs(after_level)) < local_noise:
+            reject("ERROR_SNR_TOO_LOW")
             continue
-        if signal_vpp(error[local_left:local_right + 1]) < min_local_vpp:
-            continue
-        ramp_diffs = np.diff(out2[local_left:local_right + 1])
-        ramp_diffs = ramp_diffs[np.isfinite(ramp_diffs)]
-        if ramp_diffs.size < 4:
-            continue
-        median_ramp = float(np.nanmedian(ramp_diffs))
-        if abs(median_ramp) < 0.5:
-            continue
-        if float(np.mean(np.sign(ramp_diffs) == np.sign(median_ramp))) < 0.8:
+        local_error_vpp = signal_vpp(error[local_left:local_right + 1])
+        if local_error_vpp < min_local_vpp:
+            reject("ERROR_SNR_TOO_LOW")
             continue
 
-        slope = float(crossing.slope)
+        ramp = estimate_local_ramp_direction(out2, center_index)
+        diagnostics["ramp_fit_slope"] = ramp.slope_counts_per_sample
+        diagnostics["ramp_predicted_delta"] = ramp.predicted_delta_counts
+        if not ramp.valid:
+            reject(ramp.rejection_reason or "RAMP_DIRECTION_UNDETERMINED")
+            continue
+
+        error_fit_slope, _ = _least_squares_slope(error[local_left:local_right + 1], local_left)
+        if not np.isfinite(error_fit_slope) or abs(error_fit_slope) < max(0.05, local_noise * 0.05):
+            reject("ERROR_SLOPE_TOO_LOW")
+            continue
+        slope = error_fit_slope / ramp.slope_counts_per_sample
         if not np.isfinite(slope) or abs(slope) < 1e-9:
+            reject("ERROR_SLOPE_TOO_LOW")
             continue
-        target_out2 = float(crossing.out2_counts)
+        target_out2 = _interpolate_capture_value(out2, zero_index)
         if target_out2 < int(safe_min_counts) or target_out2 > int(safe_max_counts):
+            reject("OUT2_OUTSIDE_SAFE_RANGE")
             continue
-        direction = "rising" if median_ramp > 0.0 else "falling"
-        candidates.append(
-            (
-                abs(float(crossing.error_residual_counts)),
-                -abs(slope),
-                abs(crossing.index - click),
-                crossing,
-                direction,
-            )
+        crossing_time_s = (
+            _interpolate_capture_value(time_s, zero_index)
+            if time_s is not None
+            else float("nan")
         )
+        candidates.append({
+            "index": float(zero_index),
+            "out2_counts": float(target_out2),
+            "time_s": float(crossing_time_s),
+            "slope": float(slope),
+            "direction": ramp.direction,
+            "error_direction": error_direction,
+            "error_residual": 0.0,
+            "local_error_vpp": local_error_vpp,
+            "ramp": ramp,
+        })
 
+    diagnostics["candidate_count"] = len(candidates)
     if not candidates:
-        raise LockPointSelectionError("No valid ERROR zero crossing in the selected region")
+        priority = (
+            "RAMP_TURNAROUND_TOO_CLOSE",
+            "OUT2_OUTSIDE_SAFE_RANGE",
+            "ERROR_SNR_TOO_LOW",
+            "ERROR_SLOPE_TOO_LOW",
+            "RAMP_DIRECTION_UNDETERMINED",
+            "EXACT_ZERO_NOT_BRACKETED",
+            "NO_SIGN_CHANGE",
+        )
+        code = next((item for item in priority if rejection_counts.get(item)), "NO_SIGN_CHANGE")
+        _raise_selection_error(code, diagnostics)
 
-    _, _, _, crossing, direction = min(candidates, key=lambda item: (item[0], item[1], item[2]))
-    zero_index = float(crossing.index)
-    target_out2_float = float(crossing.out2_counts)
+    candidates.sort(key=lambda item: (abs(item["index"] - click), -abs(item["slope"])))
+    if (
+        len(candidates) > 1
+        and abs(abs(candidates[0]["index"] - click) - abs(candidates[1]["index"] - click)) < 0.25
+    ):
+        reject("MULTIPLE_AMBIGUOUS_CANDIDATES")
+        _raise_selection_error("MULTIPLE_AMBIGUOUS_CANDIDATES", diagnostics)
+    crossing = candidates[0]
+    zero_index = float(crossing["index"])
+    target_out2_float = float(crossing["out2_counts"])
     target_out2_counts = int(round(target_out2_float))
-    crossing_left = max(0, min(count - 2, int(np.floor(zero_index))))
-    error_crossing_direction = (
-        "neg_to_pos" if float(error[crossing_left]) < float(error[crossing_left + 1])
-        else "pos_to_neg"
-    )
-    crossing_time_s = (
-        _interpolate_capture_value(time_s, zero_index)
-        if time_s is not None
-        else float("nan")
-    )
+    ramp: RampDirectionEstimate = crossing["ramp"]
     return {
         "selected_peak_index": int(click),
         "lock_index": zero_index,
         "zero_crossing_index": zero_index,
-        "zero_crossing_time_s": crossing_time_s,
+        "zero_crossing_time_s": float(crossing["time_s"]),
         "zero_crossing_out2_counts": target_out2_float,
         "zero_crossing_pzt_volts": out2_counts_to_voltage(target_out2_float),
         "target_out2_counts": target_out2_counts,
@@ -636,16 +850,29 @@ def resolve_direct_error_zero_crossing(
         "pzt_bias": target_out2_float,
         "pzt_bias_counts": target_out2_counts,
         "pzt_bias_volts": out2_counts_to_voltage(target_out2_float),
-        "error_setpoint": float(crossing.error_counts),
-        "error_setpoint_counts": int(round(float(crossing.error_counts))),
-        "error_residual_counts": float(crossing.error_residual_counts),
-        "slope": float(crossing.slope),
-        "ramp_direction": direction,
-        "error_crossing_direction": error_crossing_direction,
+        "error_setpoint": 0.0,
+        "error_setpoint_counts": 0,
+        "error_residual_counts": float(crossing["error_residual"]),
+        "slope": float(crossing["slope"]),
+        "ramp_direction": str(crossing["direction"]),
+        "error_crossing_direction": str(crossing["error_direction"]),
         "target_window_counts": int(max(1, target_window_counts)),
         "safe_min_counts": int(safe_min_counts),
         "safe_max_counts": int(safe_max_counts),
         "bias_trim_volts": 0.0,
+        "clicked_index": click,
+        "search_left": left,
+        "search_right": right,
+        "candidate_count": len(candidates),
+        "rejection_counts_by_reason": dict(rejection_counts),
+        "local_noise": local_noise,
+        "local_error_vpp": float(crossing["local_error_vpp"]),
+        "ramp_fit_slope": ramp.slope_counts_per_sample,
+        "ramp_predicted_delta": ramp.predicted_delta_counts,
+        "ramp_slope_counts_per_sample": ramp.slope_counts_per_sample,
+        "ramp_predicted_delta_counts": ramp.predicted_delta_counts,
+        "ramp_fit_window": ramp.fit_window,
+        "ramp_confidence": ramp.confidence,
     }
 
 
@@ -970,6 +1197,7 @@ class MainWindow(QMainWindow):
         self.pending_target_peak: dict[str, int | float] | None = None
         self.last_lock_transition_diagnostics: dict[str, Any] | None = None
         self.last_hold_selected_diagnostics: dict[str, Any] | None = None
+        self.last_selection_diagnostics: dict[str, Any] | None = None
         self.operator_diagnostic_events: list[dict[str, Any]] = []
         self.custom_scope_valid_for_selection = False
         self.live_capture_active = False
@@ -1763,6 +1991,19 @@ class MainWindow(QMainWindow):
             f"last_acquisition_event: {self._raw_diagnostic_value(arm_event)}",
             f"validate_event_count: {self._raw_diagnostic_value(arm_fpga.get('validate_event_count'))}",
             f"last_error_detail: {self.last_fpga_error_detail or 'unavailable'}",
+            "Raw Target Selection Details",
+            f"selection_code: {self._raw_diagnostic_value((self.last_selection_diagnostics or {}).get('selection_code'))}",
+            f"clicked_index: {self._raw_diagnostic_value((self.last_selection_diagnostics or {}).get('clicked_index'))}",
+            f"search_left: {self._raw_diagnostic_value((self.last_selection_diagnostics or {}).get('search_left'))}",
+            f"search_right: {self._raw_diagnostic_value((self.last_selection_diagnostics or {}).get('search_right'))}",
+            f"candidate_count: {self._raw_diagnostic_value((self.last_selection_diagnostics or {}).get('candidate_count'))}",
+            f"rejection_counts_by_reason: {self._raw_diagnostic_value((self.last_selection_diagnostics or {}).get('rejection_counts_by_reason'))}",
+            f"local_noise: {self._raw_diagnostic_value((self.last_selection_diagnostics or {}).get('local_noise'))}",
+            f"local_error_vpp: {self._raw_diagnostic_value((self.last_selection_diagnostics or {}).get('local_error_vpp'))}",
+            f"ramp_fit_slope: {self._raw_diagnostic_value((self.last_selection_diagnostics or {}).get('ramp_fit_slope'))}",
+            f"ramp_predicted_delta: {self._raw_diagnostic_value((self.last_selection_diagnostics or {}).get('ramp_predicted_delta'))}",
+            f"selection_safe_min_counts: {self._raw_diagnostic_value((self.last_selection_diagnostics or {}).get('safe_min_counts'))}",
+            f"selection_safe_max_counts: {self._raw_diagnostic_value((self.last_selection_diagnostics or {}).get('safe_max_counts'))}",
             f"calibration_center_gain: {OUT2_CENTER_GAIN}",
             f"calibration_center_offset: {OUT2_CENTER_OFFSET}",
             f"calibration_amplitude_gain: {OUT2_AMPLITUDE_GAIN}",
@@ -3802,9 +4043,28 @@ class MainWindow(QMainWindow):
             self.pending_lock_point = None
             self.pending_target_peak = None
             message = str(exc)
+            if isinstance(exc, LockPointSelectionError):
+                self.last_selection_diagnostics = {
+                    **exc.diagnostics,
+                    "selection_code": exc.code,
+                }
+                rejection_summary = ", ".join(
+                    f"{reason}={total}"
+                    for reason, total in sorted(
+                        dict(exc.diagnostics.get("rejection_counts_by_reason", {})).items()
+                    )
+                )
+                if rejection_summary:
+                    message = f"{message} Rejections: {rejection_summary}."
+            else:
+                self.last_selection_diagnostics = {
+                    "selection_code": "HOST_CONFIGURATION_ERROR",
+                    "clicked_index": clicked_index,
+                }
             self.selected_lock_label.setText(f"pending target rejected: {message}")
             self.custom_warning_text.setPlainText(message)
             self.operator_alert_label.setText(message)
+            self._refresh_operator_lock_diagnostics()
             return
         peak_index = int(selected["selected_peak_index"])
         zero_index = float(selected["zero_crossing_index"])
@@ -3824,6 +4084,25 @@ class MainWindow(QMainWindow):
         selected["pzt_bias_counts"] = int(selected["target_out2_counts"])
         selected["pzt_bias_volts"] = float(selected["target_out2_volts"])
         selected["capture_generation"] = int(self.custom_capture_generation)
+        self.last_selection_diagnostics = {
+            "selection_code": "ACCEPTED",
+            **{
+                key: selected.get(key)
+                for key in (
+                    "clicked_index",
+                    "search_left",
+                    "search_right",
+                    "candidate_count",
+                    "rejection_counts_by_reason",
+                    "local_noise",
+                    "local_error_vpp",
+                    "ramp_fit_slope",
+                    "ramp_predicted_delta",
+                    "safe_min_counts",
+                    "safe_max_counts",
+                )
+            },
+        }
         self.selected_lock_point = None
         self.p_lock_ready = False
         self._clear_captured_diagnostic_binding()

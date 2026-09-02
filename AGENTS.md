@@ -34,6 +34,35 @@ MAGIC=0x4D545330
 
 `VERSION` 必须从当前 RTL、host 和实际 bitstream 记录核对，不在长期规则中写死。
 
+## 1.1 当前 FIRST_LOCK_MVP 实验边界
+
+- 当前唯一实验目标是以一块 Red Pitaya 完成真实、简单、可重复的 PZT
+  P-only lock；AI、自动重锁、自动相位优化和 PI/Ki 均不属于当前 Gate。
+- D2-125 Main Servo 继续承担激光器快电流反馈；当前 Gate 仅逐步替代其
+  AUX 对 PZT 的 scan、hold 与慢校正。FPGA `OUT2` 接 PZT 时，D2-125 AUX
+  Servo Output 必须与 PZT 物理断开，严禁两个输出并联。
+- 不重建既有 Processing System、Block Design、ADC/DAC、125 MHz clock、
+  reset、PS/PL 或 Linux transport 架构；优先审查和最小修改 custom PL RTL、
+  register bank、scan/hold/lock logic 与必要的 host protocol。
+
+## 1.2 项目内 Vivado Skills
+
+项目的完整 Vivado Skills 安装在 `.agents/skills/`，其知识仅作参考；当前
+工程实际 Vivado 版本和 `help <command>` 输出才是 Tcl/property/strategy 是否可用的唯一依据。
+
+- `vivado-synth`：RTL、DSP、寄存器和 pipeline 的综合结构审查。
+- `vivado-constraints`：XDC、clock、CDC、I/O delay 与 timing exception 审查。
+- `vivado-sim`：RTL behavioral verification。
+- `vivado-impl`：place/route 与 implementation strategy（仅经当前 Gate 授权）。
+- `vivado-analysis`：WNS/TNS/WHS/THS、关键路径、fanout 与 congestion 解析。
+- `vivado-tcl`：兼容版本的 batch Tcl 编写与执行。
+- `vivado-debug`：仅在常规仿真及 OUT1/OUT2 观测不足时考虑 ILA/VIO；加入后须重新完成 implementation/timing。
+
+不为安装 Skill 而改用 nextpnr、ice40、ECP5、Gowin 或 GateFlow 作为本 Xilinx
+Zynq 工程的综合、P&R 或 timing signoff。每项重要 RTL 变更都必须经过 RTL
+simulation、synthesis、implementation 和 routed timing analysis；WNS 正值本身
+不构成 Timing PASS，且不得用无证据的 timing exception 掩盖问题。
+
 ## 2. 长期产品目标
 
 在现有 SystemVerilog MTS 信号链上完成一次真实、可重复、无明显谱峰偏移的 P-only 锁定，并保持可逐步演进为 Linien-inspired 分层系统的 Host/FPGA 边界：

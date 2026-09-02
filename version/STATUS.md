@@ -10,10 +10,11 @@ Superseded-By: NONE
 ## 当前事实
 
 - Repository：`666vitas/FPGA-MTS`
-- Local branch/HEAD at task start：`main@a43f004`；任务开始时已有 5 个
-  Vivado project/cache 修改和 1 个未跟踪历史审查文件，本轮均未覆盖。
-- 本轮工作区：Host ARM control-chain 代码、测试和本状态文件有预期未提交
-  修改；未创建分支、未 commit、未 push、未创建 PR。
+- Local branch/HEAD at task start：`main@d435c512`，与本地
+  `origin/main` 一致；任务开始时已有 3 个 Vivado cache 修改，本轮均未覆盖。
+- 本轮工作区：Host ERROR zero-crossing 选点代码、新增回归测试、1 个既有
+  测试和本状态文件有预期未提交修改；未创建分支、未 commit、未 push、
+  未创建 PR。
 - `MAGIC=0x4D545330`、`VERSION=0x00030200` 与旧 `0x00..0xE0` CSR 地址保持不变。
 - 新 L1 capability CSR 为 `0xE4 = 0x4C310001`；Host 同时检查 VERSION 与 capability。
 
@@ -51,6 +52,14 @@ Superseded-By: NONE
   请求先停止 Live，等待当前 capture worker 完成，再串行启动。ARM 按钮
   绑定 L1 capability、SCAN/ENABLE/state、saturation、当前 confirmed
   target/generation、Kp 和 worker/live 状态。
+- `[IMPLEMENTED]` Host Direct ERROR 选点使用默认 ±64 samples 搜索、
+  局部最小二乘 CH4 趋势和分段一致性判断，允许量化低幅扫描、稳定异号
+  夹住的 exact-zero/短 zero plateau；候选以点击距离优先，并拒绝转折、
+  低 SNR/低 slope、越界、边缘、饱和与歧义。
+- `[IMPLEMENTED]` 选点拒绝使用结构化 reason code，并在 Engineer Details
+  保留 clicked/search window、candidate/rejection counts、ERROR noise/Vpp、
+  ramp fit 和 safe-range 原始诊断；选择成功仍只产生 pending，必须用户
+  Confirm 后才可手动 ARM。
 
 ## 自动验证
 
@@ -60,7 +69,8 @@ Superseded-By: NONE
 - `[RTL SIMULATED]` 关键项：OUT2 controller 54/54、SIMPLE 32/32、
   plant 8/8、Kp ramp 6/6、supervisor 5/5、crossing 13/13、
   D1 register bank 166/166、deterministic 50/50、ramp 25/25。
-- `[UNIT TESTED]` `python -m pytest -q tests`：164 passed。
+- `[UNIT TESTED]` `python -m pytest -q tests`：181 passed；其中新增 17 个
+  低幅量化 zero-crossing/ramp/安全拒绝/GUI 手动确认回归。
 
 ## Timing 与硬件
 

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "repository": {
+    "url": "https://github.com/Shinei-Nouzen-Arch/FPGA-Agent",
+    "branch": "main",
+    "commit": "f6e1f0a98d2d04a84d66b38465f0d543c6ebfcbd",
+    "installedAt": "2026-09-02"
+  },
+  "destination": ".agents/skills",
+  "skills": [
+    "vivado-synth",
+    "vivado-constraints",
+    "vivado-sim",
+    "vivado-impl",
+    "vivado-analysis",
+    "vivado-tcl",
+    "vivado-debug"
+  ]
+}

@@ -2961,15 +2961,16 @@ def test_direct_error_zero_crossing_resolver_returns_interpolated_crossing() -> 
     assert abs(float(result["slope"])) > 0.0
 
 
-def test_direct_error_zero_crossing_requires_strict_sign_change() -> None:
-    with np.testing.assert_raises(LockPointSelectionError):
-        resolve_direct_error_zero_crossing(
-            error_counts=np.arange(256, dtype=float) - 130.0,
-            out2_counts=np.linspace(6500.0, 7300.0, 256),
-            clicked_index=130,
-            safe_min_counts=6400,
-            safe_max_counts=7400,
-        )
+def test_direct_error_zero_crossing_accepts_stably_bracketed_exact_zero() -> None:
+    result = resolve_direct_error_zero_crossing(
+        error_counts=np.arange(256, dtype=float) - 130.0,
+        out2_counts=np.linspace(6500.0, 7300.0, 256),
+        clicked_index=130,
+        safe_min_counts=6400,
+        safe_max_counts=7400,
+    )
+
+    assert result["zero_crossing_index"] == 130.0
 
 
 def test_direct_zero_crossing_prefers_steepest_persistent_sign_change() -> None:
