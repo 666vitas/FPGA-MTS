@@ -62,6 +62,10 @@ module red_pitaya_top #(
 `else
   parameter DWE=DWE_Z10,
 `endif
+  // FIRST_LOCK is a single-board build.  Keep the legacy SATA daisy logic
+  // available for an explicitly selected diagnostic build, but do not
+  // elaborate its unrelated recovered-clock domains by default.
+  parameter bit ENABLE_DAISY = 1'b0,
   // 0=NONE, 1=SIMPLE (LOCK-MVP default), 2=D1 diagnostics.
   parameter integer LOCK_ACQ_IMPL = 1
 )(
@@ -822,48 +826,64 @@ red_pitaya_pid i_pid (
 );
 
 ////////////////////////////////////////////////////////////////////////////////
-// Daisy test code
+// Optional legacy Daisy test code
 ////////////////////////////////////////////////////////////////////////////////
 
-wire daisy_rx_rdy ;
-wire dly_clk = fclk[3]; // 200MHz clock from PS - used for IDELAY (optionaly)
-wire [16-1:0] par_dati = daisy_mode[0] ? {16{trig_output_sel}} : 16'h1234;
-wire          par_dvi  = daisy_mode[0] ? 1'b0 : daisy_rx_rdy;
+generate
+if (ENABLE_DAISY) begin : g_daisy_enabled
+  wire daisy_rx_rdy;
+  wire dly_clk = fclk[3]; // 200MHz clock from PS - used for IDELAY (optionaly)
+  wire [16-1:0] par_dati = daisy_mode[0] ? {16{trig_output_sel}} : 16'h1234;
+  wire          par_dvi  = daisy_mode[0] ? 1'b0 : daisy_rx_rdy;
 
-red_pitaya_daisy i_daisy (
-   // SATA connector
-  .daisy_p_o       (  daisy_p_o                  ),  // line 1 is clock capable
-  .daisy_n_o       (  daisy_n_o                  ),
-  .daisy_p_i       (  daisy_p_i                  ),  // line 1 is clock capable
-  .daisy_n_i       (  daisy_n_i                  ),
-   // Data
-  .ser_clk_i       (  ser_clk                    ),  // high speed serial
-  .dly_clk_i       (  dly_clk                    ),  // delay clock
-   // TX
-  .par_clk_i       (  adc_clk                    ),  // data paralel clock
-  .par_rstn_i      (  adc_rstn                   ),  // reset - active low
-  .par_rdy_o       (  daisy_rx_rdy               ),
-  .par_dv_i        (  par_dvi                    ),
-  .par_dat_i       (  par_dati                   ),
-   // RX
-  .par_clk_o       ( adc_clk_daisy               ),
-  .par_rstn_o      (                             ),
-  .par_dv_o        (                             ),
-  .par_dat_o       ( par_dat                     ),
+  red_pitaya_daisy i_daisy (
+     // SATA connector
+    .daisy_p_o       (  daisy_p_o                  ),  // line 1 is clock capable
+    .daisy_n_o       (  daisy_n_o                  ),
+    .daisy_p_i       (  daisy_p_i                  ),  // line 1 is clock capable
+    .daisy_n_i       (  daisy_n_i                  ),
+     // Data
+    .ser_clk_i       (  ser_clk                    ),  // high speed serial
+    .dly_clk_i       (  dly_clk                    ),  // delay clock
+     // TX
+    .par_clk_i       (  adc_clk                    ),  // data paralel clock
+    .par_rstn_i      (  adc_rstn                   ),  // reset - active low
+    .par_rdy_o       (  daisy_rx_rdy               ),
+    .par_dv_i        (  par_dvi                    ),
+    .par_dat_i       (  par_dati                   ),
+     // RX
+    .par_clk_o       ( adc_clk_daisy               ),
+    .par_rstn_o      (                             ),
+    .par_dv_o        (                             ),
+    .par_dat_o       ( par_dat                     ),
 
-  .sync_mode_i     (  daisy_mode[0]              ),
-  .debug_o         (/*led_o*/                    ),
-   // System bus
-  .sys_clk_i       (  adc_clk                    ),  // clock
-  .sys_rstn_i      (  adc_rstn                   ),  // reset - active low
-  .sys_addr_i      (  sys[5].addr                ),
-  .sys_sel_i       (                             ),
-  .sys_wdata_i     (  sys[5].wdata               ),
-  .sys_wen_i       (  sys[5].wen                 ),
-  .sys_ren_i       (  sys[5].ren                 ),
-  .sys_rdata_o     (  sys[5].rdata               ),
-  .sys_err_o       (  sys[5].err                 ),
-  .sys_ack_o       (  sys[5].ack                 )
-);
+    .sync_mode_i     (  daisy_mode[0]              ),
+    .debug_o         (/*led_o*/                    ),
+     // System bus
+    .sys_clk_i       (  adc_clk                    ),  // clock
+    .sys_rstn_i      (  adc_rstn                   ),  // reset - active low
+    .sys_addr_i      (  sys[5].addr                ),
+    .sys_sel_i       (                             ),
+    .sys_wdata_i     (  sys[5].wdata               ),
+    .sys_wen_i       (  sys[5].wen                 ),
+    .sys_ren_i       (  sys[5].ren                 ),
+    .sys_rdata_o     (  sys[5].rdata               ),
+    .sys_err_o       (  sys[5].err                 ),
+    .sys_ack_o       (  sys[5].ack                 )
+  );
+end else begin : g_daisy_disabled
+  // No SATA cable or multi-board function is part of FIRST_LOCK.  Drive the
+  // unused differential outputs to a static state, keep the optional ADC clock
+  // output local, and return a deterministic empty response for the legacy bus
+  // slot.  This is elaboration-time isolation, not a timing exception.
+  assign daisy_p_o      = 2'b00;
+  assign daisy_n_o      = 2'b11;
+  assign adc_clk_daisy  = adc_clk;
+  assign par_dat        = 16'd0;
+  assign sys[5].rdata   = 32'd0;
+  assign sys[5].err     = 1'b0;
+  assign sys[5].ack     = sys[5].wen | sys[5].ren;
+end
+endgenerate
 
 endmodule: red_pitaya_top

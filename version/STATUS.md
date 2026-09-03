@@ -1,7 +1,7 @@
 Status: ACTIVE
 Effective-Gate: LOCK-MVP-L1
 Authority: STATUS
-Last-Updated: 2026-09-02
+Last-Updated: 2026-09-03
 Supersedes: previous LOCK-MVP-L0 status
 Superseded-By: NONE
 
@@ -13,13 +13,25 @@ Superseded-By: NONE
 - Local branch/HEAD at task start：
   `main@04937478807fc6a2d65a43129180649cbdf99967`，与本地
   `origin/main` 一致；任务开始时 working tree clean。
-- 本轮只修正现有硬件 SOP 的真实接线描述，增加 Vivado 2020.1 clean-build
-  与 CDC detail Tcl；未修改 RTL、Host、XDC、CSR、`MAGIC`、`VERSION` 或
-  capability，未创建分支、未 commit、未 push、未创建 PR。
+- 2026-09-03 当前任务针对唯一 blocker 做最小 RTL 修改：
+  `red_pitaya_top` 默认静态隔离 FIRST_LOCK 不使用的 legacy Daisy；未修改
+  Host、XDC、CSR、`MAGIC`、`VERSION`、capability 或锁定数据通路，未创建
+  分支、未 commit、未 push、未创建 PR。
 - `MAGIC=0x4D545330`、`VERSION=0x00030200` 与旧 `0x00..0xE0` CSR 地址保持不变。
 - 新 L1 capability CSR 为 `0xE4 = 0x4C310001`；Host 同时检查 VERSION 与 capability。
 
 ## 本轮实现
+
+- `[IMPLEMENTED]` 2026-09-03 在 `red_pitaya_top` 增加顶层参数
+  `ENABLE_DAISY=0`。默认单板 build 不 elaboration `red_pitaya_daisy` 的
+  recovered-clock 数据通路；未使用 blanket false path，也未删除 legacy
+  module。显式设为 1 时仍可构建原 Daisy 诊断路径。
+- `[IMPLEMENTED]` Daisy disabled 分支把 SATA 差分输出驱动为静态互补值，
+  `adc_clk_daisy` 连接本地 `adc_clk`，`par_dat` 与 legacy bus slot 返回确定
+  空值。该分支不改变 FIRST_LOCK CSR、controller、capture 或 DAC 数据语义。
+- `[NOT VERIFIED]` 修改后 RTL compile/elaboration、behavioral simulation、
+  synthesis、implementation、CDC、DRC、methodology 与完整 timing。旧的
+  2026-09-02 fresh routed 报告只作为修改前基线，不代表当前 candidate。
 
 - `[TIMING FAILED]` 修改前 routed 基线：`WNS=-3.949 ns`、
   `TNS=-282.362 ns`、786 个 setup failing endpoints；`WHS=0.050 ns`、
@@ -100,6 +112,10 @@ Superseded-By: NONE
   与 1 个 CDC-10。`report_methodology` 同时给出 TIMING-6/7 critical
   warnings，不能用正 WNS 或 blanket false path 视为已解释。
 - Fresh reports：`v0.94/timing_for_codex/fresh_2026-09-02/`。
+- `[IMPLEMENTED]` 2026-09-03 已按当前 Gate 对上述唯一 blocker 做编译期
+  静态隔离；从代码结构推断 Daisy CDC 对象应从默认 build 消失，但尚无
+  修改后 Vivado 报告，不能据此宣称 Timing Gate PASS。DNA 与板级 I/O 的
+  `check_timing` finding 仍需在新报告中逐项审查。
 - `[NOT VERIFIED]` Timing Gate PASS。因 Gate blocked，本轮未调用
   `write_bitstream`；clean reset 后当前 `impl_1/red_pitaya_top.bit` 不存在。
 - `[NOT VERIFIED]` bitstream burned / board connected。
@@ -108,9 +124,8 @@ Superseded-By: NONE
 
 ## 唯一下一动作
 
-单独授权处理 legacy `red_pitaya_daisy` CDC：优先证明 FIRST_LOCK 不使用
-daisy 后，在 FIRST_LOCK candidate build 中对其做编译期静态隔离；若必须
-保留，则按真实数据协议修复 synchronizer/handshake。禁止用 blanket
-false path 掩盖 CDC。修改后重新执行 RTL simulation、clean synthesis、
-implementation、`report_cdc` 和完整 Timing Gate；Gate 通过前不生成或
-烧录 bitstream。
+用户在本地以默认 `ENABLE_DAISY=0` 对当前 candidate 重新执行 SystemVerilog
+compile/elaboration、全部 RTL simulation、clean synthesis、implementation、
+`report_cdc -details`、`check_timing`、DRC、methodology 和 routed setup/hold。
+Daisy critical CDC 必须消失，其余 finding 逐项解释或修复；禁止用 blanket
+false path 掩盖问题。完整 Timing Gate 通过前不生成或烧录 bitstream。
