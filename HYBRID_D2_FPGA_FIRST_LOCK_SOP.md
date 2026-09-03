@@ -26,20 +26,20 @@
 
 ---
 
-## 1. 现有 D2-125 接线理解（Section 1）
+## 1. 当前真实 D2-125 接线（Section 1）
 
-按你的描述，D2-125 激光伺服当前接线为：
+当前实验接线为：
 
 ```
-D2-125 Servo Output ──BNC T─┬──→ 激光电流调制输入（current fast loop）
-                            └──→ PZT 高压驱动器（PZT slow loop）
-D2-125 Aux Servo Output ────→ PZT 扫描输入（Scan）
-D2-125 Error Input ─────────→ 外部模拟 Mixer 输出（MTS 误差 e_A）
+PD → BPF → amplifier → analog mixer RF
+Signal Generator CH2（约 4.6 MHz）→ analog mixer LO
+analog mixer output（MTS 误差 e_A）→ D2-125 Error Input
+D2-125 Main Servo Output → Laser Current feedback
+D2-125 AUX Servo Output → Laser PZT / Scan input
 ```
 
-即：D2-125 一台设备同时承担「电流快环 + PZT 慢环 + 扫描」三件事。
-
-**这个理解与 D2-125（Toptica DigiLock 类）的标准用法一致**，可作为接线基准。若与实物不符，请以实物为准（见 §18 未知项）。
+其中 Main Servo 只驱动激光电流快反馈；AUX 只驱动 PZT / Scan input。不存在
+Main Servo Output 通过 BNC T 同时驱动 Current 和 PZT 的连接。
 
 ---
 
@@ -49,15 +49,17 @@ D2-125 Error Input ─────────→ 外部模拟 Mixer 输出（MT
 
 ```
                     ┌───────────────────────────────────────────────────┐
-   Laser ──→ 光电探测器(PD) ──┬──→ D2-125 Error Input（电流快环误差 e_A）
+   PD ──→ BPF ──→ amplifier ──┬──→ analog mixer RF
                               └──→ Red Pitaya IN1（FPGA 数字解调 e_D）
-                    ┌─────────┴─────────┐
-   参考/调制 REF ──→┴──→ Red Pitaya IN2   （FPGA 混频参考，可用原调制源分路）
+   Signal Generator CH2（约 4.6 MHz）
+                         ├──→ analog mixer LO
+                         └──→ Red Pitaya IN2（FPGA 混频参考）
+   analog mixer output ───────→ D2-125 Error Input（电流快环误差 e_A）
 
-   D2-125 Servo Output ──→ 激光电流调制输入（仅此一路，拆掉到 PZT 的分支）
+   D2-125 Main Servo Output ──→ Laser Current feedback（仅此一路，保持不变）
    D2-125 Aux Servo Output → 【断开】（见 §3）
 
-   Red Pitaya OUT2 ──→ PZT 高压驱动器输入（SCAN 与 P_LOCK 共用这一路）
+   Red Pitaya OUT2 ──→ 原 D2 AUX 所接的同一个 Laser PZT / Scan input
    Red Pitaya OUT1 ──→ 示波器 CH（观察数字误差 e_D，可选）
 
    示波器：
@@ -67,12 +69,12 @@ D2-125 Error Input ─────────→ 外部模拟 Mixer 输出（MT
      CH4 = D2-125 监控 / 电流调制监视（可选）
 ```
 
-关键接线变更（两条物理操作，缺一不可）：
+关键接线确认（两条都必须满足）：
 
 | # | 操作 | 原因 |
 |---|------|------|
-| 1 | D2 Servo Output 的 BNC T 拆掉 PZT 分支，只接电流调制输入 | 避免 D2 与 FPGA 两个控制器同时驱动同一个 PZT |
-| 2 | D2 Aux Servo Output 从 PZT Scan 输入上断开 | 避免 D2 扫描与 FPGA OUT2 扫描互相打架 |
+| 1 | 确认 D2 Main Servo Output 只接 Laser Current feedback，并保持该快环不变 | 防止误把 Main Servo 当作 PZT 驱动 |
+| 2 | D2 AUX Servo Output 从 Laser PZT / Scan input 物理断开后，才把 Red Pitaya OUT2 接到该同一输入 | 严禁 D2 AUX 与 FPGA OUT2 同时驱动 PZT |
 
 ---
 
@@ -128,7 +130,7 @@ Plan B 的唯一风险（e_D 与 e_A 解调相位差 → 零点偏移）用 §13
 
 1. **PD / REF 分路**：PD、REF 各并一路到 Red Pitaya IN1/IN2。Red Pitaya 模拟输入阻抗约 1MΩ（Hi-Z），并联基本不加载原来的 50Ω 解调链路。`[NEED_FIELD_CONFIRMATION]`：确认 PD/REF 信号幅度落在 Red Pitaya 输入范围（±1V 标称，满量程 ±20V 档可调）内。
 2. **OUT2 → PZT 驱动器**：Red Pitaya 快模拟输出标称 ±1V。`[NEED_FIELD_CONFIRMATION]`：PZT 高压驱动器的**输入阻抗**（50Ω 还是 Hi-Z）与**满量程输入电压**（±1V in = 满 PZT 行程？还是 ±10V？）。OUT2 输出阻抗约 50Ω，直接驱动 Hi-Z PZT 驱动器没问题。
-3. **D2 Servo Output → 电流调制输入**：拆掉 T 后，D2 输出直接接电流调制输入，负载比原来更轻、更干净，无问题。
+3. **D2 Main Servo Output → Laser Current feedback**：保持当前独立快电流反馈连接不变；本轮不改线、不替代。
 
 ---
 
@@ -313,9 +315,9 @@ slow-I 只在「电流环明显饱和、需要把 DC 完全卸给 PZT」时才�
 
 | # | 阻塞项 | 类型 | 是否改代码 |
 |---|--------|------|-----------|
-| 1 | **生成并烧录 `VERSION=0x00030200` 位流** | 固件部署 | 否（需重跑 Vivado 生成 bitstream 并烧录） |
-| 2 | **拆 D2 Servo Output 到 PZT 的 T 分支** | 接线 | 否 |
-| 3 | **断 D2 Aux Servo Output → Scan** | 接线 | 否 |
+| 1 | **生成 `VERSION=0x00030200` 候选位流，并由用户在 H0 加载** | 固件部署 | 否（Codex 只离线生成，不连接或写入板卡） |
+| 2 | **确认 D2 Main Servo Output 只接 Laser Current feedback** | 接线确认 | 否 |
+| 3 | **断开 D2 AUX Servo Output → Laser PZT / Scan input** | 接线 | 否 |
 | 4 | PD/REF 并线到 Red Pitaya IN1/IN2 | 接线 | 否 |
 | 5 | OUT2 → PZT 驱动器 | 接线 | 否 |
 | 6 | 确认 PD/REF 幅度在 IN1/IN2 量程内 | 现场确认 | 否 |
@@ -331,8 +333,8 @@ slow-I 只在「电流环明显饱和、需要把 DC 完全卸给 PZT」时才�
 **Q1 — 保留 D2 电流环 + FPGA 只做 PZT，控制上可行吗？**
 可行（有条件）。这是标准的快/慢执行器分频。条件：两环带宽充分分离（电流 MHz、PZT sub-kHz），且 FPGA PZT 是 P-only（无积分器，不与电流环积分器争夺 DC）。当前 RTL 满足这两个条件。
 
-**Q2 — 必须断开 D2 Servo Output → PZT 分支吗？**
-必须。否则 D2 伺服输出与 Red Pitaya OUT2 两个控制器并联驱动同一个 PZT，输出阻抗互相加载、两环打架。物理拆 T。
+**Q2 — D2 Main Servo Output 本轮如何处理？**
+保持只接 Laser Current feedback，不改线、不替代。当前真实架构不存在 Main Servo Output 到 PZT 的分支；PZT 冲突检查针对 D2 AUX Servo Output 与 Red Pitaya OUT2。
 
 **Q3 — 首轮必须断开 D2 Aux Servo Output → Scan 吗？**
 必须。否则 D2 扫描与 FPGA OUT2 扫描同时驱动 PZT Scan 输入。断开后建议接示波器监视（§3 方案 B）。
@@ -350,7 +352,7 @@ slow-I 只在「电流环明显饱和、需要把 DC 完全卸给 PZT」时才�
 P-only。原因：电流环已有积分器把误差积到零，PZT 再加积分器会 windup/低频对抗；PZT P-only 只做 DC 归位与比例修正，留有限稳态误差给电流环。当前 RTL 只有 P-only，零改动。（§12）
 
 **Q8 — 从现状到第一次 5–10s 锁定的最短路径？**
-按顺序：① 生成+烧录位流 → ② 接线改造（拆两个分支 + 接 OUT2/PD/REF）→ ③ Stage 0 自检 → ④ Stage 1 SCAN 看误差过零 → ⑤ Stage 2 ARM VALIDATE → ⑥ Stage 3 ARM BASIC LOCK Kp=0（首次保持）→ ⑦ Stage 4 APPLY P 小 Kp（P-only 慢反馈）。GUI 与 RTL 均不改。（§13、§16）
+按顺序：① 生成候选位流并由用户加载 → ② 保持 Main Servo→Current，断开 AUX→PZT 后再接 OUT2→同一 PZT/Scan input，并接入 PD/REF → ③ Stage 0 自检 → ④ Stage 1 SCAN 看误差过零 → ⑤ Stage 2 ARM VALIDATE → ⑥ Stage 3 ARM BASIC LOCK Kp=0（首次保持）→ ⑦ Stage 4 APPLY P 小 Kp（P-only 慢反馈）。GUI 与 RTL 均不改。（§13、§16）
 
 ---
 
@@ -364,9 +366,9 @@ P-only。原因：电流环已有积分器把误差积到零，PZT 再加积分�
 2. `[NEED_FIELD_CONFIRMATION]` PD / REF 信号幅度是否落在 Red Pitaya IN1/IN2 量程（±1V 标称）内；REF 到 IN2 的相位/幅度是否需要匹配数字解调。
 3. `[NEED_FIELD_CONFIRMATION]` e_D（OUT1）与 e_A（模拟 Mixer）的过零点是否重合；若不重合，量化其偏置。
 4. `[NEED_FIELD_CONFIRMATION]` D2-125 是否可软件关闭 Aux Servo Output 扫描（优先软件关再物理断）。
-5. `[NEED_FIELD_CONFIRMATION]` 当前是否已生成/烧录 `VERSION=0x00030200` 位流、板卡是否已连接（§16 阻塞项 #1 的真实状态）。
+5. `[NEED_FIELD_CONFIRMATION]` 当前候选 `VERSION=0x00030200` 位流是否已生成，以及用户是否已在 H0 加载；生成记录不能替代板上身份 readback（§16 阻塞项 #1）。
 6. `[BLOCKED_BY_HARDWARE_SPEC]` 若 D2 电流环带宽或 PZT 驱动器带宽未知，Stage 3/4 的带宽分离只能按「先小 Kp、逐档试」的保守方式推进。
 
 ### 一句话结论
 
-**保留 D2 电流快环 + FPGA PZT 慢环的混合锁定，在现有代码与 GUI 上无需任何改动即可开始**；唯一真正的拦路虎是「位流是否已生成并烧录」以及「三处物理接线改造」。按 Stage 0–6 推进，第一次 5–10 秒锁定（Kp=0 bias 保持 → P-only 小 Kp）即可达成。
+**保留 D2 电流快环 + FPGA PZT 慢环的混合锁定，在现有代码与 GUI 上无需任何改动即可开始**；唯一真正的拦路虎是「候选位流是否生成并由用户加载」以及「确认 Main Servo 只接 Current、AUX 与 OUT2 不并联、OUT2/PD/REF 接线正确」。按 Stage 0–6 推进，第一次 5–10 秒锁定（Kp=0 bias 保持 → P-only 小 Kp）即可达成。

@@ -1,0 +1,104 @@
+Copyright 1986-2020 Xilinx, Inc. All Rights Reserved.
+----------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2020.1 (win64) Build 2902540 Wed May 27 19:54:49 MDT 2020
+| Date         : Wed Sep  2 21:41:13 2026
+| Host         : lin running 64-bit major release  (build 9200)
+| Command      : report_clocks -file E:/new/fpga_lock/v94/v0.94/timing_for_codex/fresh_2026-09-02/03_clocks.rpt
+| Design       : red_pitaya_top
+| Device       : 7z010-clg400
+| Speed File   : -1  PRODUCTION 1.12 2019-11-22
+----------------------------------------------------------------------------------------------------------------
+
+Clock Report
+
+
+Attributes
+  P: Propagated
+  G: Generated
+  A: Auto-derived
+  R: Renamed
+  V: Virtual
+  I: Inverted
+  S: Pin phase-shifted with Latency mode
+
+Clock           Period(ns)  Waveform(ns)    Attributes  Sources
+adc_clk         8.000       {0.000 4.000}   P           {adc_clk_i[1]}
+clk_fpga_0      8.000       {0.000 4.000}   P           {ps/system_i/processing_system7/inst/PS7_i/FCLKCLK[0]}
+clk_fpga_1      4.000       {0.000 2.000}   P           {ps/system_i/processing_system7/inst/PS7_i/FCLKCLK[1]}
+clk_fpga_2      20.000      {0.000 10.000}  P           {ps/system_i/processing_system7/inst/PS7_i/FCLKCLK[2]}
+clk_fpga_3      5.000       {0.000 2.500}   P           {ps/system_i/processing_system7/inst/PS7_i/FCLKCLK[3]}
+rx_clk          4.000       {0.000 2.000}   P           {daisy_p_i[1]}
+clk_fb          8.000       {0.000 4.000}   P,G,A       {pll/pll/CLKFBOUT}
+par_clk         8.000       {0.000 4.000}   P,G,A       {i_daisy/i_rx/i_BUFR_clk/O}
+pll_adc_clk     8.000       {0.000 4.000}   P,G,A       {pll/pll/CLKOUT0}
+pll_dac_clk_1x  8.000       {0.000 4.000}   P,G,A       {pll/pll/CLKOUT1}
+pll_dac_clk_2p  4.000       {-0.500 1.500}  P,G,A       {pll/pll/CLKOUT3}
+pll_dac_clk_2x  4.000       {0.000 2.000}   P,G,A       {pll/pll/CLKOUT2}
+pll_ser_clk     4.000       {0.000 2.000}   P,G,A       {pll/pll/CLKOUT4}
+
+
+====================================================
+Generated Clocks
+====================================================
+
+Generated Clock     : clk_fb
+Master Source       : pll/pll/CLKIN1
+Master Clock        : adc_clk
+Multiply By         : 1
+Generated Sources   : {pll/pll/CLKFBOUT}
+
+Generated Clock     : par_clk
+Master Source       : i_daisy/i_rx/i_BUFR_clk/I
+Master Clock        : rx_clk
+Divide By           : 2
+Generated Sources   : {i_daisy/i_rx/i_BUFR_clk/O}
+
+Generated Clock     : pll_adc_clk
+Master Source       : pll/pll/CLKIN1
+Master Clock        : adc_clk
+Multiply By         : 1
+Generated Sources   : {pll/pll/CLKOUT0}
+
+Generated Clock     : pll_dac_clk_1x
+Master Source       : pll/pll/CLKIN1
+Master Clock        : adc_clk
+Multiply By         : 1
+Generated Sources   : {pll/pll/CLKOUT1}
+
+Generated Clock     : pll_dac_clk_2p
+Master Source       : pll/pll/CLKIN1
+Master Clock        : adc_clk
+Edges               : {1 2 3}
+Edge Shifts(ns)     : {-0.500 -2.500 -4.500}
+Generated Sources   : {pll/pll/CLKOUT3}
+
+Generated Clock     : pll_dac_clk_2x
+Master Source       : pll/pll/CLKIN1
+Master Clock        : adc_clk
+Multiply By         : 2
+Generated Sources   : {pll/pll/CLKOUT2}
+
+Generated Clock     : pll_ser_clk
+Master Source       : pll/pll/CLKIN1
+Master Clock        : adc_clk
+Multiply By         : 2
+Generated Sources   : {pll/pll/CLKOUT4}
+
+
+
+====================================================
+User Uncertainty
+====================================================
+
+
+
+====================================================
+User Jitter
+====================================================
+
+Clock       Jitter(ns)
+clk_fpga_0  0.240
+clk_fpga_1  0.120
+clk_fpga_2  0.600
+clk_fpga_3  0.150
+

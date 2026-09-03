@@ -1,7 +1,7 @@
 Status: ACTIVE
 Effective-Gate: LOCK-MVP-L1
 Authority: STATUS
-Last-Updated: 2026-07-28
+Last-Updated: 2026-09-02
 Supersedes: previous LOCK-MVP-L0 status
 Superseded-By: NONE
 
@@ -10,11 +10,12 @@ Superseded-By: NONE
 ## 当前事实
 
 - Repository：`666vitas/FPGA-MTS`
-- Local branch/HEAD at task start：`main@d435c512`，与本地
-  `origin/main` 一致；任务开始时已有 3 个 Vivado cache 修改，本轮均未覆盖。
-- 本轮工作区：Host ERROR zero-crossing 选点代码、新增回归测试、1 个既有
-  测试和本状态文件有预期未提交修改；未创建分支、未 commit、未 push、
-  未创建 PR。
+- Local branch/HEAD at task start：
+  `main@04937478807fc6a2d65a43129180649cbdf99967`，与本地
+  `origin/main` 一致；任务开始时 working tree clean。
+- 本轮只修正现有硬件 SOP 的真实接线描述，增加 Vivado 2020.1 clean-build
+  与 CDC detail Tcl；未修改 RTL、Host、XDC、CSR、`MAGIC`、`VERSION` 或
+  capability，未创建分支、未 commit、未 push、未创建 PR。
 - `MAGIC=0x4D545330`、`VERSION=0x00030200` 与旧 `0x00..0xE0` CSR 地址保持不变。
 - 新 L1 capability CSR 为 `0xE4 = 0x4C310001`；Host 同时检查 VERSION 与 capability。
 
@@ -74,29 +75,42 @@ Superseded-By: NONE
 
 ## Timing 与硬件
 
-- `[AUTOMATED VERIFIED]` 2026-07-26 clean Synthesis/route_design 完成；
-  project source 指向当前 `v0.94/rtl/custom_register_bank.sv`。
-- `[AUTOMATED VERIFIED]` routed setup/hold：`WNS=0.142 ns`、
+- `[AUTOMATED VERIFIED]` 2026-09-02 使用 Vivado 2020.1 build 2902540 对
+  `synth_1/impl_1` 完成 clean Synthesis 与 routed Implementation；part 为
+  `xc7z010clg400-1`。编译前 compile-order 检查及 synthesis elaboration 均
+  证明 custom top/register/ramp/mixer/LPF 来自当前 `v0.94/rtl`。
+- `[AUTOMATED VERIFIED]` fresh routed setup/hold：`WNS=0.142 ns`、
   `TNS=0`、0 个 setup failing endpoints；`WHS=0.053 ns`、`THS=0`、
-  0 个 hold failing endpoints。Vivado 报告
+  0 个 hold failing endpoints。正式报告写明
   `All user specified timing constraints are met`。
-- `[CODE INSPECTED]` 旧 `s5_lock_limit -> control_o` 路径族不在新的
-  top-10 setup paths。新全局最差 setup path 为
+- `[CODE INSPECTED]` 全局最差 setup path 为
   `simple_lock_acquisition/servo_counter_q_reg[0]/C` 到
-  `l1_lock_supervisor/abs_sum_snapshot_q_reg[0]/S`，slack 0.142 ns，
-  data path 7.295 ns/8 levels。
-- `[NOT VERIFIED]` 完整 Timing Gate 尚未满足：`check_timing` 仍报告
-  19 个 unconstrained internal endpoints、17 个 no-input-delay ports、
-  42 个 no-output-delay ports，以及 daisy/DNA no-clock 项。本轮禁止修改
-  XDC，未添加 false path、multicycle、降频或 blanket CDC exception。
-- `[NOT VERIFIED]` bitstream generated / burned / board connected。
+  `l1_lock_supervisor/abs_sum_snapshot_q_reg[0]/S`，data path
+  7.295 ns/8 levels；最差 hold path 为 custom register-bank readback 到
+  PS AXI `RDATA`，data path 0.440 ns/1 level。
+- `[FAILED]` `check_timing` 仍有 52 个 no-clock findings、19 个
+  unconstrained internal endpoints、17 个 no-input-delay ports 与 42 个
+  no-output-delay ports。I/O 项已定位到 expansion/daisy GPIO 与 ADC/DAC
+  source-synchronous/board interfaces；daisy latch 与 DNA 项不是新的 L1
+  datapath，但未据此添加任何 exception。
+- `[FAILED]` 唯一不可接受的 blocker 是 legacy
+  `red_pitaya_daisy` 的 `pll_adc_clk <-> par_clk` 双向 CDC。Vivado
+  `report_cdc -details` 报告共 73 条 critical findings：ADC→par 方向
+  19 个 CDC-1 与 1 个 CDC-13；par→ADC 方向 49 个 CDC-1、3 个 CDC-4
+  与 1 个 CDC-10。`report_methodology` 同时给出 TIMING-6/7 critical
+  warnings，不能用正 WNS 或 blanket false path 视为已解释。
+- Fresh reports：`v0.94/timing_for_codex/fresh_2026-09-02/`。
+- `[NOT VERIFIED]` Timing Gate PASS。因 Gate blocked，本轮未调用
+  `write_bitstream`；clean reset 后当前 `impl_1/red_pitaya_top.bit` 不存在。
+- `[NOT VERIFIED]` bitstream burned / board connected。
 - `[NOT VERIFIED]` ARM VALIDATE、ARM ACTIVE、真实 ERROR crossing、
   PZT bumpless、P-only convergence 和 sustained lock。
 
 ## 唯一下一动作
 
-在不生成 bitstream、不连接板卡的前提下，单独授权并审查现有
-XDC/官方 I/O 的 `check_timing` 项，明确每个 no-clock、unconstrained
-internal endpoint 和未约束 I/O 的真实接口语义；在证据充分前不得用
-blanket false path 清零报告。完整 Timing Gate 通过前不要生成或烧录
-正式 bitstream。
+单独授权处理 legacy `red_pitaya_daisy` CDC：优先证明 FIRST_LOCK 不使用
+daisy 后，在 FIRST_LOCK candidate build 中对其做编译期静态隔离；若必须
+保留，则按真实数据协议修复 synchronizer/handshake。禁止用 blanket
+false path 掩盖 CDC。修改后重新执行 RTL simulation、clean synthesis、
+implementation、`report_cdc` 和完整 Timing Gate；Gate 通过前不生成或
+烧录 bitstream。

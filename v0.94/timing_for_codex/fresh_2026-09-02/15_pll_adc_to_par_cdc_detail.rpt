@@ -1,0 +1,114 @@
+Copyright 1986-2020 Xilinx, Inc. All Rights Reserved.
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2020.1 (win64) Build 2902540 Wed May 27 19:54:49 MDT 2020
+| Date         : Wed Sep  2 21:49:56 2026
+| Host         : lin running 64-bit major release  (build 9200)
+| Command      : report_cdc -details -from [get_clocks pll_adc_clk] -to [get_clocks par_clk] -file E:/new/fpga_lock/v94/v0.94/timing_for_codex/fresh_2026-09-02/15_pll_adc_to_par_cdc_detail.rpt
+| Design       : red_pitaya_top
+| Device       : 7z010-clg400
+| Speed File   : -1  PRODUCTION 1.12 2019-11-22
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+CDC Report
+
+ID      Severity  Count  Description
+------  --------  -----  ---------------------------------------------------------------
+CDC-1   Critical     19  1-bit unknown CDC circuitry
+CDC-2   Warning       1  1-bit synchronized with missing ASYNC_REG property
+CDC-8   Warning       1  Asynchronous reset synchronized with missing ASYNC_REG property
+CDC-13  Critical      1  1-bit CDC path on a non-FD primitive
+CDC-15  Warning      64  Clock enable controlled CDC structure detected
+
+Source Clock: pll_adc_clk
+Destination Clock: par_clk
+CDC Type: No Common Primary Clock
+
+Row  ID      Severity  Description                                                      Depth  Exception  Source (From)                    Destination (To)
+---  ------  --------  ---------------------------------------------------------------  -----  ---------  -------------------------------  -----------------------------------
+  1  CDC-13  Critical  1-bit CDC path on a non-FD primitive                                 0  None       i_daisy/cfg_rx_en_reg/C          i_daisy/i_rx/i_iserdese/RST
+  2  CDC-8   Warning   Asynchronous reset synchronized with missing ASYNC_REG property     18  None       i_daisy/cfg_rx_en_reg/C          i_daisy/i_rx/par_rstn_r_reg[0]/CLR
+  3  CDC-2   Warning   1-bit synchronized with missing ASYNC_REG property                   3  None       i_daisy/cfg_rx_train_reg/C       i_daisy/i_rx/par_train_r_reg[0]/D
+  4  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[0]/R
+  5  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[1]/R
+  6  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[2]/R
+  7  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[3]/R
+  8  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[4]/R
+  9  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[5]/R
+ 10  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[6]/R
+ 11  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[7]/R
+ 12  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[8]/R
+ 13  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[9]/R
+ 14  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[10]/R
+ 15  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[11]/R
+ 16  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[12]/R
+ 17  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[13]/R
+ 18  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[14]/R
+ 19  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[15]/R
+ 20  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[16]/R
+ 21  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[17]/R
+ 22  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[18]/R
+ 23  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[19]/R
+ 24  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[20]/R
+ 25  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[21]/R
+ 26  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[22]/R
+ 27  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[23]/R
+ 28  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[24]/R
+ 29  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[25]/R
+ 30  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[26]/R
+ 31  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[27]/R
+ 32  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[28]/R
+ 33  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[29]/R
+ 34  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[30]/R
+ 35  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_dat_cnt_reg[31]/R
+ 36  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_daisy/i_test/tx_dat_reg[15]/C  i_daisy/i_test/rx_dat_inc_reg/D
+ 37  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[0]/R
+ 38  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[1]/R
+ 39  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[2]/R
+ 40  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[3]/R
+ 41  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[4]/R
+ 42  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[5]/R
+ 43  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[6]/R
+ 44  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[7]/R
+ 45  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[8]/R
+ 46  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[9]/R
+ 47  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[10]/R
+ 48  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[11]/R
+ 49  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[12]/R
+ 50  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[13]/R
+ 51  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[14]/R
+ 52  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[15]/R
+ 53  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[16]/R
+ 54  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[17]/R
+ 55  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[18]/R
+ 56  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[19]/R
+ 57  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[20]/R
+ 58  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[21]/R
+ 59  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[22]/R
+ 60  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[23]/R
+ 61  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[24]/R
+ 62  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[25]/R
+ 63  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[26]/R
+ 64  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[27]/R
+ 65  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[28]/R
+ 66  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[29]/R
+ 67  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[30]/R
+ 68  CDC-15  Warning   Clock enable controlled CDC structure detected                       0  None       i_daisy/cfg_tst_clr_reg/C        i_daisy/i_test/rx_err_cnt_reg[31]/R
+ 69  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_daisy/i_test/tx_dat_reg[15]/C  i_daisy/i_test/rx_err_inc_reg/D
+ 70  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[0]/D
+ 71  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[1]/D
+ 72  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[2]/D
+ 73  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[3]/D
+ 74  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[4]/D
+ 75  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[5]/D
+ 76  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[6]/D
+ 77  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[7]/D
+ 78  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[8]/R
+ 79  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[9]/R
+ 80  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[10]/R
+ 81  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[11]/R
+ 82  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[12]/R
+ 83  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[13]/R
+ 84  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[14]/R
+ 85  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_datr_reg[15]/R
+ 86  CDC-1   Critical  1-bit unknown CDC circuitry                                          0  None       i_hk/daisy_mode_o_reg[0]/C       i_daisy/rxp_dvr_reg/S
+
