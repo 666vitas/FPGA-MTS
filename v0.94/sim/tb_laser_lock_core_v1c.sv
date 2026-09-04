@@ -6,6 +6,7 @@ module tb_laser_lock_core_v1c;
     localparam int OUT_WIDTH     = 14;
     localparam int SHIFT         = 13;
     localparam int PRODUCT_WIDTH = IN_WIDTH * 2;
+    localparam int MIX_TO_ERROR_LATENCY = 3; // DSP product, mixer output, output_protect
 
     logic clk_i = 1'b0;
     logic rstn_i;
@@ -142,7 +143,7 @@ module tb_laser_lock_core_v1c;
         @(negedge clk_i);
         pd_i  = IN_MIN;
         ref_i = IN_MIN;
-        repeat (2) @(posedge clk_i);
+        repeat (MIX_TO_ERROR_LATENCY) @(posedge clk_i);
         #1;
         check_equal("OUTPUT_MODE 2 mixer saturation", error_mode2, 14'sd8191);
         check_controls_zero();

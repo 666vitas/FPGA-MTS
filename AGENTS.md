@@ -204,3 +204,72 @@ SAFE
 5. 是否更新 `STATUS`、`CURRENT_GATE`、manifest。
 
 默认不 commit、不 push。
+
+---
+
+## 11. AI 开发规则与规范文档入口（2026-09-04 补充）
+
+本节自 2026-09-04 起更新第 3 节的必读顺序，并补充第 4、5 节的文档职责；原有安全边界、Gate 限制、证据标签和 Git 保护规则保持不变。
+
+### 11.1 进入项目必须首先读取
+
+1. `AGENTS.md`
+2. `docs/PROJECT_CONTEXT.md`
+3. `docs/CURRENT_STATUS.md`
+4. `docs/HOST_FPGA_INTERFACE.md`
+5. `docs/FPGA_DEVELOPMENT_RULES.md`
+6. `docs/RELEASE_PROCESS.md`
+
+随后按任务需要读取相关 RTL/Host 文件、测试和证据；历史追溯只读取 `../archive/obsolete/` 下的归档内容。不得只凭文件名、修改日期或历史报告判断当前状态。
+
+### 11.2 文档权威关系
+
+- `docs/CURRENT_STATUS.md`：唯一项目当前状态和当前 Gate 入口；必须反映已完成、未完成、未验证、允许范围、退出条件和阻塞项。
+- `docs/HOST_FPGA_INTERFACE.md`：寄存器、数据通道、控制语义和版本对应关系的权威入口。
+- `docs/CHANGELOG.md`：工程变更原因、影响模块和验证摘要的固定入口。
+- `docs/RELEASE_PROCESS.md`：bit 发布、命名、manifest 和追溯规则的固定入口。
+
+若状态文件冲突，先停止实现并按第 4 节优先级核对；项目事实状态和当前 Gate 以 `docs/CURRENT_STATUS.md` 为准，接口事实以 `docs/HOST_FPGA_INTERFACE.md` 为准，归档中的旧 version 文件只能用于追溯。
+
+### 11.3 修改代码后的强制记录
+
+1. 更新 `docs/CURRENT_STATUS.md`，如实记录完成、未完成、未验证和阻塞。
+2. 更新 `docs/CHANGELOG.md`，记录修改文件、修改原因、影响模块和验证方式。
+3. 接口相关修改同步更新 FPGA、Host 和 `docs/HOST_FPGA_INTERFACE.md`，禁止单边改变接口。
+4. RTL 修改按 `docs/FPGA_DEVELOPMENT_RULES.md` 完成仿真、Vivado、timing、release 和 bit 映射；未经授权或未运行的步骤必须写 NOT RUN / NOT VERIFIED。
+5. 形成 bit 时按 `docs/RELEASE_PROCESS.md` 建立不可歧义的 release manifest。
+
+### 11.4 禁止无意义重复文档
+
+禁止为普通开发过程创建无意义或重复的 `xxx_report.md`、`xxx_status.md`、`xxx_summary.md`。优先更新上述固定入口。只有用户明确要求、工具必须输出或需要冻结不可变评审证据时，才建立独立报告，并从 `CURRENT_STATUS`、`CHANGELOG` 或 release manifest 链接。
+
+### 11.5 重构后的路径边界
+
+- `v94/docs/` 只保留六个规范入口：`PROJECT_CONTEXT.md`、`CURRENT_STATUS.md`、`CHANGELOG.md`、`FPGA_DEVELOPMENT_RULES.md`、`HOST_FPGA_INTERFACE.md`、`RELEASE_PROCESS.md`。
+- `v94/reference/` 只保存不参与自研 build 的 open source 与 guanfang-v0.94 参考工程。
+- `archive/obsolete/v94_version/` 保存 version 下的全部历史版本、旧规则、review、Gate/状态快照和产品化草稿；当前 Gate 与项目状态只由 `docs/CURRENT_STATUS.md` 管理。
+- 原有章节中对 `version/CURRENT_GATE.md`、`version/STATUS.md` 和 `version/CURRENT_REVIEW_MANIFEST.md` 的引用属于历史路径；进入项目时以本节规定的六个固定入口为准。
+- 原第 5 节中的 `version/rules/*.md`、`docs/architecture/`、`docs/process/`、`docs/hardware/` 和 `docs/experiment_logs/` 已归档；当前规则、上下文、接口和发布要求分别以 `docs/FPGA_DEVELOPMENT_RULES.md`、`docs/PROJECT_CONTEXT.md`、`docs/HOST_FPGA_INTERFACE.md` 和 `docs/RELEASE_PROCESS.md` 为准。
+- 根目录的历史审查输出、旧计划、旧 README 和旧 docs 已归档；不得把归档文件重新当作当前状态入口。
+- 生成缓存和日志进入 `archive/delete_candidates/`，删除前仍需人工确认，不因移动到该目录而自动删除。
+
+# Development Freeze Rule
+
+当前目录结构已经冻结。
+
+以后开发：
+
+只允许：
+
+1. 修改FPGA源码
+2. 修改Host源码
+3. 修改必要测试
+4. 更新固定入口文档
+
+禁止：
+
+重新规划目录。
+
+创建重复文档。
+
+根据archive历史文件开发。

@@ -19,6 +19,9 @@ module tb_out2_lock_controller;
     logic scan_saturated_i;
     logic signed [13:0] hold_value;
     logic signed [13:0] error_i;
+    logic signed [13:0] error_setpoint_i;
+    logic signed [13:0] corrected_error;
+    logic use_setpoint_path;
     logic signed [13:0] kp;
     logic signed [13:0] ki;
     logic polarity;
@@ -69,7 +72,7 @@ module tb_out2_lock_controller;
         .scan_i(scan_i),
         .scan_saturated_i(scan_saturated_i),
         .hold_value_i(hold_value),
-        .error_i(error_i),
+        .error_i(use_setpoint_path ? corrected_error : error_i),
         .kp_i(kp),
         .ki_i(ki),
         .polarity_i(polarity),
@@ -86,6 +89,14 @@ module tb_out2_lock_controller;
         .saturated_o(saturated_o)
     );
 
+    error_setpoint_corrector i_error_setpoint_corrector (
+        .clk_i(clk),
+        .rstn_i(rstn),
+        .error_i(error_i),
+        .setpoint_i(error_setpoint_i),
+        .lock_error_o(corrected_error)
+    );
+
     initial begin
         rstn = 1'b0;
         enable = 1'b0;
@@ -94,6 +105,8 @@ module tb_out2_lock_controller;
         scan_saturated_i = 1'b0;
         hold_value = 14'sd1000;
         error_i = 14'sd0;
+        error_setpoint_i = 14'sd0;
+        use_setpoint_path = 1'b0;
         kp = 14'sd0;
         ki = 14'sd0;
         polarity = 1'b0;
@@ -178,6 +191,27 @@ module tb_out2_lock_controller;
         error_i = 14'sd50;
         wait_cycles(P_LOCK_LATENCY);
         check("P_LOCK polarity flip reverses direction", control_o == 14'sd50);
+
+        // End-to-end P-only equation with the registered setpoint corrector:
+        // OUT2 = LOCK_BIAS - Kp * (ERROR - SETPOINT) / 256 when polarity=1.
+        mode = MODE_HOLD;
+        hold_value = 14'sd0;
+        wait_cycles(2);
+        use_setpoint_path = 1'b1;
+        error_i = 14'sd150;
+        error_setpoint_i = 14'sd50;
+        lock_bias = 14'sd500;
+        lock_limit = 14'sd8191;
+        lock_correction_limit = 14'sd512;
+        kp = 14'sd256;
+        polarity = 1'b1;
+        wait_cycles(2);
+        mode = MODE_P_LOCK;
+        wait_cycles(P_LOCK_LATENCY);
+        check("P_LOCK implements BIAS-Kp*(ERROR-SETPOINT)",
+              control_o == 14'sd400);
+        use_setpoint_path = 1'b0;
+        error_setpoint_i = 14'sd0;
 
         polarity = 1'b0;
         lock_bias = 14'sd100;

@@ -32,12 +32,14 @@ module mixer_core #(
     localparam logic signed [PRODUCT_WIDTH-1:0] SAT_MIN =
         {{(PRODUCT_WIDTH-OUT_WIDTH){OUT_MIN[OUT_WIDTH-1]}}, OUT_MIN};
 
-    logic signed [PRODUCT_WIDTH-1:0] product_w;
+    // Keep the ADC x REF multiply in its own registered DSP stage.  The
+    // following shift/saturation stage is then only wiring plus two compares,
+    // rather than sharing one 125 MHz path with the multiplier.
+    (* use_dsp = "yes" *) logic signed [PRODUCT_WIDTH-1:0] product_q;
     logic signed [PRODUCT_WIDTH-1:0] scaled_w;
     logic signed [OUT_WIDTH-1:0] saturated_w;
 
-    assign product_w = pd_i * ref_i;
-    assign scaled_w  = product_w >>> SHIFT;
+    assign scaled_w = product_q >>> SHIFT;
 
     always_comb begin
         if (scaled_w > SAT_MAX) begin
@@ -51,11 +53,14 @@ module mixer_core #(
 
     always_ff @(posedge clk_i) begin
         if (!rstn_i) begin
-            mix_o <= '0;
+            product_q <= '0;
+            mix_o     <= '0;
         end else if (!enable_i) begin
-            mix_o <= '0;
+            product_q <= '0;
+            mix_o     <= '0;
         end else begin
-            mix_o <= saturated_w;
+            product_q <= $signed(pd_i) * $signed(ref_i);
+            mix_o     <= saturated_w;
         end
     end
 

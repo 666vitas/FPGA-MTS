@@ -1786,7 +1786,10 @@ module out2_lock_controller (
 
     logic               s2_enable;
     logic        [31:0] s2_mode;
-    logic signed [28:0] s2_p_product;
+    // 15 x 14 signed product fits exactly in one 29-bit result and one
+    // DSP48E1.  Keep the operands at their real widths so synthesis does not
+    // have to recover them from explicit 29-bit sign extensions.
+    (* use_dsp = "yes" *) logic signed [28:0] s2_p_product;
     logic signed [13:0] s2_lock_bias;
     logic signed [13:0] s2_lock_limit;
     logic signed [13:0] s2_correction_limit;
@@ -1935,8 +1938,7 @@ module out2_lock_controller (
 
             s2_enable     <= s1_enable;
             s2_mode       <= s1_mode;
-            s2_p_product  <= $signed({{14{s1_signed_error[14]}}, s1_signed_error}) *
-                             $signed({{15{s1_kp[13]}}, s1_kp});
+            s2_p_product  <= $signed(s1_signed_error) * $signed(s1_kp);
             s2_lock_bias  <= s1_lock_bias;
             s2_lock_limit <= s1_lock_limit;
             s2_correction_limit <= s1_correction_limit;

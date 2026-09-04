@@ -100,7 +100,8 @@ module tb_mixer_core;
             enable_i = 1'b1;
             pd_i     = pd;
             ref_i    = ref_sample;
-            @(posedge clk_i);
+            // Stage 1 captures the DSP product; stage 2 scales/saturates it.
+            repeat (2) @(posedge clk_i);
             #1;
             check_equal(name, mix_o, expected);
         end
