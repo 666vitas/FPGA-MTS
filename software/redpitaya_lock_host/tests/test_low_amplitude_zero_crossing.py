@@ -228,6 +228,9 @@ def test_gui_selection_remains_pending_until_confirm_and_never_auto_arms() -> No
     try:
         candidate = _resolve(_persistent_error(), _quantized_ramp())
         window.pending_lock_point = dict(candidate)
+        window.custom_capture_generation = 1
+        window.custom_acquisition_service.adopt_capture_id(1)
+        window.pending_lock_point["capture_generation"] = 1
         window.pending_lock_point["out2_counts"] = int(candidate["target_out2_counts"])
         window.pending_lock_point["lock_bias_counts"] = int(candidate["target_out2_counts"])
         window.pending_lock_point["lock_bias_volts"] = float(candidate["target_out2_volts"])
@@ -242,6 +245,46 @@ def test_gui_selection_remains_pending_until_confirm_and_never_auto_arms() -> No
         assert window.selected_lock_point is not None
         assert window.current_custom_operation is None
         assert window.last_arm_intent == "NONE"
+    finally:
+        window.close()
+        app.processEvents()
+
+
+@pytest.mark.parametrize("change", ["scan", "parameter", "disconnect"])
+def test_gui_context_change_invalidates_confirmed_target(change: str) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from redpitaya_lock_host.main_window import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow({}, start_mock=True)
+    try:
+        candidate = _resolve(_persistent_error(), _quantized_ramp())
+        window.custom_capture_generation = 1
+        window.custom_acquisition_service.adopt_capture_id(1)
+        window.pending_lock_point = dict(candidate)
+        window.pending_lock_point.update(
+            capture_generation=1,
+            out2_counts=int(candidate["target_out2_counts"]),
+            lock_bias_counts=int(candidate["target_out2_counts"]),
+            lock_bias_volts=float(candidate["target_out2_volts"]),
+        )
+        window._confirm_pending_lock_point()
+        assert window.selected_lock_point is not None
+        old_epoch = window.custom_context_epoch
+        if change == "scan":
+            window._start_custom_fpga_operation("scan")
+        elif change == "parameter":
+            window.custom_freq_hz.setValue(window.custom_freq_hz.value() + 1.0)
+        else:
+            window._set_connection_state("DISCONNECTED")
+        assert window.selected_lock_point is None
+        assert window.pending_lock_point is None
+        assert window.custom_acquisition_service.capture_id == 0
+        assert not window.p_lock_ready
+        window._deliver_custom_response(old_epoch, {"operation": "capture", "payload": {}})
+        assert "STALE RESPONSE" in window.operator_state_label.text()
+        assert window.custom_acquisition_service.capture_id == 0
     finally:
         window.close()
         app.processEvents()

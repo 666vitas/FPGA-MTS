@@ -118,6 +118,9 @@ class CustomFpgaRegisterWorker(QThread):
         base_addr: int,
         params: dict | None = None,
         parent=None,
+        *,
+        acquisition_service: AcquisitionService | None = None,
+        context_epoch: int | None = None,
     ) -> None:
         super().__init__(parent)
         self.operation = operation
@@ -126,6 +129,8 @@ class CustomFpgaRegisterWorker(QThread):
         self.password = password
         self.base_addr = int(base_addr)
         self.params = params or {}
+        self.acquisition_service = acquisition_service
+        self.context_epoch = context_epoch
 
     def run(self) -> None:
         try:
@@ -135,7 +140,7 @@ class CustomFpgaRegisterWorker(QThread):
                 self.password,
                 base_addr=self.base_addr,
             )
-            acquisition_service = AcquisitionService(backend)
+            acquisition_service = self.acquisition_service or AcquisitionService(backend)
             local_client = LocalClient(LockService(backend, acquisition_service))
             if self.operation == "probe":
                 response = backend.probe_registers()
@@ -177,7 +182,6 @@ class CustomFpgaRegisterWorker(QThread):
                 )
             elif self.operation in {"lock", "validate-lock"}:
                 capture_id = int(self.params["capture_id"])
-                acquisition_service.adopt_capture_id(capture_id)
                 target = LockTarget(
                     capture_id=capture_id,
                     config_generation=int(self.params["config_generation"]),
@@ -193,6 +197,7 @@ class CustomFpgaRegisterWorker(QThread):
                     safe_min_counts=int(self.params.get("safe_min_counts", -8191)),
                     safe_max_counts=int(self.params.get("safe_max_counts", 8191)),
                 )
+                acquisition_service.require_confirmed(target)
                 response = local_client.arm_basic_lock(
                     BasicLockRequest(
                         target=target,
@@ -240,6 +245,13 @@ class CustomFpgaRegisterWorker(QThread):
                 )
             else:
                 raise ValueError(f"Unknown Custom FPGA operation: {self.operation}")
-            self.finished_ok.emit(response.as_dict())
+            result = response.as_dict()
+            if self.context_epoch is not None:
+                result["_host_context_epoch"] = self.context_epoch
+            self.finished_ok.emit(result)
         except Exception as exc:
-            self.failed.emit(exc)
+            self.failed.emit(
+                exc if self.context_epoch is None else {
+                    "_host_context_epoch": self.context_epoch, "error": exc
+                }
+            )

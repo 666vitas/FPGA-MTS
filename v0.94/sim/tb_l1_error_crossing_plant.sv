@@ -15,6 +15,8 @@ module tb_l1_error_crossing_plant;
     localparam logic [6:0] REG_COMMAND = 7'h29;
     localparam logic [6:0] REG_STATE = 7'h2A;
     localparam logic [6:0] REG_EVENT_OUT2 = 7'h2C;
+    localparam logic [6:0] REG_EVENT_INFO = 7'h2F;
+    localparam logic [6:0] REG_VALIDATE_COUNT = 7'h42;
     localparam logic [6:0] REG_CROSSING = 7'h3A;
     localparam logic [6:0] REG_KP_TARGET = 7'h3B;
     localparam logic [6:0] REG_KP_RAMP = 7'h3C;
@@ -285,6 +287,23 @@ module tb_l1_error_crossing_plant;
         bus_write(REG_MODE, 32'd1);
         bus_write(REG_ENABLE, 32'd1);
         wait_cycles(8);
+        // The Host command order is VALIDATE -> inspect event -> explicit
+        // ACTIVE. The numerical plant/gain below remains a test assumption.
+        bus_write(REG_COMMAND, 32'd8);
+        wait_count = 0;
+        bus_read(REG_VALIDATE_COUNT, read_data);
+        while (read_data == 0 && wait_count < 300) begin
+            wait_cycles(1);
+            bus_read(REG_VALIDATE_COUNT, read_data);
+            wait_count++;
+        end
+        bus_read(REG_STATE, read_data);
+        check("integrated VALIDATE returns SCAN without control takeover",
+              read_data[2:0] == 3'd1 && mode == 32'd1 && enable &&
+              !trigger_seen && kp_effective == 14'sd0);
+        bus_read(REG_EVENT_INFO, read_data);
+        check("integrated VALIDATE records a qualified observation event",
+              read_data[0] && read_data[3:1] == 3'd7);
         bus_write(REG_COMMAND, 32'd1);
 
         wait_count = 0;

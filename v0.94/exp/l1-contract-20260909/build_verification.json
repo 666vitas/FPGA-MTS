@@ -1,0 +1,21 @@
+{
+  "completed": "2026-09-09T17:16:25.7800794+08:00",
+  "head": "7c7b6570d4197939cd8e0101b096928d2ff67486",
+  "source_hash_verification": "PASS",
+  "build_input_hash_verification": "PASS",
+  "xpr_delta": "Two new runs plus ordering only; prior contents preserved",
+  "synthesis": "PASS",
+  "route_design": "PASS",
+  "WNS_ns": 0.121,
+  "TNS_ns": 0,
+  "WHS_ns": 0.051,
+  "THS_ns": 0,
+  "TPWS_ns": 0,
+  "failed_routes": 0,
+  "DRC": "4 IOSTDTYPE-1 Critical Warnings; 41 warnings; same rule counts as baseline",
+  "CDC": "Unsafe=0; Unknown=0; 32 No ASYNC_REG warnings; excludes unclocked paths",
+  "methodology": "TIMING-17 Critical Warning: DNA clock; not closed",
+  "bit": "NOT GENERATED: DRC/constraint findings unresolved",
+  "hardware": "NOT RUN",
+  "routed_dcp_sha256": "FFB0742B15B008BBF0CF885C3AB8AF34E74E4B18BABE9464CF2EA1C5AB2FD067"
+}

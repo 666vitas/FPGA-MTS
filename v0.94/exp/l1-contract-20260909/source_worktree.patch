@@ -1,0 +1,983 @@
+diff --git a/software/redpitaya_lock_host/redpitaya_lock_host/connection_workers.py b/software/redpitaya_lock_host/redpitaya_lock_host/connection_workers.py
+index 300b3fc..a5786ef 100644
+--- a/software/redpitaya_lock_host/redpitaya_lock_host/connection_workers.py
++++ b/software/redpitaya_lock_host/redpitaya_lock_host/connection_workers.py
+@@ -118,6 +118,9 @@ class CustomFpgaRegisterWorker(QThread):
+         base_addr: int,
+         params: dict | None = None,
+         parent=None,
++        *,
++        acquisition_service: AcquisitionService | None = None,
++        context_epoch: int | None = None,
+     ) -> None:
+         super().__init__(parent)
+         self.operation = operation
+@@ -126,6 +129,8 @@ class CustomFpgaRegisterWorker(QThread):
+         self.password = password
+         self.base_addr = int(base_addr)
+         self.params = params or {}
++        self.acquisition_service = acquisition_service
++        self.context_epoch = context_epoch
+ 
+     def run(self) -> None:
+         try:
+@@ -135,7 +140,7 @@ class CustomFpgaRegisterWorker(QThread):
+                 self.password,
+                 base_addr=self.base_addr,
+             )
+-            acquisition_service = AcquisitionService(backend)
++            acquisition_service = self.acquisition_service or AcquisitionService(backend)
+             local_client = LocalClient(LockService(backend, acquisition_service))
+             if self.operation == "probe":
+                 response = backend.probe_registers()
+@@ -177,7 +182,6 @@ class CustomFpgaRegisterWorker(QThread):
+                 )
+             elif self.operation in {"lock", "validate-lock"}:
+                 capture_id = int(self.params["capture_id"])
+-                acquisition_service.adopt_capture_id(capture_id)
+                 target = LockTarget(
+                     capture_id=capture_id,
+                     config_generation=int(self.params["config_generation"]),
+@@ -193,6 +197,7 @@ class CustomFpgaRegisterWorker(QThread):
+                     safe_min_counts=int(self.params.get("safe_min_counts", -8191)),
+                     safe_max_counts=int(self.params.get("safe_max_counts", 8191)),
+                 )
++                acquisition_service.require_confirmed(target)
+                 response = local_client.arm_basic_lock(
+                     BasicLockRequest(
+                         target=target,
+@@ -240,6 +245,13 @@ class CustomFpgaRegisterWorker(QThread):
+                 )
+             else:
+                 raise ValueError(f"Unknown Custom FPGA operation: {self.operation}")
+-            self.finished_ok.emit(response.as_dict())
++            result = response.as_dict()
++            if self.context_epoch is not None:
++                result["_host_context_epoch"] = self.context_epoch
++            self.finished_ok.emit(result)
+         except Exception as exc:
+-            self.failed.emit(exc)
++            self.failed.emit(
++                exc if self.context_epoch is None else {
++                    "_host_context_epoch": self.context_epoch, "error": exc
++                }
++            )
+diff --git a/software/redpitaya_lock_host/redpitaya_lock_host/core/acquisition_service.py b/software/redpitaya_lock_host/redpitaya_lock_host/core/acquisition_service.py
+index 98dcd80..0906099 100644
+--- a/software/redpitaya_lock_host/redpitaya_lock_host/core/acquisition_service.py
++++ b/software/redpitaya_lock_host/redpitaya_lock_host/core/acquisition_service.py
+@@ -14,17 +14,34 @@ class AcquisitionService:
+     def __init__(self, backend: Any) -> None:
+         self._backend = backend
+         self._capture_id = 0
++        self._confirmed_target: LockTarget | None = None
+ 
+     @property
+     def capture_id(self) -> int:
+         return self._capture_id
+ 
+     def adopt_capture_id(self, capture_id: int) -> None:
+-        """Bind a GUI-confirmed aligned capture to a short-lived worker service."""
++        """Record the ID delivered by the completed GUI capture callback."""
+         value = int(capture_id)
+         if value <= 0:
+             raise CustomFpgaBackendError("capture id must be positive")
+         self._capture_id = value
++        self._confirmed_target = None
++
++    def invalidate(self) -> None:
++        self._capture_id = 0
++        self._confirmed_target = None
++
++    def bind_confirmed_target(self, target: LockTarget) -> None:
++        self.require_current(target)
++        self._confirmed_target = target
++
++    def require_confirmed(self, target: LockTarget) -> None:
++        self.require_current(target)
++        if self._confirmed_target is None or target != self._confirmed_target:
++            raise CustomFpgaBackendError(
++                "target does not match the persistent confirmed capture/configuration"
++            )
+ 
+     def capture(self, *, capture_length: int, capture_decimation: int):
+         response = self._backend.capture_waveform(
+@@ -32,6 +49,7 @@ class AcquisitionService:
+             capture_decimation=capture_decimation,
+         )
+         self._capture_id += 1
++        self._confirmed_target = None
+         return response
+ 
+     def select_target(
+diff --git a/software/redpitaya_lock_host/redpitaya_lock_host/core/lock_service.py b/software/redpitaya_lock_host/redpitaya_lock_host/core/lock_service.py
+index 4a8e9e9..63b2855 100644
+--- a/software/redpitaya_lock_host/redpitaya_lock_host/core/lock_service.py
++++ b/software/redpitaya_lock_host/redpitaya_lock_host/core/lock_service.py
+@@ -177,7 +177,17 @@ class LockService:
+         mode = int(readback.get("mode", -1))
+         enable = int(readback.get("enable", 0))
+         expected_states = (2,) if request.validate_only else (3, 4, 5)
+-        if acq_state not in expected_states:
++        validation_completed = (
++            request.validate_only
++            and acq_state == 1
++            and bool(readback.get("validation_completed_before_readback"))
++            and isinstance(readback.get("acquisition_event"), dict)
++            and bool(readback["acquisition_event"].get("valid"))
++            and int(readback["acquisition_event"].get("event_type", 0)) == 7
++            and int(readback["acquisition_event"].get("config_generation", 0))
++            == int(target.config_generation)
++        )
++        if acq_state not in expected_states and not validation_completed:
+             return self._fail_safe("ARM readback does not match requested VALIDATE/ACTIVE intent")
+         if request.validate_only and (mode != 1 or enable != 1):
+             return self._fail_safe("VALIDATE readback must preserve MODE=SCAN and ENABLE=1")
+@@ -185,12 +195,16 @@ class LockService:
+             return self._fail_safe("ACTIVE readback does not match MODE/ENABLE")
+ 
+         self.target = target
+-        self.state = {
+-            2: LockState.VALIDATING,
+-            3: LockState.ARMED,
+-            4: LockState.ACQUIRING,
+-            5: LockState.P_LOCKED,
+-        }[acq_state]
++        self.state = (
++            LockState.SCANNING
++            if validation_completed
++            else {
++                2: LockState.VALIDATING,
++                3: LockState.ARMED,
++                4: LockState.ACQUIRING,
++                5: LockState.P_LOCKED,
++            }[acq_state]
++        )
+         return response
+ 
+     def apply_p(self, *, kp: int, polarity: int, config_generation: int):
+@@ -199,8 +213,20 @@ class LockService:
+             polarity=polarity,
+             config_generation=config_generation,
+         )
+-        # Legacy engineer diagnostic only; normal L1 acquisition ramps Kp in FPGA.
+-        self.state = LockState.ACQUIRING if int(kp) == 0 else LockState.P_LOCKED
++        # A successful write only proves that the command transport completed.
++        # The FPGA acquisition state is authoritative for the host-side label.
++        payload = response.payload
++        acquisition_state = int(payload.get("acquisition_state", -1))
++        if acquisition_state == 4:
++            self.state = LockState.ACQUIRING
++        elif acquisition_state == 5:
++            self.state = LockState.P_LOCKED
++        else:
++            return self._fail_safe(
++                "Apply P readback has unexpected acquisition state: "
++                f"{acquisition_state}",
++                payload=payload,
++            )
+         return response
+ 
+     def _fail_safe(
+diff --git a/software/redpitaya_lock_host/redpitaya_lock_host/main_window.py b/software/redpitaya_lock_host/redpitaya_lock_host/main_window.py
+index 50c4ba8..6a1d569 100644
+--- a/software/redpitaya_lock_host/redpitaya_lock_host/main_window.py
++++ b/software/redpitaya_lock_host/redpitaya_lock_host/main_window.py
+@@ -42,6 +42,8 @@ from PySide6.QtWidgets import (
+ )
+ 
+ from .acquisition_worker import AcquisitionWorker
++from .common.lock_models import LockTarget
++from .core.acquisition_service import AcquisitionService
+ from .connection_probe import ProbeResult
+ from .connection_workers import (
+     ConnectScpiWorker,
+@@ -1191,6 +1193,8 @@ class MainWindow(QMainWindow):
+         self._updating_scope_display_controls = False
+         self.custom_last_capture_payload: dict[str, Any] = {}
+         self.custom_capture_generation = 0
++        self.custom_acquisition_service = AcquisitionService(None)
++        self.custom_context_epoch = 0
+         self.acquisition_config_generation = 0
+         self.selected_lock_point: dict[str, int | float] | None = None
+         self.pending_lock_point: dict[str, int | float] | None = None
+@@ -1436,6 +1440,8 @@ class MainWindow(QMainWindow):
+         self.system_l1_capability_matched = False
+         self.last_fpga_status_payload = {}
+         self.p_lock_ready = False
++        if connection in {"Disconnected", "Communication lost"} or error:
++            self._invalidate_lock_target()
+         self.system_connection_value.setText(connection)
+         self.system_fpga_version_value.setText("--")
+         self.system_identity_value.setText("Unknown")
+@@ -2998,6 +3004,18 @@ class MainWindow(QMainWindow):
+         self.custom_capture_view_mode.currentTextChanged.connect(self._apply_capture_view_mode)
+         self.custom_ref_debug_decimation.currentTextChanged.connect(self._apply_capture_view_mode)
+         self.custom_freq_hz.valueChanged.connect(self._sync_lock_view_capture_window)
++        for control in (
++            self.custom_freq_hz, self.custom_amp_v, self.custom_offset_v,
++            self.custom_step_counts, self.basic_pzt_min_v, self.basic_pzt_max_v,
++            self.custom_zero_threshold_counts, self.custom_correction_limit_counts,
++            self.custom_lock_limit_counts,
++        ):
++            control.valueChanged.connect(lambda _value: self._invalidate_lock_target())
++        for control in (self.host_edit, self.custom_base_addr_edit):
++            control.textChanged.connect(lambda _text: self._invalidate_lock_target())
++        self.resolved_ip_combo.currentTextChanged.connect(
++            lambda _text: self._invalidate_lock_target()
++        )
+         self.custom_capture_length.valueChanged.connect(self._sync_lock_view_capture_window)
+         self.basic_lock_button.clicked.connect(self._start_basic_lock)
+         self.basic_safe_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
+@@ -3367,6 +3385,7 @@ class MainWindow(QMainWindow):
+             self.operator_scan_state_label.setText("SAFE")
+             self.operator_alert_label.setText("")
+         if operation == "scan":
++            self._invalidate_lock_target()
+             self.operator_state_label.setText("SCANNING")
+             self.operator_scan_state_label.setText("SCANNING")
+         if self._official_mode():
+@@ -3556,6 +3575,10 @@ class MainWindow(QMainWindow):
+             base_addr,
+             params,
+             self,
++            acquisition_service=(
++                self.custom_acquisition_service if arm_operation else None
++            ),
++            context_epoch=self.custom_context_epoch,
+         )
+         self.worker = worker
+         worker.finished_ok.connect(self._on_custom_fpga_finished)
+@@ -4189,8 +4212,10 @@ class MainWindow(QMainWindow):
+             self.pending_lock_point = updated
+             status = "Waiting for confirmation"
+         else:
+-            self.selected_lock_point = updated
+-            status = "Confirmed"
++            self.pending_lock_point = updated
++            self.selected_lock_point = None
++            self.p_lock_ready = False
++            status = "Waiting for confirmation"
+         self.operator_alert_label.setText("")
+         self.operator_candidate_label.setText(self._lock_point_candidate_text(updated, status))
+         self.selected_lock_label.setText(
+@@ -4201,11 +4226,53 @@ class MainWindow(QMainWindow):
+         self._refresh_operator_lock_diagnostics(build_lock_transition_diagnostics(updated, None))
+         self._apply_button_state(self.connection_state)
+ 
++    def _invalidate_lock_target(self) -> None:
++        had_target = self.selected_lock_point is not None or self.pending_lock_point is not None
++        self.custom_context_epoch += 1
++        self.custom_acquisition_service.invalidate()
++        self.selected_lock_point = None
++        self.pending_lock_point = None
++        self.pending_target_peak = None
++        self.p_lock_ready = False
++        self.custom_scope_valid_for_selection = False
++        self._mark_diagnostics_not_live(stale=True, reason="Target context invalidated")
++        if had_target:
++            self.last_arm_result = "INVALIDATED"
++            self.operator_candidate_label.setText("Target expired; capture and select again")
++        self._apply_button_state(self.connection_state)
++
++    def _deliver_custom_response(self, epoch: int, result: object, *, failed: bool = False) -> None:
++        if epoch != self.custom_context_epoch:
++            self.capture_in_flight = False
++            self.current_custom_operation = None
++            self.basic_lock_active = False
++            self.basic_lock_queue = []
++            self._stop_live_capture("Context changed; stale response discarded")
++            self._clear_system_identity("Communication lost", "Stale response after context change")
++            self.operator_state_label.setText("STALE RESPONSE / STATUS REQUIRED")
++            self.operator_alert_label.setText(
++                "Target invalidated. Hardware state is unknown; verify the original device before continuing."
++            )
++            return
++        if failed:
++            self._on_custom_fpga_failed(result)
++        else:
++            self._on_custom_fpga_finished(result)
++
+     def _confirm_pending_lock_point(self) -> None:
+         if self.pending_lock_point is None:
+             self.selected_lock_label.setText("selected lock point: no valid pending zero crossing to confirm")
+             self.operator_alert_label.setText("Lock point not confirmed")
+             return
++        capture_id = int(self.pending_lock_point.get("capture_generation", 0))
++        if (
++            capture_id <= 0
++            or capture_id != self.custom_capture_generation
++            or capture_id != self.custom_acquisition_service.capture_id
++        ):
++            self._invalidate_lock_target()
++            self.operator_alert_label.setText("Target expired; capture and select again")
++            return
+         self.selected_lock_point = dict(self.pending_lock_point)
+         self.acquisition_config_generation += 1
+         self.selected_lock_point["config_generation"] = self.acquisition_config_generation
+@@ -4234,6 +4301,24 @@ class MainWindow(QMainWindow):
+                 ),
+             )
+         )
++        selected = self.selected_lock_point
++        self.custom_acquisition_service.bind_confirmed_target(
++            LockTarget(
++                capture_id=int(selected["capture_generation"]),
++                config_generation=int(selected["config_generation"]),
++                target_out2_counts=int(selected["out2_counts"]),
++                error_setpoint_counts=int(selected["error_setpoint_counts"]),
++                target_window_counts=int(self.custom_zero_threshold_counts.value()),
++                scan_direction=1 if selected["ramp_direction"] == "rising" else 2,
++                error_crossing_direction=(
++                    1 if selected["error_crossing_direction"] == "neg_to_pos" else 2
++                ),
++                slope=float(selected["slope"]),
++                polarity_suggestion=int(selected["initial_polarity_suggestion"]),
++                safe_min_counts=int(selected.get("safe_min_counts", -8191)),
++                safe_max_counts=int(selected.get("safe_max_counts", 8191)),
++            )
++        )
+         self.pending_lock_point = None
+         self._update_lock_point_markers(self.selected_lock_point)
+         self.custom_pick_lock_button.setChecked(False)
+@@ -4262,6 +4347,7 @@ class MainWindow(QMainWindow):
+ 
+     def _render_custom_capture_payload(self, payload: dict[str, Any]) -> None:
+         self.custom_capture_generation += 1
++        self.custom_acquisition_service.adopt_capture_id(self.custom_capture_generation)
+         self._clear_captured_diagnostic_binding()
+         self.custom_last_capture_payload = dict(payload)
+         points = payload.get("points", [])
+@@ -4568,6 +4654,10 @@ class MainWindow(QMainWindow):
+ 
+     def _on_custom_fpga_finished(self, result: object) -> None:
+         data = dict(result)
++        epoch = data.get("_host_context_epoch", self.custom_context_epoch)
++        if epoch != self.custom_context_epoch:
++            self._deliver_custom_response(epoch, result)
++            return
+         operation = str(data.get("operation", "custom"))
+         payload = data.get("payload", {})
+         if not isinstance(payload, dict):
+@@ -4631,14 +4721,17 @@ class MainWindow(QMainWindow):
+                 self._refresh_operator_lock_diagnostics()
+         elif operation == "validate-lock":
+             self.acquisition_state = int(payload.get("acquisition_state", 2))
+-            self.last_arm_result = "ACCEPTED"
++            completed = bool(payload.get("validation_completed_before_readback"))
++            self.last_arm_result = "VALIDATED" if completed else "ACCEPTED"
+             self.last_arm_diagnostic_payload = dict(payload)
+-            self.operator_state_label.setText("FPGA VALIDATING")
++            self.operator_state_label.setText(
++                "VALIDATED / SCAN" if completed else "FPGA VALIDATING"
++            )
+             self.operator_alert_label.setText("")
+             self.custom_warning_text.setPlainText(
+-                "ARM VALIDATE accepted. FPGA remains in SCAN and records only "
+-                "qualified realtime ERROR crossings; refresh STATUS for the "
+-                "authoritative event/count."
++                "VALIDATE observes the crossing without feedback and returns to SCAN "
++                "after its event. Check the event sequence/generation in STATUS; "
++                "ACTIVE requires a separate operator request."
+             )
+         elif operation == "lock":
+             event = payload.get("acquisition_event")
+@@ -4772,6 +4865,12 @@ class MainWindow(QMainWindow):
+             QTimer.singleShot(0, lambda: self._start_custom_fpga_operation("safe"))
+ 
+     def _on_custom_fpga_failed(self, error: object) -> None:
++        if isinstance(error, dict) and "_host_context_epoch" in error:
++            epoch = error["_host_context_epoch"]
++            if epoch != self.custom_context_epoch:
++                self._deliver_custom_response(epoch, error, failed=True)
++                return
++            error = error["error"]
+         operation = self.current_custom_operation or "custom"
+         normalized = (
+             error
+diff --git a/software/redpitaya_lock_host/scripts/custom_fpga_scan_control.py b/software/redpitaya_lock_host/scripts/custom_fpga_scan_control.py
+index 7c650a4..2446e73 100644
+--- a/software/redpitaya_lock_host/scripts/custom_fpga_scan_control.py
++++ b/software/redpitaya_lock_host/scripts/custom_fpga_scan_control.py
+@@ -434,6 +434,9 @@ def wait_for_acquisition_state(
+     clock=None,
+     sleeper=None,
+     diagnostic_context=None,
++    completed_validation_generation=None,
++    validation_sequence_before=None,
++    validation_directions=None,
+ ):
+     monotonic = time.monotonic if clock is None else clock
+     sleep = time.sleep if sleeper is None else sleeper
+@@ -449,6 +452,30 @@ def wait_for_acquisition_state(
+         state = int(last.get("acquisition_state", -1))
+         if state in expected:
+             return last
++        # VALIDATE is observation-only.  A qualified crossing can be recorded
++        # and the FPGA can return to SCAN before the first host readback.  Only
++        # accept that fast path when the sticky event is a fresh VALIDATED
++        # event for this exact generation; an old event must not authorize it.
++        if completed_validation_generation is not None and state == 1:
++            event = last.get("acquisition_event")
++            if (
++                isinstance(event, dict)
++                and bool(event.get("valid"))
++                and int(event.get("event_type", 0)) == 7
++                and int(event.get("config_generation", 0))
++                == int(completed_validation_generation)
++                and validation_sequence_before is not None
++                and int(event.get("sequence", -1)) != int(validation_sequence_before)
++                and (
++                    validation_directions is None
++                    or (
++                        int(event.get("scan_direction", -1)),
++                        int(event.get("error_crossing_direction", -1)),
++                    ) == tuple(validation_directions)
++                )
++            ):
++                last["validation_completed_before_readback"] = True
++                return last
+         diagnostic = dict(last)
+         diagnostic["expected_states"] = list(expected)
+         diagnostic["timeout_s"] = timeout
+@@ -589,6 +616,9 @@ def run_preload_acquisition(regs, args, arm, validate=False):
+     validation = regs.read(REGISTERS["CONFIG_VALIDATION"])
+     if not (validation & (1 << 7)):
+         raise SystemExit(f"FPGA acquisition shadow validation failed: 0x{validation:08X}")
++    validation_sequence_before = (
++        regs.read(REGISTERS["EVENT_SEQUENCE"]) if arm and validate else None
++    )
+     if arm:
+         regs.write(REGISTERS["ACQ_COMMAND"], 8 if validate else 1)
+     expected_states = (2,) if validate else (3, 4, 5)
+@@ -600,6 +630,14 @@ def run_preload_acquisition(regs, args, arm, validate=False):
+                 "config_validation": f"0x{validation:08X}",
+                 "config_generation": int(args.config_generation),
+             },
++            completed_validation_generation=(
++                int(args.config_generation) if validate else None
++            ),
++            validation_sequence_before=validation_sequence_before,
++            validation_directions=(
++                int(args.required_scan_direction),
++                int(args.required_error_crossing_direction),
++            ) if validate else None,
+         )
+         if arm
+         else acquisition_status(regs)
+diff --git a/software/redpitaya_lock_host/tests/test_custom_fpga_backend.py b/software/redpitaya_lock_host/tests/test_custom_fpga_backend.py
+index e7a2589..b101d1a 100644
+--- a/software/redpitaya_lock_host/tests/test_custom_fpga_backend.py
++++ b/software/redpitaya_lock_host/tests/test_custom_fpga_backend.py
+@@ -5,6 +5,7 @@ from pathlib import Path
+ from types import SimpleNamespace
+ 
+ import numpy as np
++import pytest
+ 
+ from redpitaya_lock_host.custom_fpga_backend import (
+     EXPECTED_MAGIC,
+@@ -556,6 +557,81 @@ def test_validate_wait_accepts_delayed_validating_state_without_rewriting_comman
+     assert result["acquisition_state_name"] == "VALIDATING"
+ 
+ 
++def test_validate_wait_accepts_new_event_if_fpga_already_returned_to_scan() -> None:
++    namespace = load_remote_helper_namespace()
++    states = iter(
++        [
++            {
++                "acquisition_state": 1,
++                "acquisition_state_name": "SCAN",
++                "acquisition_event": {
++                    "valid": True,
++                    "event_type": 7,
++                    "config_generation": 42,
++                    "sequence": 8,
++                    "scan_direction": 1,
++                    "error_crossing_direction": 1,
++                },
++            }
++        ]
++    )
++    namespace["acquisition_status"] = lambda _regs: next(states)
++    clock = FakeMonotonicClock()
++
++    result = namespace["wait_for_acquisition_state"](
++        object(),
++        (2,),
++        timeout_s=0.2,
++        poll_interval_s=0.001,
++        clock=clock.monotonic,
++        sleeper=clock.sleep,
++        completed_validation_generation=42,
++        validation_sequence_before=7,
++        validation_directions=(1, 1),
++    )
++
++    assert result["acquisition_state"] == 1
++    assert result["validation_completed_before_readback"] is True
++
++
++@pytest.mark.parametrize(
++    "generation,sequence,direction", [(42, 7, 1), (41, 8, 1), (42, 8, 2)]
++)
++def test_validate_wait_rejects_old_event_after_return_to_scan(
++    generation: int, sequence: int, direction: int
++) -> None:
++    namespace = load_remote_helper_namespace()
++    payload = {
++        "acquisition_state": 1,
++        "acquisition_state_name": "SCAN",
++        "acquisition_event": {
++            "valid": True,
++            "event_type": 7,
++            "config_generation": generation,
++            "sequence": sequence,
++            "scan_direction": direction,
++            "error_crossing_direction": 1,
++        },
++    }
++    namespace["acquisition_status"] = lambda _regs: dict(payload)
++    clock = FakeMonotonicClock()
++
++    with np.testing.assert_raises(SystemExit) as raised:
++        namespace["wait_for_acquisition_state"](
++            object(),
++            (2,),
++            timeout_s=0.001,
++            poll_interval_s=0.001,
++            clock=clock.monotonic,
++            sleeper=clock.sleep,
++            completed_validation_generation=42,
++            validation_sequence_before=7,
++            validation_directions=(1, 1),
++        )
++
++    assert "timeout" in str(raised.exception).lower()
++
++
+ def test_active_arm_wait_accepts_armed_acquiring_and_fast_locked_states() -> None:
+     for accepted_state, accepted_name in (
+         (3, "ARMED"),
+@@ -1926,6 +2002,7 @@ def test_lock_point_calibration_adjusts_bias_without_enabling_feedback() -> None
+         zero_volts = out2_counts_to_voltage(zero_counts)
+         window.pending_lock_point = {
+             "selected_peak_index": 100,
++            "capture_generation": 1,
+             "zero_crossing_index": 101.5,
+             "zero_crossing_time_s": 0.00125,
+             "zero_crossing_out2_counts": zero_counts,
+@@ -1944,6 +2021,8 @@ def test_lock_point_calibration_adjusts_bias_without_enabling_feedback() -> None
+             "safe_max_counts": out2_voltage_to_counts(0.90),
+             "bias_trim_volts": 0.0,
+         }
++        window.custom_capture_generation = 1
++        window.custom_acquisition_service.adopt_capture_id(1)
+         window._start_custom_fpga_operation = lambda operation, **_kwargs: operations.append(operation)
+         window._apply_button_state(window.connection_state)
+ 
+@@ -1961,9 +2040,10 @@ def test_lock_point_calibration_adjusts_bias_without_enabling_feedback() -> None
+         assert window.selected_lock_point["lock_bias_counts"] == window.selected_lock_point["out2_counts"]
+         window.lock_bias_plus_5mv_button.click()
+ 
+-        assert window.selected_lock_point is not None
+-        assert abs(float(window.selected_lock_point["bias_trim_volts"]) - 0.006) < 1e-12
+-        assert window.selected_lock_point["error_setpoint_counts"] == 0
++        assert window.selected_lock_point is None
++        assert window.pending_lock_point is not None
++        assert abs(float(window.pending_lock_point["bias_trim_volts"]) - 0.006) < 1e-12
++        assert window.pending_lock_point["error_setpoint_counts"] == 0
+         assert operations == []
+         candidate_text = window.operator_candidate_label.text()
+         for field in ("Index:", "Time:", "Error:", "Slope:", "OUT2/PZT command estimate:"):
+diff --git a/software/redpitaya_lock_host/tests/test_lock_services.py b/software/redpitaya_lock_host/tests/test_lock_services.py
+index 3465e9e..1d9528c 100644
+--- a/software/redpitaya_lock_host/tests/test_lock_services.py
++++ b/software/redpitaya_lock_host/tests/test_lock_services.py
+@@ -1,4 +1,5 @@
+ from types import SimpleNamespace
++from dataclasses import replace
+ 
+ import numpy as np
+ import pytest
+@@ -21,12 +22,18 @@ class FakeBackend:
+         self,
+         *,
+         arm_state: int = 3,
++        validate_state: int = 2,
++        validate_payload_extra: dict | None = None,
+         current_state: int = 1,
++        update_state: int = 4,
+         l1_capability: str = "0x4C310001",
+         safe_state: int = 0,
+     ) -> None:
+         self.arm_state = arm_state
++        self.validate_state = validate_state
++        self.validate_payload_extra = dict(validate_payload_extra or {})
+         self.current_state = current_state
++        self.update_state = update_state
+         self.safe_calls = 0
+         self.arm_configs = []
+         self.validate_configs = []
+@@ -67,7 +74,8 @@ class FakeBackend:
+                 "mode": 1,
+                 "enable": 1,
+                 "saturated": False,
+-                "acquisition_state": 2,
++                "acquisition_state": self.validate_state,
++                **self.validate_payload_extra,
+             }
+         )
+ 
+@@ -81,6 +89,18 @@ class FakeBackend:
+             }
+         )
+ 
++    def update_p_lock(self, *, kp: int, polarity: int, config_generation: int):
++        return SimpleNamespace(
++            payload={
++                "mode": 3,
++                "enable": 1,
++                "acquisition_state": self.update_state,
++                "kp": int(kp),
++                "polarity": int(polarity),
++                "config_generation": int(config_generation),
++            }
++        )
++
+ 
+ def make_target(*, capture_id: int = 7, slope: float = 0.5) -> LockTarget:
+     return LockTarget(
+@@ -194,6 +214,37 @@ def test_l1_validate_is_distinct_and_preserves_scanning_state() -> None:
+     assert backend.arm_configs == []
+ 
+ 
++def test_fast_validate_completion_accepts_matching_event_after_scan_return() -> None:
++    backend = FakeBackend(
++        validate_state=1,
++        validate_payload_extra={
++            "validation_completed_before_readback": True,
++            "acquisition_event": {
++                "valid": True,
++                "event_type": 7,
++                "config_generation": 11,
++            },
++        },
++    )
++    acquisition = AcquisitionService(backend)
++    acquisition.adopt_capture_id(7)
++    service = LockService(backend, acquisition)
++
++    service.request_lock(
++        BasicLockRequest(
++            target=make_target(),
++            kp=4,
++            polarity=1,
++            correction_limit_counts=12,
++            absolute_limit_counts=300,
++            validate_only=True,
++        )
++    )
++
++    assert service.state is LockState.SCANNING
++    assert service.target is not None
++
++
+ def test_same_version_without_l1_capability_is_safed_before_arm() -> None:
+     backend = FakeBackend(l1_capability="0x00000000")
+     acquisition = AcquisitionService(backend)
+@@ -303,3 +354,86 @@ def test_safe_command_exception_is_not_retried_or_reported_confirmed() -> None:
+     assert raised.value.safe_confirmed is False
+     assert "MANUAL HARDWARE CHECK REQUIRED" in str(raised.value)
+     assert service.state is LockState.FAILED
++
++
++@pytest.mark.parametrize(
++    ("update_state", "expected_state"),
++    (
++        (4, LockState.ACQUIRING),
++        (5, LockState.P_LOCKED),
++    ),
++)
++def test_apply_p_uses_authoritative_fpga_state(
++    update_state: int, expected_state: LockState
++) -> None:
++    backend = FakeBackend(update_state=update_state)
++    service = LockService(backend)
++
++    service.apply_p(kp=4, polarity=0, config_generation=11)
++
++    assert service.state is expected_state
++
++
++def test_apply_p_does_not_claim_locked_for_unexpected_readback() -> None:
++    backend = FakeBackend(update_state=3)
++    service = LockService(backend)
++
++    with pytest.raises(CustomFpgaStateError, match="unexpected acquisition state"):
++        service.apply_p(kp=4, polarity=0, config_generation=11)
++
++    assert service.state is LockState.FAILED
++
++
++def test_persistent_confirmation_rejects_request_parameter_self_proof() -> None:
++    acquisition = AcquisitionService(FakeBackend())
++    acquisition.adopt_capture_id(7)
++    target = make_target()
++    with pytest.raises(CustomFpgaBackendError, match="persistent confirmed"):
++        acquisition.require_confirmed(target)
++    acquisition.bind_confirmed_target(target)
++    acquisition.require_confirmed(target)
++    for changed in (
++        replace(target, config_generation=12),
++        replace(target, target_out2_counts=target.target_out2_counts + 1),
++        replace(target, target_window_counts=target.target_window_counts + 1),
++        replace(target, scan_direction=2),
++    ):
++        with pytest.raises(CustomFpgaBackendError, match="persistent confirmed"):
++            acquisition.require_confirmed(changed)
++    acquisition.invalidate()
++    with pytest.raises(CustomFpgaBackendError, match="stale"):
++        acquisition.require_confirmed(target)
++
++
++def test_worker_rejects_stale_capture_before_any_arm_write(monkeypatch) -> None:
++    from redpitaya_lock_host import connection_workers
++
++    backend = FakeBackend()
++    acquisition = AcquisitionService(backend)
++    target = make_target()
++    acquisition.adopt_capture_id(target.capture_id)
++    acquisition.bind_confirmed_target(target)
++    monkeypatch.setattr(connection_workers, "CustomFpgaBackend", lambda *a, **kw: backend)
++    worker = connection_workers.CustomFpgaRegisterWorker(
++        "lock", "unused", "unused", "unused", 0x40600000,
++        {
++            "capture_id": target.capture_id + 1,
++            "config_generation": target.config_generation,
++            "target_out2_counts": target.target_out2_counts,
++            "target_error_setpoint_counts": target.error_setpoint_counts,
++            "target_window_counts": target.target_window_counts,
++            "required_scan_direction": target.scan_direction,
++            "required_error_crossing_direction": target.error_crossing_direction,
++            "slope": target.slope,
++        },
++        acquisition_service=acquisition,
++        context_epoch=3,
++    )
++    errors = []
++    worker.failed.connect(errors.append)
++    worker.run()
++    assert backend.arm_configs == []
++    assert len(errors) == 1
++    assert errors[0]["_host_context_epoch"] == 3
++    assert "stale" in str(errors[0]["error"])
++    assert acquisition.capture_id == target.capture_id
+diff --git a/software/redpitaya_lock_host/tests/test_low_amplitude_zero_crossing.py b/software/redpitaya_lock_host/tests/test_low_amplitude_zero_crossing.py
+index 43ab970..39c48ee 100644
+--- a/software/redpitaya_lock_host/tests/test_low_amplitude_zero_crossing.py
++++ b/software/redpitaya_lock_host/tests/test_low_amplitude_zero_crossing.py
+@@ -228,6 +228,9 @@ def test_gui_selection_remains_pending_until_confirm_and_never_auto_arms() -> No
+     try:
+         candidate = _resolve(_persistent_error(), _quantized_ramp())
+         window.pending_lock_point = dict(candidate)
++        window.custom_capture_generation = 1
++        window.custom_acquisition_service.adopt_capture_id(1)
++        window.pending_lock_point["capture_generation"] = 1
+         window.pending_lock_point["out2_counts"] = int(candidate["target_out2_counts"])
+         window.pending_lock_point["lock_bias_counts"] = int(candidate["target_out2_counts"])
+         window.pending_lock_point["lock_bias_volts"] = float(candidate["target_out2_volts"])
+@@ -245,3 +248,43 @@ def test_gui_selection_remains_pending_until_confirm_and_never_auto_arms() -> No
+     finally:
+         window.close()
+         app.processEvents()
++
++
++@pytest.mark.parametrize("change", ["scan", "parameter", "disconnect"])
++def test_gui_context_change_invalidates_confirmed_target(change: str) -> None:
++    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
++    from PySide6.QtWidgets import QApplication
++    from redpitaya_lock_host.main_window import MainWindow
++
++    app = QApplication.instance() or QApplication([])
++    window = MainWindow({}, start_mock=True)
++    try:
++        candidate = _resolve(_persistent_error(), _quantized_ramp())
++        window.custom_capture_generation = 1
++        window.custom_acquisition_service.adopt_capture_id(1)
++        window.pending_lock_point = dict(candidate)
++        window.pending_lock_point.update(
++            capture_generation=1,
++            out2_counts=int(candidate["target_out2_counts"]),
++            lock_bias_counts=int(candidate["target_out2_counts"]),
++            lock_bias_volts=float(candidate["target_out2_volts"]),
++        )
++        window._confirm_pending_lock_point()
++        assert window.selected_lock_point is not None
++        old_epoch = window.custom_context_epoch
++        if change == "scan":
++            window._start_custom_fpga_operation("scan")
++        elif change == "parameter":
++            window.custom_freq_hz.setValue(window.custom_freq_hz.value() + 1.0)
++        else:
++            window._set_connection_state("DISCONNECTED")
++        assert window.selected_lock_point is None
++        assert window.pending_lock_point is None
++        assert window.custom_acquisition_service.capture_id == 0
++        assert not window.p_lock_ready
++        window._deliver_custom_response(old_epoch, {"operation": "capture", "payload": {}})
++        assert "STALE RESPONSE" in window.operator_state_label.text()
++        assert window.custom_acquisition_service.capture_id == 0
++    finally:
++        window.close()
++        app.processEvents()
+diff --git a/v0.94/rtl/simple_lock_acquisition.sv b/v0.94/rtl/simple_lock_acquisition.sv
+index 25fe80a..aada395 100644
+--- a/v0.94/rtl/simple_lock_acquisition.sv
++++ b/v0.94/rtl/simple_lock_acquisition.sv
+@@ -787,6 +787,10 @@ module simple_lock_acquisition (
+                             event_snapshot_timestamp_q <= cycle_counter_q;
+                             event_snapshot_reject_q <= 16'd0;
+                             event_snapshot_fault_q <= 16'd0;
++                            // Validation is observation-only.  Return to SCAN
++                            // after recording the qualified event so the host
++                            // can explicitly authorize a later ACTIVE arm.
++                            state_q <= STATE_SCAN;
+                         end
+                     end
+                     STATE_ARMED: begin
+diff --git a/v0.94/sim/tb_l1_error_crossing_plant.sv b/v0.94/sim/tb_l1_error_crossing_plant.sv
+index 7ee54f0..4d99a22 100644
+--- a/v0.94/sim/tb_l1_error_crossing_plant.sv
++++ b/v0.94/sim/tb_l1_error_crossing_plant.sv
+@@ -15,6 +15,8 @@ module tb_l1_error_crossing_plant;
+     localparam logic [6:0] REG_COMMAND = 7'h29;
+     localparam logic [6:0] REG_STATE = 7'h2A;
+     localparam logic [6:0] REG_EVENT_OUT2 = 7'h2C;
++    localparam logic [6:0] REG_EVENT_INFO = 7'h2F;
++    localparam logic [6:0] REG_VALIDATE_COUNT = 7'h42;
+     localparam logic [6:0] REG_CROSSING = 7'h3A;
+     localparam logic [6:0] REG_KP_TARGET = 7'h3B;
+     localparam logic [6:0] REG_KP_RAMP = 7'h3C;
+@@ -285,6 +287,23 @@ module tb_l1_error_crossing_plant;
+         bus_write(REG_MODE, 32'd1);
+         bus_write(REG_ENABLE, 32'd1);
+         wait_cycles(8);
++        // The Host command order is VALIDATE -> inspect event -> explicit
++        // ACTIVE. The numerical plant/gain below remains a test assumption.
++        bus_write(REG_COMMAND, 32'd8);
++        wait_count = 0;
++        bus_read(REG_VALIDATE_COUNT, read_data);
++        while (read_data == 0 && wait_count < 300) begin
++            wait_cycles(1);
++            bus_read(REG_VALIDATE_COUNT, read_data);
++            wait_count++;
++        end
++        bus_read(REG_STATE, read_data);
++        check("integrated VALIDATE returns SCAN without control takeover",
++              read_data[2:0] == 3'd1 && mode == 32'd1 && enable &&
++              !trigger_seen && kp_effective == 14'sd0);
++        bus_read(REG_EVENT_INFO, read_data);
++        check("integrated VALIDATE records a qualified observation event",
++              read_data[0] && read_data[3:1] == 3'd7);
+         bus_write(REG_COMMAND, 32'd1);
+ 
+         wait_count = 0;
+diff --git a/v0.94/sim/tb_out2_lock_controller.sv b/v0.94/sim/tb_out2_lock_controller.sv
+index 6d037b8..eb66bf0 100644
+--- a/v0.94/sim/tb_out2_lock_controller.sv
++++ b/v0.94/sim/tb_out2_lock_controller.sv
+@@ -192,6 +192,31 @@ module tb_out2_lock_controller;
+         wait_cycles(P_LOCK_LATENCY);
+         check("P_LOCK polarity flip reverses direction", control_o == 14'sd50);
+ 
++        // Kp is Q8: arithmetic shift preserves the signed product and drops
++        // fractional bits (negative fractions round toward minus infinity).
++        kp = 14'sd4;
++        polarity = 1'b0;
++        error_i = 14'sd63;
++        wait_cycles(P_LOCK_LATENCY);
++        check("Q8 positive fractional correction truncates to zero",
++              control_o == 14'sd100);
++        error_i = 14'sd64;
++        wait_cycles(P_LOCK_LATENCY);
++        check("Q8 one-count boundary is exact", control_o == 14'sd101);
++        error_i = -14'sd1;
++        wait_cycles(P_LOCK_LATENCY);
++        check("Q8 negative fraction uses signed arithmetic shift",
++              control_o == 14'sd99);
++        polarity = 1'b1;
++        error_i = 14'sd1;
++        wait_cycles(P_LOCK_LATENCY);
++        check("polarity inversion precedes Q8 truncation",
++              control_o == 14'sd99);
++        error_i = -14'sd1;
++        wait_cycles(P_LOCK_LATENCY);
++        check("inverted negative fraction truncates positive product to zero",
++              control_o == 14'sd100);
++
+         // End-to-end P-only equation with the registered setpoint corrector:
+         // OUT2 = LOCK_BIAS - Kp * (ERROR - SETPOINT) / 256 when polarity=1.
+         mode = MODE_HOLD;
+diff --git a/v0.94/sim/tb_simple_lock_acquisition.sv b/v0.94/sim/tb_simple_lock_acquisition.sv
+index 95e684f..8164515 100644
+--- a/v0.94/sim/tb_simple_lock_acquisition.sv
++++ b/v0.94/sim/tb_simple_lock_acquisition.sv
+@@ -77,6 +77,7 @@ module tb_simple_lock_acquisition;
+     int pass_count;
+     int fail_count;
+     int i;
++    logic [2:0] post_validate_active_state;
+ 
+     sys_bus_if bus (.clk(clk), .rstn(rstn));
+ 
+@@ -261,6 +262,9 @@ module tb_simple_lock_acquisition;
+         check("ARM_VALIDATE enters VALIDATING", read_data[2:0] == 3'd2);
+         rising_neg_to_pos_crossing();
+         wait_cycles(CROSSING_PIPELINE_LATENCY + EVENT_PIPELINE_LATENCY);
++        bus_read(REG_ACQ_STATE, read_data);
++        check("VALIDATE returns to SCAN after qualified event",
++              read_data[2:0] == 3'd1);
+         check("VALIDATE leaves MODE SCAN and ENABLE unchanged",
+               mode == 32'd1 && enable);
+         check("VALIDATE does not change LOCK_BIAS or Kp",
+@@ -275,10 +279,38 @@ module tb_simple_lock_acquisition;
+         check("VALIDATE event records threshold-confirming lock_error",
+               $signed(read_data) == 32'sd5);
+ 
+-        // A second pass is permitted only after leaving and re-entering guard.
++        // A successful observation returns to SCAN; the next ARM command is
++        // an explicit operator decision to hand control to the FPGA.
++        bus_write(REG_ACQ_COMMAND, 32'd1);
++        wait_cycles(ARM_PIPELINE_LATENCY);
++        bus_read(REG_ACQ_STATE, read_data);
++        check("manual ACTIVE arm is accepted after VALIDATE",
++              read_data[2:0] == 3'd3);
++        set_sample(14'sd80, 14'sd15);
++        set_sample(14'sd81, 14'sd15);
++        rising_neg_to_pos_crossing();
++        wait_cycles(CROSSING_PIPELINE_LATENCY + EVENT_PIPELINE_LATENCY);
++        bus_read(REG_ACQ_STATE, read_data);
++        post_validate_active_state = read_data[2:0];
++        bus_read(REG_EVENT_INFO, read_data);
++        check("manual ACTIVE after VALIDATE enters P_LOCK",
++              mode == 32'd3 && enable && post_validate_active_state == 3'd4);
++        bus_write(REG_ACQ_COMMAND, 32'd2);
++        check("abort after manual ACTIVE returns SAFE",
++              mode == 32'd0 && !enable && kp_effective == 14'sd0);
++        enter_scan();
++        preload(2'd1, 2'd1, 1'b1, 32'd12);
++
++        // A crossing while back in SCAN cannot create another validation
++        // event.  A second pass requires an explicit host request.
+         rising_neg_to_pos_crossing();
+         bus_read(REG_VALIDATE_COUNT, read_data);
+         check("one guard pass has only one validate event", read_data == 32'd1);
++        bus_write(REG_ACQ_COMMAND, 32'd8);
++        wait_cycles(ARM_PIPELINE_LATENCY);
++        bus_read(REG_ACQ_STATE, read_data);
++        check("second VALIDATE requires an explicit re-arm",
++              read_data[2:0] == 3'd2);
+         set_sample(14'sd120, 14'sd15);
+         set_sample(14'sd80, 14'sd15);
+         rising_neg_to_pos_crossing();

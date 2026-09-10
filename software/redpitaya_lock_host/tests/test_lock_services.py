@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -21,12 +22,18 @@ class FakeBackend:
         self,
         *,
         arm_state: int = 3,
+        validate_state: int = 2,
+        validate_payload_extra: dict | None = None,
         current_state: int = 1,
+        update_state: int = 4,
         l1_capability: str = "0x4C310001",
         safe_state: int = 0,
     ) -> None:
         self.arm_state = arm_state
+        self.validate_state = validate_state
+        self.validate_payload_extra = dict(validate_payload_extra or {})
         self.current_state = current_state
+        self.update_state = update_state
         self.safe_calls = 0
         self.arm_configs = []
         self.validate_configs = []
@@ -67,7 +74,8 @@ class FakeBackend:
                 "mode": 1,
                 "enable": 1,
                 "saturated": False,
-                "acquisition_state": 2,
+                "acquisition_state": self.validate_state,
+                **self.validate_payload_extra,
             }
         )
 
@@ -78,6 +86,18 @@ class FakeBackend:
                 "mode": 0,
                 "enable": 0,
                 "acquisition_state": self.safe_state,
+            }
+        )
+
+    def update_p_lock(self, *, kp: int, polarity: int, config_generation: int):
+        return SimpleNamespace(
+            payload={
+                "mode": 3,
+                "enable": 1,
+                "acquisition_state": self.update_state,
+                "kp": int(kp),
+                "polarity": int(polarity),
+                "config_generation": int(config_generation),
             }
         )
 
@@ -194,6 +214,37 @@ def test_l1_validate_is_distinct_and_preserves_scanning_state() -> None:
     assert backend.arm_configs == []
 
 
+def test_fast_validate_completion_accepts_matching_event_after_scan_return() -> None:
+    backend = FakeBackend(
+        validate_state=1,
+        validate_payload_extra={
+            "validation_completed_before_readback": True,
+            "acquisition_event": {
+                "valid": True,
+                "event_type": 7,
+                "config_generation": 11,
+            },
+        },
+    )
+    acquisition = AcquisitionService(backend)
+    acquisition.adopt_capture_id(7)
+    service = LockService(backend, acquisition)
+
+    service.request_lock(
+        BasicLockRequest(
+            target=make_target(),
+            kp=4,
+            polarity=1,
+            correction_limit_counts=12,
+            absolute_limit_counts=300,
+            validate_only=True,
+        )
+    )
+
+    assert service.state is LockState.SCANNING
+    assert service.target is not None
+
+
 def test_same_version_without_l1_capability_is_safed_before_arm() -> None:
     backend = FakeBackend(l1_capability="0x00000000")
     acquisition = AcquisitionService(backend)
@@ -303,3 +354,86 @@ def test_safe_command_exception_is_not_retried_or_reported_confirmed() -> None:
     assert raised.value.safe_confirmed is False
     assert "MANUAL HARDWARE CHECK REQUIRED" in str(raised.value)
     assert service.state is LockState.FAILED
+
+
+@pytest.mark.parametrize(
+    ("update_state", "expected_state"),
+    (
+        (4, LockState.ACQUIRING),
+        (5, LockState.P_LOCKED),
+    ),
+)
+def test_apply_p_uses_authoritative_fpga_state(
+    update_state: int, expected_state: LockState
+) -> None:
+    backend = FakeBackend(update_state=update_state)
+    service = LockService(backend)
+
+    service.apply_p(kp=4, polarity=0, config_generation=11)
+
+    assert service.state is expected_state
+
+
+def test_apply_p_does_not_claim_locked_for_unexpected_readback() -> None:
+    backend = FakeBackend(update_state=3)
+    service = LockService(backend)
+
+    with pytest.raises(CustomFpgaStateError, match="unexpected acquisition state"):
+        service.apply_p(kp=4, polarity=0, config_generation=11)
+
+    assert service.state is LockState.FAILED
+
+
+def test_persistent_confirmation_rejects_request_parameter_self_proof() -> None:
+    acquisition = AcquisitionService(FakeBackend())
+    acquisition.adopt_capture_id(7)
+    target = make_target()
+    with pytest.raises(CustomFpgaBackendError, match="persistent confirmed"):
+        acquisition.require_confirmed(target)
+    acquisition.bind_confirmed_target(target)
+    acquisition.require_confirmed(target)
+    for changed in (
+        replace(target, config_generation=12),
+        replace(target, target_out2_counts=target.target_out2_counts + 1),
+        replace(target, target_window_counts=target.target_window_counts + 1),
+        replace(target, scan_direction=2),
+    ):
+        with pytest.raises(CustomFpgaBackendError, match="persistent confirmed"):
+            acquisition.require_confirmed(changed)
+    acquisition.invalidate()
+    with pytest.raises(CustomFpgaBackendError, match="stale"):
+        acquisition.require_confirmed(target)
+
+
+def test_worker_rejects_stale_capture_before_any_arm_write(monkeypatch) -> None:
+    from redpitaya_lock_host import connection_workers
+
+    backend = FakeBackend()
+    acquisition = AcquisitionService(backend)
+    target = make_target()
+    acquisition.adopt_capture_id(target.capture_id)
+    acquisition.bind_confirmed_target(target)
+    monkeypatch.setattr(connection_workers, "CustomFpgaBackend", lambda *a, **kw: backend)
+    worker = connection_workers.CustomFpgaRegisterWorker(
+        "lock", "unused", "unused", "unused", 0x40600000,
+        {
+            "capture_id": target.capture_id + 1,
+            "config_generation": target.config_generation,
+            "target_out2_counts": target.target_out2_counts,
+            "target_error_setpoint_counts": target.error_setpoint_counts,
+            "target_window_counts": target.target_window_counts,
+            "required_scan_direction": target.scan_direction,
+            "required_error_crossing_direction": target.error_crossing_direction,
+            "slope": target.slope,
+        },
+        acquisition_service=acquisition,
+        context_epoch=3,
+    )
+    errors = []
+    worker.failed.connect(errors.append)
+    worker.run()
+    assert backend.arm_configs == []
+    assert len(errors) == 1
+    assert errors[0]["_host_context_epoch"] == 3
+    assert "stale" in str(errors[0]["error"])
+    assert acquisition.capture_id == target.capture_id

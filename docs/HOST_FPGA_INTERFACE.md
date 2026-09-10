@@ -2,7 +2,7 @@
 
 - Status: ACTIVE
 - Authority: Host/FPGA 接口与兼容性
-- Last-Updated: 2026-09-04
+- Last-Updated: 2026-09-09
 - Current Interface: v1-candidate
 
 本文件是寄存器、数据通道、控制语义和版本对应关系的唯一接口入口。当前接口尚未绑定正式 bit release，因此只能称为 v1-candidate，不能写成已发布、已上板验证的 v1。
@@ -13,7 +13,7 @@
 | --- | --- |
 | FPGA project | v0.94/project/redpitaya.xpr |
 | FPGA top | red_pitaya_top |
-| FPGA commit | 3563136ab4f88ebf924321a7e9cd4b85d70c53d2 + 未提交修改；NOT RELEASED |
+| FPGA commit | `7c7b6570d4197939cd8e0101b096928d2ff67486` + 本次未提交 RTL/Host/测试修改；NOT RELEASED |
 | Host path | software/redpitaya_lock_host |
 | Host version | 未识别独立 tag/release；NOT RELEASED |
 | Interface | v1-candidate |
@@ -51,6 +51,16 @@ OUT2 与 D2-125 AUX 输出不得并联驱动同一执行器。
 | 4 | PI_LOCK | 候选/未来模式；不属于当前 Gate，不能作为已验证能力 |
 
 模式数值、进入条件、单位、位宽、符号、缩放、饱和和复位值都属于接口合同，不得只改 FPGA 或只改 Host。
+
+### 采集状态与事件时序
+
+`ARM VALIDATE` 首次读回通常为 `VALIDATING (2)`。验证事件写入 sticky event 后，FPGA 回到 `SCAN (1)`，保持 MODE=SCAN、ENABLE=1 和原有 Kp/偏置不变；这表示验证完成但尚未接入反馈。若事件在 Host 首次读回前已完成，Host 只有在读到 `event_type=VALIDATED (7)`、`valid=1`、sequence 不同于 ARM 前从 FPGA 读取的基线，且 generation/扫描方向/过零方向与本次目标完全一致时，才可把该次 VALIDATE 视为成功。同代际旧事件也必须拒绝。
+
+`ARM ACTIVE` 后的状态 3/4/5 分别表示 ARMED、ACQUIRING、P_LOCKED。`Apply P` 的命令传输成功不等于锁定；Host 必须以 FPGA 状态读回为准，状态 4 保持 ACQUIRING，状态 5 才能显示 P_LOCKED，其它状态进入 SAFE/FAILED。
+
+GUI 完成 capture 回调后记录 capture ID，确认选点后将完整不可变 `LockTarget` 绑定到持久 AcquisitionService。worker 必须与该目标逐字段一致，不能采用请求中的 capture ID 为自身背书。重扫、影响目标的参数变化、连接目标/基址变化和断连清除绑定；旧上下文的异步成功/失败回复不能恢复旧目标。此状态仅在当前 Host 进程内持久，不提供多客户端互斥；外部脚本/第二客户端并发改写 CSR 不在本轮已验证范围。
+
+本次仍为未发布的 `v1-candidate` 修复，VERSION 数值保持 `0x00030200`。该 VERSION 不能区分修复前后 bit，后续候选必须绑定源码差异/哈希和 bit SHA256；不得以版本寄存器相同宣称旧 bit 已含本次修复。
 
 ## 寄存器变化规则
 
@@ -109,4 +119,3 @@ OUT2 与 D2-125 AUX 输出不得并联驱动同一执行器。
 - Compatibility:
 - Tests:
 - Release:
-

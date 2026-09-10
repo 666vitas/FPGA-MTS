@@ -787,6 +787,10 @@ module simple_lock_acquisition (
                             event_snapshot_timestamp_q <= cycle_counter_q;
                             event_snapshot_reject_q <= 16'd0;
                             event_snapshot_fault_q <= 16'd0;
+                            // Validation is observation-only.  Return to SCAN
+                            // after recording the qualified event so the host
+                            // can explicitly authorize a later ACTIVE arm.
+                            state_q <= STATE_SCAN;
                         end
                     end
                     STATE_ARMED: begin

@@ -434,6 +434,9 @@ def wait_for_acquisition_state(
     clock=None,
     sleeper=None,
     diagnostic_context=None,
+    completed_validation_generation=None,
+    validation_sequence_before=None,
+    validation_directions=None,
 ):
     monotonic = time.monotonic if clock is None else clock
     sleep = time.sleep if sleeper is None else sleeper
@@ -449,6 +452,30 @@ def wait_for_acquisition_state(
         state = int(last.get("acquisition_state", -1))
         if state in expected:
             return last
+        # VALIDATE is observation-only.  A qualified crossing can be recorded
+        # and the FPGA can return to SCAN before the first host readback.  Only
+        # accept that fast path when the sticky event is a fresh VALIDATED
+        # event for this exact generation; an old event must not authorize it.
+        if completed_validation_generation is not None and state == 1:
+            event = last.get("acquisition_event")
+            if (
+                isinstance(event, dict)
+                and bool(event.get("valid"))
+                and int(event.get("event_type", 0)) == 7
+                and int(event.get("config_generation", 0))
+                == int(completed_validation_generation)
+                and validation_sequence_before is not None
+                and int(event.get("sequence", -1)) != int(validation_sequence_before)
+                and (
+                    validation_directions is None
+                    or (
+                        int(event.get("scan_direction", -1)),
+                        int(event.get("error_crossing_direction", -1)),
+                    ) == tuple(validation_directions)
+                )
+            ):
+                last["validation_completed_before_readback"] = True
+                return last
         diagnostic = dict(last)
         diagnostic["expected_states"] = list(expected)
         diagnostic["timeout_s"] = timeout
@@ -589,6 +616,9 @@ def run_preload_acquisition(regs, args, arm, validate=False):
     validation = regs.read(REGISTERS["CONFIG_VALIDATION"])
     if not (validation & (1 << 7)):
         raise SystemExit(f"FPGA acquisition shadow validation failed: 0x{validation:08X}")
+    validation_sequence_before = (
+        regs.read(REGISTERS["EVENT_SEQUENCE"]) if arm and validate else None
+    )
     if arm:
         regs.write(REGISTERS["ACQ_COMMAND"], 8 if validate else 1)
     expected_states = (2,) if validate else (3, 4, 5)
@@ -600,6 +630,14 @@ def run_preload_acquisition(regs, args, arm, validate=False):
                 "config_validation": f"0x{validation:08X}",
                 "config_generation": int(args.config_generation),
             },
+            completed_validation_generation=(
+                int(args.config_generation) if validate else None
+            ),
+            validation_sequence_before=validation_sequence_before,
+            validation_directions=(
+                int(args.required_scan_direction),
+                int(args.required_error_crossing_direction),
+            ) if validate else None,
         )
         if arm
         else acquisition_status(regs)
@@ -616,6 +654,8 @@ def run_preload_acquisition(regs, args, arm, validate=False):
     result["initial_polarity_suggestion"] = int(args.initial_polarity_suggestion)
     result["lock_state"] = result["acquisition_state_name"]
     result["arm_intent"] = "VALIDATE" if validate else "ACTIVE"
+    if validate:
+        result["validation_sequence_before"] = validation_sequence_before
     return result
 
 

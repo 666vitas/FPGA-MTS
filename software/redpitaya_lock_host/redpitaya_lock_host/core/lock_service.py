@@ -177,7 +177,17 @@ class LockService:
         mode = int(readback.get("mode", -1))
         enable = int(readback.get("enable", 0))
         expected_states = (2,) if request.validate_only else (3, 4, 5)
-        if acq_state not in expected_states:
+        validation_completed = (
+            request.validate_only
+            and acq_state == 1
+            and bool(readback.get("validation_completed_before_readback"))
+            and isinstance(readback.get("acquisition_event"), dict)
+            and bool(readback["acquisition_event"].get("valid"))
+            and int(readback["acquisition_event"].get("event_type", 0)) == 7
+            and int(readback["acquisition_event"].get("config_generation", 0))
+            == int(target.config_generation)
+        )
+        if acq_state not in expected_states and not validation_completed:
             return self._fail_safe("ARM readback does not match requested VALIDATE/ACTIVE intent")
         if request.validate_only and (mode != 1 or enable != 1):
             return self._fail_safe("VALIDATE readback must preserve MODE=SCAN and ENABLE=1")
@@ -185,12 +195,16 @@ class LockService:
             return self._fail_safe("ACTIVE readback does not match MODE/ENABLE")
 
         self.target = target
-        self.state = {
-            2: LockState.VALIDATING,
-            3: LockState.ARMED,
-            4: LockState.ACQUIRING,
-            5: LockState.P_LOCKED,
-        }[acq_state]
+        self.state = (
+            LockState.SCANNING
+            if validation_completed
+            else {
+                2: LockState.VALIDATING,
+                3: LockState.ARMED,
+                4: LockState.ACQUIRING,
+                5: LockState.P_LOCKED,
+            }[acq_state]
+        )
         return response
 
     def apply_p(self, *, kp: int, polarity: int, config_generation: int):
@@ -199,8 +213,20 @@ class LockService:
             polarity=polarity,
             config_generation=config_generation,
         )
-        # Legacy engineer diagnostic only; normal L1 acquisition ramps Kp in FPGA.
-        self.state = LockState.ACQUIRING if int(kp) == 0 else LockState.P_LOCKED
+        # A successful write only proves that the command transport completed.
+        # The FPGA acquisition state is authoritative for the host-side label.
+        payload = response.payload
+        acquisition_state = int(payload.get("acquisition_state", -1))
+        if acquisition_state == 4:
+            self.state = LockState.ACQUIRING
+        elif acquisition_state == 5:
+            self.state = LockState.P_LOCKED
+        else:
+            return self._fail_safe(
+                "Apply P readback has unexpected acquisition state: "
+                f"{acquisition_state}",
+                payload=payload,
+            )
         return response
 
     def _fail_safe(

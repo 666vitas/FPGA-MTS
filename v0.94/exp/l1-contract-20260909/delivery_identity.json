@@ -1,0 +1,158 @@
+{
+  "created": "2026-09-09T21:22:38.9075590+08:00",
+  "HEAD": "7c7b6570d4197939cd8e0101b096928d2ff67486",
+  "status": "IMPLEMENTED_OFFLINE_TESTED_ROUTED_BIT_BLOCKED",
+  "Host": "same HEAD plus delivery_worktree.patch",
+  "Host_tests": "194 passed in 7.10s",
+  "Host_source_hashes": [
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/__init__.py",
+      "sha256": "E92727C9B7C49A29F77D376E05154E7577822371981D7EE05FAC138C723EC301"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/acquisition_worker.py",
+      "sha256": "D2EA9019F0E39CC01D60295B310D503599D2794C66C3F58B049C4E25C0EB3BAD"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/client/__init__.py",
+      "sha256": "CFDFF2F905A77AC19B1933D89A896D08D32A578F09818282FF9689D97CC00C5A"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/client/local_client.py",
+      "sha256": "1DB1580631DF0DC98CDD8C1A76C84D2B1BAFF955C02AC06DCD261163A92FA549"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/common/__init__.py",
+      "sha256": "22F5A1600F66961453F8354A3E6725193DB56651FAED78CA00B801BE9FBB3004"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/common/lock_models.py",
+      "sha256": "C152DF087D7BDC8E53674E264EBC27B288C1B2C9C0EDFCCC2B37CD1FF5F4E5B4"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/connection_probe.py",
+      "sha256": "726CF4A20D96FF0347030B07F4AEDA664AD7DA2608C3C18E67919908704B50A1"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/connection_workers.py",
+      "sha256": "637ACCA53317E43BCAA7C27E1656A31B3E50BAC44D44D818BD2F81678EE887E3"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/core/__init__.py",
+      "sha256": "A8B88FD5431A6EE4FF36B7760DAD8CFC6643F9E68C37397DDBF10B79DB3ECFD7"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/core/acquisition_service.py",
+      "sha256": "EBFE4F853CFCD3471ED61A4600A8850FF73314E727340939A8B10B3619F1BEB3"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/core/lock_service.py",
+      "sha256": "5E447B79366C2C3F47DBDFE3E98649512456749E52AFA2DD4B7B7EF723DB7849"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/custom_fpga_backend.py",
+      "sha256": "9CC003183313CFE984B48AD7987C476E7FD3CBB3E1F2F43A99AE5527B813D67A"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/custom_fpga_workflow.py",
+      "sha256": "2C4995BB3FAC693853735BFF45D81056310C9F21CF4FA9514418F5815A1991E9"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/data_logger.py",
+      "sha256": "D06F21DE67FD89E4F76776E83286622A072C2D8CD9677C9B519632186DA88562"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/main.py",
+      "sha256": "FCB05B9395ACB083A2D4DF590072B0AD3BF90D3890D0823257A1172CDFBA4F43"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/main_window.py",
+      "sha256": "FFB9A039ABBF770DFCE099BF5145379CD8B76A99A7BECF453A2F3743FC60CBB4"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/main_window_restored.py",
+      "sha256": "C7CF17B2DD543B1397F8D7077A05F030563DB0604144DEB1E52140A1F458013D"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/mock_client.py",
+      "sha256": "135D36EA7AFE254B5C22236F68E33EC1BE966467B6F44BB6E19496BD6BB83A6F"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/out2_calibration.py",
+      "sha256": "CD6FFC556D2034575C77C7910B23B4C68CF770C4962A738065383DC9C9BF25B6"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/rp_client.py",
+      "sha256": "51221D389CE1B8919D5F71E725C752AD8510BF1862B62F17DBCE9D6248A6F864"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/rp_scpi_client.py",
+      "sha256": "F6674CC12CDB211843AC48084ADFF74E31F5C1835E448B0FC275EC19FC6AB7B9"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/safety.py",
+      "sha256": "DE451D140C38F900C41811D7303C9C9063ABAB7AEB91618EA660D967EC9BA312"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/scpi_client.py",
+      "sha256": "C54D812C4EF57A6A2BAB7EC5124FCCDB76DCF0F174AE91D88C75BA6DA0BBFEAB"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/ssh_client.py",
+      "sha256": "9390DFA9B8147813F3D3F84524F517F89908216F69024C93BB2067C148EBC400"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/waveform_plot.py",
+      "sha256": "A463E1004DA4C4165788A2ED1062A89BBAD335A5442D9612E1C6164DD89684DA"
+    },
+    {
+      "path": "software/redpitaya_lock_host/redpitaya_lock_host/waveform_preview.py",
+      "sha256": "BD3ED47DE45507BEE014F53714FC39646366973C465017B3DE0EC6991AE17BCB"
+    },
+    {
+      "path": "software/redpitaya_lock_host/scripts/custom_fpga_scan_control.py",
+      "sha256": "D50761A457D886FB29CF789B350A98F9FDD2EACA26F3F967E07369BE1CFB1BB9"
+    },
+    {
+      "path": "software/redpitaya_lock_host/tests/conftest.py",
+      "sha256": "EE70B174B7F176FE50B9EA4BF3C29671F46B52CFF55AA42ED140DB999A75F874"
+    },
+    {
+      "path": "software/redpitaya_lock_host/tests/test_custom_fpga_backend.py",
+      "sha256": "E79A67EE1B8A25212945BC9157D2925933592B0C06822D85FA1125D642FCF907"
+    },
+    {
+      "path": "software/redpitaya_lock_host/tests/test_custom_fpga_workflow.py",
+      "sha256": "411BAFB7881103D052A10C721521D995B5CD4F0A6A57F36D4590C52285A3B487"
+    },
+    {
+      "path": "software/redpitaya_lock_host/tests/test_lock_services.py",
+      "sha256": "83B7BAE248464651101A23641D4578BDFF50F5EB12939363CDCC39FAAB4EDB3C"
+    },
+    {
+      "path": "software/redpitaya_lock_host/tests/test_low_amplitude_zero_crossing.py",
+      "sha256": "D0C9002E2B8D312D525AEF247DF28210AA3891FA04F1A1F731A8E47A57A7D4D8"
+    },
+    {
+      "path": "software/redpitaya_lock_host/tests/test_operator_voltage_diagnostics.py",
+      "sha256": "80306F4D778857AB6EB30913E59BCBB88130C9ABD8DE6EE4B2DC1FB54CA5F788"
+    },
+    {
+      "path": "software/redpitaya_lock_host/tests/test_waveform_preview.py",
+      "sha256": "D9F3C044E3D4B0D144A55FCFB77953B9E43A09260134189444F66A4DBB653901"
+    }
+  ],
+  "RTL_source_identity": "source_identity.json",
+  "build_inputs": "build_input_hashes.json",
+  "build_input_recheck": "PASS after final Host-only changes",
+  "build_verification": "build_verification.json",
+  "interface": "v1-candidate; register VERSION unchanged 0x00030200",
+  "bit": "NONE; unresolved DRC/constraint findings",
+  "hardware": "NOT RUN",
+  "xpr_current_sha256": "848D4727605C2CD1F6D835766D72318B48A09BECD1CC8933B3555BB755386353",
+  "tests": {
+    "plant": "10/10 simplified assumptions only",
+    "out2": "60/60",
+    "acquisition": "37/37"
+  }
+}

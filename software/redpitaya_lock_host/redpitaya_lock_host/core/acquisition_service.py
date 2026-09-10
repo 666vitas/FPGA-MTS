@@ -14,17 +14,34 @@ class AcquisitionService:
     def __init__(self, backend: Any) -> None:
         self._backend = backend
         self._capture_id = 0
+        self._confirmed_target: LockTarget | None = None
 
     @property
     def capture_id(self) -> int:
         return self._capture_id
 
     def adopt_capture_id(self, capture_id: int) -> None:
-        """Bind a GUI-confirmed aligned capture to a short-lived worker service."""
+        """Record the ID delivered by the completed GUI capture callback."""
         value = int(capture_id)
         if value <= 0:
             raise CustomFpgaBackendError("capture id must be positive")
         self._capture_id = value
+        self._confirmed_target = None
+
+    def invalidate(self) -> None:
+        self._capture_id = 0
+        self._confirmed_target = None
+
+    def bind_confirmed_target(self, target: LockTarget) -> None:
+        self.require_current(target)
+        self._confirmed_target = target
+
+    def require_confirmed(self, target: LockTarget) -> None:
+        self.require_current(target)
+        if self._confirmed_target is None or target != self._confirmed_target:
+            raise CustomFpgaBackendError(
+                "target does not match the persistent confirmed capture/configuration"
+            )
 
     def capture(self, *, capture_length: int, capture_decimation: int):
         response = self._backend.capture_waveform(
@@ -32,6 +49,7 @@ class AcquisitionService:
             capture_decimation=capture_decimation,
         )
         self._capture_id += 1
+        self._confirmed_target = None
         return response
 
     def select_target(

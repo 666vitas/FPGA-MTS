@@ -82,6 +82,38 @@ def make_window():
     return app, window
 
 
+@pytest.mark.parametrize("sequence,generation,expected", [(8, 1, True), (7, 1, False), (8, 2, False)])
+def test_status_finishes_only_the_current_validation(sequence, generation, expected) -> None:
+    app, window = make_window()
+    try:
+        window.last_arm_intent = "VALIDATE"
+        window.last_arm_result = "ACCEPTED"
+        window.last_arm_diagnostic_payload = {
+            "validation_sequence_before": 7,
+            "required_scan_direction": 1,
+            "required_error_crossing_direction": 1,
+        }
+        window._on_custom_fpga_finished({
+            "operation": "status",
+            "payload": identity_payload(
+                version="0x00030200", l1_capability="0x4C310001",
+                build_capability="L1_ERROR_CROSSING", mode=1,
+                acquisition_state=1,
+                acquisition_event={
+                    "valid": True, "event_type": 7,
+                    "sequence": sequence, "config_generation": generation,
+                    "scan_direction": 1, "error_crossing_direction": 1,
+                },
+            ),
+        })
+        assert (window.last_arm_result == "VALIDATED") is expected
+        assert window.operator_state_label.text() == ("VALIDATED / SCAN" if expected else "SCANNING")
+        assert not window.p_lock_ready
+    finally:
+        window.close()
+        app.processEvents()
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [

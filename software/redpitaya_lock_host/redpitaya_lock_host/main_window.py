@@ -42,6 +42,8 @@ from PySide6.QtWidgets import (
 )
 
 from .acquisition_worker import AcquisitionWorker
+from .common.lock_models import LockTarget
+from .core.acquisition_service import AcquisitionService
 from .connection_probe import ProbeResult
 from .connection_workers import (
     ConnectScpiWorker,
@@ -1191,6 +1193,8 @@ class MainWindow(QMainWindow):
         self._updating_scope_display_controls = False
         self.custom_last_capture_payload: dict[str, Any] = {}
         self.custom_capture_generation = 0
+        self.custom_acquisition_service = AcquisitionService(None)
+        self.custom_context_epoch = 0
         self.acquisition_config_generation = 0
         self.selected_lock_point: dict[str, int | float] | None = None
         self.pending_lock_point: dict[str, int | float] | None = None
@@ -1436,6 +1440,8 @@ class MainWindow(QMainWindow):
         self.system_l1_capability_matched = False
         self.last_fpga_status_payload = {}
         self.p_lock_ready = False
+        if connection in {"Disconnected", "Communication lost"} or error:
+            self._invalidate_lock_target()
         self.system_connection_value.setText(connection)
         self.system_fpga_version_value.setText("--")
         self.system_identity_value.setText("Unknown")
@@ -2998,6 +3004,18 @@ class MainWindow(QMainWindow):
         self.custom_capture_view_mode.currentTextChanged.connect(self._apply_capture_view_mode)
         self.custom_ref_debug_decimation.currentTextChanged.connect(self._apply_capture_view_mode)
         self.custom_freq_hz.valueChanged.connect(self._sync_lock_view_capture_window)
+        for control in (
+            self.custom_freq_hz, self.custom_amp_v, self.custom_offset_v,
+            self.custom_step_counts, self.basic_pzt_min_v, self.basic_pzt_max_v,
+            self.custom_zero_threshold_counts, self.custom_correction_limit_counts,
+            self.custom_lock_limit_counts,
+        ):
+            control.valueChanged.connect(lambda _value: self._invalidate_lock_target())
+        for control in (self.host_edit, self.custom_base_addr_edit):
+            control.textChanged.connect(lambda _text: self._invalidate_lock_target())
+        self.resolved_ip_combo.currentTextChanged.connect(
+            lambda _text: self._invalidate_lock_target()
+        )
         self.custom_capture_length.valueChanged.connect(self._sync_lock_view_capture_window)
         self.basic_lock_button.clicked.connect(self._start_basic_lock)
         self.basic_safe_button.clicked.connect(lambda: self._start_custom_fpga_operation("safe"))
@@ -3367,6 +3385,7 @@ class MainWindow(QMainWindow):
             self.operator_scan_state_label.setText("SAFE")
             self.operator_alert_label.setText("")
         if operation == "scan":
+            self._invalidate_lock_target()
             self.operator_state_label.setText("SCANNING")
             self.operator_scan_state_label.setText("SCANNING")
         if self._official_mode():
@@ -3556,6 +3575,10 @@ class MainWindow(QMainWindow):
             base_addr,
             params,
             self,
+            acquisition_service=(
+                self.custom_acquisition_service if arm_operation else None
+            ),
+            context_epoch=self.custom_context_epoch,
         )
         self.worker = worker
         worker.finished_ok.connect(self._on_custom_fpga_finished)
@@ -4189,8 +4212,10 @@ class MainWindow(QMainWindow):
             self.pending_lock_point = updated
             status = "Waiting for confirmation"
         else:
-            self.selected_lock_point = updated
-            status = "Confirmed"
+            self.pending_lock_point = updated
+            self.selected_lock_point = None
+            self.p_lock_ready = False
+            status = "Waiting for confirmation"
         self.operator_alert_label.setText("")
         self.operator_candidate_label.setText(self._lock_point_candidate_text(updated, status))
         self.selected_lock_label.setText(
@@ -4201,10 +4226,52 @@ class MainWindow(QMainWindow):
         self._refresh_operator_lock_diagnostics(build_lock_transition_diagnostics(updated, None))
         self._apply_button_state(self.connection_state)
 
+    def _invalidate_lock_target(self) -> None:
+        had_target = self.selected_lock_point is not None or self.pending_lock_point is not None
+        self.custom_context_epoch += 1
+        self.custom_acquisition_service.invalidate()
+        self.selected_lock_point = None
+        self.pending_lock_point = None
+        self.pending_target_peak = None
+        self.p_lock_ready = False
+        self.custom_scope_valid_for_selection = False
+        self._mark_diagnostics_not_live(stale=True, reason="Target context invalidated")
+        if had_target:
+            self.last_arm_result = "INVALIDATED"
+            self.operator_candidate_label.setText("Target expired; capture and select again")
+        self._apply_button_state(self.connection_state)
+
+    def _deliver_custom_response(self, epoch: int, result: object, *, failed: bool = False) -> None:
+        if epoch != self.custom_context_epoch:
+            self.capture_in_flight = False
+            self.current_custom_operation = None
+            self.basic_lock_active = False
+            self.basic_lock_queue = []
+            self._stop_live_capture("Context changed; stale response discarded")
+            self._clear_system_identity("Communication lost", "Stale response after context change")
+            self.operator_state_label.setText("STALE RESPONSE / STATUS REQUIRED")
+            self.operator_alert_label.setText(
+                "Target invalidated. Hardware state is unknown; verify the original device before continuing."
+            )
+            return
+        if failed:
+            self._on_custom_fpga_failed(result)
+        else:
+            self._on_custom_fpga_finished(result)
+
     def _confirm_pending_lock_point(self) -> None:
         if self.pending_lock_point is None:
             self.selected_lock_label.setText("selected lock point: no valid pending zero crossing to confirm")
             self.operator_alert_label.setText("Lock point not confirmed")
+            return
+        capture_id = int(self.pending_lock_point.get("capture_generation", 0))
+        if (
+            capture_id <= 0
+            or capture_id != self.custom_capture_generation
+            or capture_id != self.custom_acquisition_service.capture_id
+        ):
+            self._invalidate_lock_target()
+            self.operator_alert_label.setText("Target expired; capture and select again")
             return
         self.selected_lock_point = dict(self.pending_lock_point)
         self.acquisition_config_generation += 1
@@ -4232,6 +4299,24 @@ class MainWindow(QMainWindow):
                     "zero_crossing_out2_counts",
                     self.selected_lock_point["target_out2_counts"],
                 ),
+            )
+        )
+        selected = self.selected_lock_point
+        self.custom_acquisition_service.bind_confirmed_target(
+            LockTarget(
+                capture_id=int(selected["capture_generation"]),
+                config_generation=int(selected["config_generation"]),
+                target_out2_counts=int(selected["out2_counts"]),
+                error_setpoint_counts=int(selected["error_setpoint_counts"]),
+                target_window_counts=int(self.custom_zero_threshold_counts.value()),
+                scan_direction=1 if selected["ramp_direction"] == "rising" else 2,
+                error_crossing_direction=(
+                    1 if selected["error_crossing_direction"] == "neg_to_pos" else 2
+                ),
+                slope=float(selected["slope"]),
+                polarity_suggestion=int(selected["initial_polarity_suggestion"]),
+                safe_min_counts=int(selected.get("safe_min_counts", -8191)),
+                safe_max_counts=int(selected.get("safe_max_counts", 8191)),
             )
         )
         self.pending_lock_point = None
@@ -4262,6 +4347,7 @@ class MainWindow(QMainWindow):
 
     def _render_custom_capture_payload(self, payload: dict[str, Any]) -> None:
         self.custom_capture_generation += 1
+        self.custom_acquisition_service.adopt_capture_id(self.custom_capture_generation)
         self._clear_captured_diagnostic_binding()
         self.custom_last_capture_payload = dict(payload)
         points = payload.get("points", [])
@@ -4568,6 +4654,10 @@ class MainWindow(QMainWindow):
 
     def _on_custom_fpga_finished(self, result: object) -> None:
         data = dict(result)
+        epoch = data.get("_host_context_epoch", self.custom_context_epoch)
+        if epoch != self.custom_context_epoch:
+            self._deliver_custom_response(epoch, result)
+            return
         operation = str(data.get("operation", "custom"))
         payload = data.get("payload", {})
         if not isinstance(payload, dict):
@@ -4631,14 +4721,17 @@ class MainWindow(QMainWindow):
                 self._refresh_operator_lock_diagnostics()
         elif operation == "validate-lock":
             self.acquisition_state = int(payload.get("acquisition_state", 2))
-            self.last_arm_result = "ACCEPTED"
+            completed = bool(payload.get("validation_completed_before_readback"))
+            self.last_arm_result = "VALIDATED" if completed else "ACCEPTED"
             self.last_arm_diagnostic_payload = dict(payload)
-            self.operator_state_label.setText("FPGA VALIDATING")
+            self.operator_state_label.setText(
+                "VALIDATED / SCAN" if completed else "FPGA VALIDATING"
+            )
             self.operator_alert_label.setText("")
             self.custom_warning_text.setPlainText(
-                "ARM VALIDATE accepted. FPGA remains in SCAN and records only "
-                "qualified realtime ERROR crossings; refresh STATUS for the "
-                "authoritative event/count."
+                "VALIDATE observes the crossing without feedback and returns to SCAN "
+                "after its event. Check the event sequence/generation in STATUS; "
+                "ACTIVE requires a separate operator request."
             )
         elif operation == "lock":
             event = payload.get("acquisition_event")
@@ -4745,6 +4838,27 @@ class MainWindow(QMainWindow):
                     if state == 4
                     else "P_LOCKED / FPGA VERIFIED"
                 )
+            elif state == 1:
+                validation = self.last_arm_diagnostic_payload
+                sequence_before = validation.get("validation_sequence_before")
+                matching_validation = (
+                    self.last_arm_intent == "VALIDATE"
+                    and sequence_before is not None
+                    and bool(event.get("valid"))
+                    and int(event.get("event_type", 0)) == 7
+                    and int(event.get("sequence", -1)) != int(sequence_before)
+                    and selected_generation > 0
+                    and int(event.get("config_generation", 0)) == selected_generation
+                    and int(event.get("scan_direction", -1))
+                    == int(validation.get("required_scan_direction", -2))
+                    and int(event.get("error_crossing_direction", -1))
+                    == int(validation.get("required_error_crossing_direction", -2))
+                )
+                if matching_validation:
+                    self.last_arm_result = "VALIDATED"
+                self.operator_state_label.setText(
+                    "VALIDATED / SCAN" if matching_validation else "SCANNING"
+                )
             elif state == 2:
                 self.operator_state_label.setText("FPGA VALIDATING")
             elif state == 3:
@@ -4772,6 +4886,12 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, lambda: self._start_custom_fpga_operation("safe"))
 
     def _on_custom_fpga_failed(self, error: object) -> None:
+        if isinstance(error, dict) and "_host_context_epoch" in error:
+            epoch = error["_host_context_epoch"]
+            if epoch != self.custom_context_epoch:
+                self._deliver_custom_response(epoch, error, failed=True)
+                return
+            error = error["error"]
         operation = self.current_custom_operation or "custom"
         normalized = (
             error

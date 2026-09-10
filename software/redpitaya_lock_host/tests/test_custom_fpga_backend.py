@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from redpitaya_lock_host.custom_fpga_backend import (
     EXPECTED_MAGIC,
@@ -554,6 +555,81 @@ def test_validate_wait_accepts_delayed_validating_state_without_rewriting_comman
 
     assert result["acquisition_state"] == 2
     assert result["acquisition_state_name"] == "VALIDATING"
+
+
+def test_validate_wait_accepts_new_event_if_fpga_already_returned_to_scan() -> None:
+    namespace = load_remote_helper_namespace()
+    states = iter(
+        [
+            {
+                "acquisition_state": 1,
+                "acquisition_state_name": "SCAN",
+                "acquisition_event": {
+                    "valid": True,
+                    "event_type": 7,
+                    "config_generation": 42,
+                    "sequence": 8,
+                    "scan_direction": 1,
+                    "error_crossing_direction": 1,
+                },
+            }
+        ]
+    )
+    namespace["acquisition_status"] = lambda _regs: next(states)
+    clock = FakeMonotonicClock()
+
+    result = namespace["wait_for_acquisition_state"](
+        object(),
+        (2,),
+        timeout_s=0.2,
+        poll_interval_s=0.001,
+        clock=clock.monotonic,
+        sleeper=clock.sleep,
+        completed_validation_generation=42,
+        validation_sequence_before=7,
+        validation_directions=(1, 1),
+    )
+
+    assert result["acquisition_state"] == 1
+    assert result["validation_completed_before_readback"] is True
+
+
+@pytest.mark.parametrize(
+    "generation,sequence,direction", [(42, 7, 1), (41, 8, 1), (42, 8, 2)]
+)
+def test_validate_wait_rejects_old_event_after_return_to_scan(
+    generation: int, sequence: int, direction: int
+) -> None:
+    namespace = load_remote_helper_namespace()
+    payload = {
+        "acquisition_state": 1,
+        "acquisition_state_name": "SCAN",
+        "acquisition_event": {
+            "valid": True,
+            "event_type": 7,
+            "config_generation": generation,
+            "sequence": sequence,
+            "scan_direction": direction,
+            "error_crossing_direction": 1,
+        },
+    }
+    namespace["acquisition_status"] = lambda _regs: dict(payload)
+    clock = FakeMonotonicClock()
+
+    with np.testing.assert_raises(SystemExit) as raised:
+        namespace["wait_for_acquisition_state"](
+            object(),
+            (2,),
+            timeout_s=0.001,
+            poll_interval_s=0.001,
+            clock=clock.monotonic,
+            sleeper=clock.sleep,
+            completed_validation_generation=42,
+            validation_sequence_before=7,
+            validation_directions=(1, 1),
+        )
+
+    assert "timeout" in str(raised.exception).lower()
 
 
 def test_active_arm_wait_accepts_armed_acquiring_and_fast_locked_states() -> None:
@@ -1926,6 +2002,7 @@ def test_lock_point_calibration_adjusts_bias_without_enabling_feedback() -> None
         zero_volts = out2_counts_to_voltage(zero_counts)
         window.pending_lock_point = {
             "selected_peak_index": 100,
+            "capture_generation": 1,
             "zero_crossing_index": 101.5,
             "zero_crossing_time_s": 0.00125,
             "zero_crossing_out2_counts": zero_counts,
@@ -1944,6 +2021,8 @@ def test_lock_point_calibration_adjusts_bias_without_enabling_feedback() -> None
             "safe_max_counts": out2_voltage_to_counts(0.90),
             "bias_trim_volts": 0.0,
         }
+        window.custom_capture_generation = 1
+        window.custom_acquisition_service.adopt_capture_id(1)
         window._start_custom_fpga_operation = lambda operation, **_kwargs: operations.append(operation)
         window._apply_button_state(window.connection_state)
 
@@ -1961,9 +2040,10 @@ def test_lock_point_calibration_adjusts_bias_without_enabling_feedback() -> None
         assert window.selected_lock_point["lock_bias_counts"] == window.selected_lock_point["out2_counts"]
         window.lock_bias_plus_5mv_button.click()
 
-        assert window.selected_lock_point is not None
-        assert abs(float(window.selected_lock_point["bias_trim_volts"]) - 0.006) < 1e-12
-        assert window.selected_lock_point["error_setpoint_counts"] == 0
+        assert window.selected_lock_point is None
+        assert window.pending_lock_point is not None
+        assert abs(float(window.pending_lock_point["bias_trim_volts"]) - 0.006) < 1e-12
+        assert window.pending_lock_point["error_setpoint_counts"] == 0
         assert operations == []
         candidate_text = window.operator_candidate_label.text()
         for field in ("Index:", "Time:", "Error:", "Slope:", "OUT2/PZT command estimate:"):

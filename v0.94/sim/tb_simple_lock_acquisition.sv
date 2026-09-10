@@ -77,6 +77,7 @@ module tb_simple_lock_acquisition;
     int pass_count;
     int fail_count;
     int i;
+    logic [2:0] post_validate_active_state;
 
     sys_bus_if bus (.clk(clk), .rstn(rstn));
 
@@ -261,6 +262,9 @@ module tb_simple_lock_acquisition;
         check("ARM_VALIDATE enters VALIDATING", read_data[2:0] == 3'd2);
         rising_neg_to_pos_crossing();
         wait_cycles(CROSSING_PIPELINE_LATENCY + EVENT_PIPELINE_LATENCY);
+        bus_read(REG_ACQ_STATE, read_data);
+        check("VALIDATE returns to SCAN after qualified event",
+              read_data[2:0] == 3'd1);
         check("VALIDATE leaves MODE SCAN and ENABLE unchanged",
               mode == 32'd1 && enable);
         check("VALIDATE does not change LOCK_BIAS or Kp",
@@ -275,10 +279,38 @@ module tb_simple_lock_acquisition;
         check("VALIDATE event records threshold-confirming lock_error",
               $signed(read_data) == 32'sd5);
 
-        // A second pass is permitted only after leaving and re-entering guard.
+        // A successful observation returns to SCAN; the next ARM command is
+        // an explicit operator decision to hand control to the FPGA.
+        bus_write(REG_ACQ_COMMAND, 32'd1);
+        wait_cycles(ARM_PIPELINE_LATENCY);
+        bus_read(REG_ACQ_STATE, read_data);
+        check("manual ACTIVE arm is accepted after VALIDATE",
+              read_data[2:0] == 3'd3);
+        set_sample(14'sd80, 14'sd15);
+        set_sample(14'sd81, 14'sd15);
+        rising_neg_to_pos_crossing();
+        wait_cycles(CROSSING_PIPELINE_LATENCY + EVENT_PIPELINE_LATENCY);
+        bus_read(REG_ACQ_STATE, read_data);
+        post_validate_active_state = read_data[2:0];
+        bus_read(REG_EVENT_INFO, read_data);
+        check("manual ACTIVE after VALIDATE enters P_LOCK",
+              mode == 32'd3 && enable && post_validate_active_state == 3'd4);
+        bus_write(REG_ACQ_COMMAND, 32'd2);
+        check("abort after manual ACTIVE returns SAFE",
+              mode == 32'd0 && !enable && kp_effective == 14'sd0);
+        enter_scan();
+        preload(2'd1, 2'd1, 1'b1, 32'd12);
+
+        // A crossing while back in SCAN cannot create another validation
+        // event.  A second pass requires an explicit host request.
         rising_neg_to_pos_crossing();
         bus_read(REG_VALIDATE_COUNT, read_data);
         check("one guard pass has only one validate event", read_data == 32'd1);
+        bus_write(REG_ACQ_COMMAND, 32'd8);
+        wait_cycles(ARM_PIPELINE_LATENCY);
+        bus_read(REG_ACQ_STATE, read_data);
+        check("second VALIDATE requires an explicit re-arm",
+              read_data[2:0] == 3'd2);
         set_sample(14'sd120, 14'sd15);
         set_sample(14'sd80, 14'sd15);
         rising_neg_to_pos_crossing();

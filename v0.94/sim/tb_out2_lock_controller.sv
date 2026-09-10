@@ -192,6 +192,31 @@ module tb_out2_lock_controller;
         wait_cycles(P_LOCK_LATENCY);
         check("P_LOCK polarity flip reverses direction", control_o == 14'sd50);
 
+        // Kp is Q8: arithmetic shift preserves the signed product and drops
+        // fractional bits (negative fractions round toward minus infinity).
+        kp = 14'sd4;
+        polarity = 1'b0;
+        error_i = 14'sd63;
+        wait_cycles(P_LOCK_LATENCY);
+        check("Q8 positive fractional correction truncates to zero",
+              control_o == 14'sd100);
+        error_i = 14'sd64;
+        wait_cycles(P_LOCK_LATENCY);
+        check("Q8 one-count boundary is exact", control_o == 14'sd101);
+        error_i = -14'sd1;
+        wait_cycles(P_LOCK_LATENCY);
+        check("Q8 negative fraction uses signed arithmetic shift",
+              control_o == 14'sd99);
+        polarity = 1'b1;
+        error_i = 14'sd1;
+        wait_cycles(P_LOCK_LATENCY);
+        check("polarity inversion precedes Q8 truncation",
+              control_o == 14'sd99);
+        error_i = -14'sd1;
+        wait_cycles(P_LOCK_LATENCY);
+        check("inverted negative fraction truncates positive product to zero",
+              control_o == 14'sd100);
+
         // End-to-end P-only equation with the registered setpoint corrector:
         // OUT2 = LOCK_BIAS - Kp * (ERROR - SETPOINT) / 256 when polarity=1.
         mode = MODE_HOLD;

@@ -47,14 +47,15 @@ Custom FPGA Mode
 -> SCAN
 -> Capture Waveform
 -> click selected zero crossing
--> LOCK HERE, Kp=0 first
--> Apply Kp, suggested steps 0/4/8/16/32
+-> ARM VALIDATE, inspect matching VALIDATED event/generation
+-> user authorizes ARM BASIC LOCK (ACTIVE), select Kp=0 before ARM
+-> verify captured bias with Kp=0; any nonzero P-only gain needs separate approval
 -> UNLOCK / SAFE
 ```
 
-`Probe Registers` 和 `Status` 只读。SAFE/SCAN/HOLD/P_LOCK/PI_LOCK 写寄存器前必须确认 `MAGIC=0x4D545330`。
+`Probe Registers` 和 `Status` 只读。SAFE/SCAN/HOLD/P_LOCK/PI_LOCK 写寄存器前必须确认 `MAGIC=0x4D545330`。VALIDATE 成功只表示本次事件被识别；它会回到 SCAN，不会接入反馈。只有用户随后发出 ACTIVE，FPGA 才在新的匹配事件上接管。
 
-`LOCK HERE` 后不要重新填写历史锁点；FPGA 会同拍捕获 `ERROR_SETPOINT` 和 `LOCK_BIAS`。`Apply Kp` 只调 Kp、polarity 和 limit，不重捕获锁点。错误 polarity、输出接近 limit、持续 saturation 或通信失败时立即 `UNLOCK / SAFE`。
+ACTIVE 接管时 FPGA 会同拍捕获实际 `OUT2`、`ERROR_SETPOINT` 和 `LOCK_BIAS`。`Apply Kp` 只调 Kp、polarity 和 limit，不重捕获锁点；命令成功不等于 P_LOCKED，必须等待状态读回。错误 polarity、输出接近 limit、持续 saturation 或通信失败时立即 `UNLOCK / SAFE`。
 
 ## OUT1/OUT2 预览
 
@@ -89,6 +90,6 @@ Red Pitaya IN1/IN2 绝对输入电压不得超过 +/-1 V。
 
 不要一开始就用大信号驱动 laser scan/PZT input。
 
-推荐初始 OUT2 设置：`50 Hz`、`0.05 V`、`0 offset`。
+文中 Official SCPI 数值仅用于独立示波器测试，不是激光器电源的安全值。真实 SCAN 输入电压范围、反馈极性和允许增益仍待操作者确认；保留用户已验证的扫描设置，不从论文或软件默认值推定。
 
-当前阶段 OUT2 允许且目标就是激光器专用 PZT / Scan 输入。禁止把 OUT2 接到激光器电流调制输入、D2-125 Servo Output 或 D2-125 Aux Output，禁止两个设备输出端并联。
+当前阶段 FPGA OUT2 接管原 AUX 所接的前面 SCAN，允许在安全幅度下接激光器专用 PZT/Scan 输入。D2 Main 双分支反馈保持不变；D2 AUX 不得与 FPGA OUT2 并联。人工电流/PZT 预调由操作者完成，本轮不实现 D2 自动慢积分。

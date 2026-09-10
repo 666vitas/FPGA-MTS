@@ -1,9 +1,7 @@
 # 硬件测试 SOP
 
-> **LOCK-MVP-L1 暂停点（2026-07-26）**
-> 新 ERROR-crossing RTL 仅完成仿真，尚未重新 implementation。
-> 用户必须先 Reset `synth_1/impl_1`、重新运行 Synthesis/Implementation，
-> 确认 timing/unconstrained paths 后才可生成测试 bitstream。
+> **LOCK-MVP-L1 当前证据（2026-09-09）**
+> 当前源码已重新综合/实现：WNS 0.121 ns、TNS 0、WHS 0.051 ns、THS 0、TPWS 0、Failed Routes 0。证据在 `v0.94/exp/l1-contract-20260909/`。Daisy I/O DRC Critical Warning、DNA 时钟和缺失 I/O delay 尚未关闭，因此未生成本轮候选 bit，暂不执行下面的板级流程；不能用旧 bit 声称验证本次修复。
 > timing 通过后，真实板卡顺序必须是 `Probe/identity -> SAFE -> SCAN
 > -> ARM VALIDATE -> 检查 event/count/direction/generation
 > -> 用户批准后 ARM ACTIVE`。不得以 Linux `lock-here`、
@@ -132,24 +130,36 @@ Test-NetConnection 192.168.137.125 -Port 5000
 
 ## 10. Laser Scan / PZT 连接
 
-当前 Custom FPGA 路径不允许直接接 Laser Scan / PZT。Official SCPI Mode 的安全扫描测试也必须满足以下条件：
+当前 Custom FPGA 路径的 OUT2 目标是激光器专用 Scan/PZT 输入。接入必须满足以下条件：
 
-1. 确认当前是 Official SCPI Mode。
+1. 确认当前是 Custom FPGA Mode，OUT2=selected_out2；确认 D2 AUX 未与 OUT2 并联。
 2. 先只把 OUT2 接到示波器。
-3. 从 `amplitude_v = 0.05 V` 开始。
+3. 使用操作者已验证的扫描幅度、偏置和限幅；真实硬件安全范围仍待记录，不能采用软件默认值代替。
 4. 确认 amplitude 和 offset 对后级输入安全。
 5. 不要直接从大 scan amplitude 开始。
-6. 只有有单独安全 SOP 和用户明确授权后，才允许连接 scan / PZT。
+6. 确认 D2 Main 双分支反馈接线不变，人工完成电流/PZT 预调后，才允许连接前面 SCAN/PZT。
 
 ## 11. Custom FPGA Mode 安全
 
-加载 custom bitstream 时，当前 RTL 路由为：
+加载与当前源码绑定的候选 custom bitstream 时，当前 RTL 路由为：
 
 - OUT1 = `laser_error`
 - OUT2 = `selected_out2`
 
-Custom FPGA Mode 下，OUT2 仍然只允许接示波器。不要连接 laser scan/PZT、D2-125、Scan input 或任何真实执行器。
+Custom FPGA Mode 下，先只接示波器验证 OUT2，再按本 SOP 接入原 AUX 所接的前面 SCAN。不要把 OUT2 接到激光器电流调制输入、D2 Main 输出或 D2 AUX，也不要与任何设备输出端并联。
 
-当前 host 可以控制 custom FPGA register path 的 SAFE/SCAN，并且已有 HOLD/P_LOCK/PI_LOCK 候选控件；但 HOLD/P_LOCK/PI_LOCK 尚未完成 Vivado timing、bitstream 和上板验证。debug buffer、relock automation 和 actuator connection SOP 仍是后续工作。
+当前 host 可以控制 custom FPGA register path 的 SAFE/SCAN、ARM VALIDATE、用户批准后的 ARM ACTIVE 和 P-only Apply；HOLD/PI_LOCK、自动重锁和持续稳频仍不属于本轮已验证能力。验证成功、Kp=0 捕获成功、P-only 实验和持续稳频必须分别记录。
 
-使用 Custom FPGA Observe Mode 记录 OUT1/OUT2 手动示波器读数，并检查 OUT2/OUT1 比值。如果 OUT2 接近 +/-0.8 V、OUT2 Vpp 过大、OUT2 快速爬升或随机跳变，立即停止实验。
+使用 Custom FPGA Observe Mode 记录 OUT1/OUT2 手动示波器读数。OUT2 达到操作者确认的电压边界、快速爬升、振荡或随机跳变时立即停止；真实 SCAN 安全电压、极性和允许 Kp 尚待确认。
+
+## 12. 本轮选点到 P-only 操作判据
+
+操作前提：Probe/identity 匹配、MAGIC/VERSION/capability 正确、OUT2 示波器幅度安全、MODE=SCAN、ENABLE=1、无 saturation；目标点必须来自本次 capture，会话重连或重扫后旧目标作废。
+
+真实按钮顺序：`Capture Waveform` → 选零交叉 → `Confirm Lock Point` → `ARM VALIDATE` → 刷新 `Status` → 核对 `event_type=VALIDATED`、`valid=1`、新 sequence、方向和本次 generation。下一阶段需用户明确批准，先在 Kp 下拉框选择 0，再点击 `ARM BASIC LOCK`（ACTIVE）；接管后核对偏置。非零 P-only 实验另经批准，工程诊断按钮名称为 `APPLY P`，不得把它作为正常实时获取的替代。
+
+预期寄存器/事件：VALIDATE 先进入 `acquisition_state=2`，事件完成后回到 `SCAN=1`，MODE/ENABLE、偏置和 Kp 不变；快速完成可以首次读回就是 SCAN，但必须有新 sequence 和匹配 generation/方向。ACTIVE 匹配事件后进入 `ACQUIRING=4`，事件中的 OUT2 是实际捕获样本；Kp=0 时校正量为零。示波器测点为 OUT2 及前面 SCAN 输入、OUT1 误差信号，确认接管前后偏置连续；可接受跳变量需由操作者按仪器噪声和硬件范围预先规定。
+
+判据分层：① 验证成功＝本次匹配事件且无反馈接入；② Kp=0 捕获成功＝停扫并保持正确偏置；③ P-only＝另经批准后观察真实误差是否减小且无振荡/限幅；④ 持续稳频＝预先规定的持续时间、扰动和误差统计下实测通过。`P_LOCKED=5` 仅表示 FPGA 监督窗口判据通过，不替代第④项。
+
+失败条件：旧/错 generation 事件、方向不符、目标过期、读回状态不符、非零 Kp 但状态不是 ACQUIRING/P_LOCKED、saturation、FAILED/FAULT 或通信中断。立即点击 `UNLOCK / SAFE`，确认 MODE=SAFE、ENABLE=0、acquisition_state=SAFE；无法确认 SAFE 时停止后级连接并人工断开执行器。
