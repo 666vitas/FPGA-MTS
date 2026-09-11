@@ -1,14 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <GenRun Id="l1_contract_synth_20260909" LaunchPart="xc7z010clg400-1" LaunchTime="1788944880">
   <File Type="PA-TCL" Name="red_pitaya_top.tcl"/>
-  <File Type="RDS-PROPCONSTRS" Name="red_pitaya_top_drc_synth.rpt"/>
   <File Type="REPORTS-TCL" Name="red_pitaya_top_reports.tcl"/>
   <File Type="RDS-RDS" Name="red_pitaya_top.vds"/>
   <File Type="RDS-UTIL" Name="red_pitaya_top_utilization_synth.rpt"/>
   <File Type="RDS-UTIL-PB" Name="red_pitaya_top_utilization_synth.pb"/>
   <File Type="RDS-DCP" Name="red_pitaya_top.dcp"/>
-  <File Type="VDS-TIMINGSUMMARY" Name="red_pitaya_top_timing_summary_synth.rpt"/>
-  <File Type="VDS-TIMING-PB" Name="red_pitaya_top_timing_summary_synth.pb"/>
   <FileSet Name="sources" Type="DesignSrcs" RelSrcDir="$PSRCDIR/sources_1">
     <Filter Type="Srcs"/>
     <File Path="$PSRCDIR/sources_1/bd/system/system.bd">
@@ -1076,9 +1073,7 @@
     </Config>
   </FileSet>
   <Strategy Version="1" Minor="2">
-    <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2020">
-      <Desc>Vivado Synthesis Defaults</Desc>
-    </StratHandle>
+    <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2020"/>
     <Step Id="synth_design"/>
   </Strategy>
   <BlockFileSet Type="BlockSrcs" Name="system_axi_protocol_converter_0_0"/>

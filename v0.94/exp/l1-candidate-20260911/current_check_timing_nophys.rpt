@@ -1,0 +1,155 @@
+Copyright 1986-2020 Xilinx, Inc. All Rights Reserved.
+----------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2020.1 (win64) Build 2902540 Wed May 27 19:54:49 MDT 2020
+| Date         : Fri Sep 11 16:07:25 2026
+| Host         : lin running 64-bit major release  (build 9200)
+| Command      : check_timing -verbose -file E:/new/fpga_lock/v94/v0.94/exp/l1-candidate-20260911/current_check_timing_nophys.rpt
+| Design       : red_pitaya_top
+| Device       : 7z010-clg400
+| Speed File   : -1  PRODUCTION 1.12 2019-11-22
+----------------------------------------------------------------------------------------------------------------------------------
+
+
+check_timing report
+
+Table of Contents
+-----------------
+1. checking no_clock (0)
+2. checking constant_clock (0)
+3. checking pulse_width_clock (0)
+4. checking unconstrained_internal_endpoints (0)
+5. checking no_input_delay (16)
+6. checking no_output_delay (40)
+7. checking multiple_clock (0)
+8. checking generated_clocks (0)
+9. checking loops (0)
+10. checking partial_input_delay (0)
+11. checking partial_output_delay (0)
+12. checking latch_loops (0)
+
+1. checking no_clock (0)
+------------------------
+ There are 0 register/latch pins with no clock.
+
+
+2. checking constant_clock (0)
+------------------------------
+ There are 0 register/latch pins with constant_clock.
+
+
+3. checking pulse_width_clock (0)
+---------------------------------
+ There are 0 register/latch pins which need pulse_width check
+
+
+4. checking unconstrained_internal_endpoints (0)
+------------------------------------------------
+ There are 0 pins that are not constrained for maximum delay.
+
+ There are 0 pins that are not constrained for maximum delay due to constant clock.
+
+
+5. checking no_input_delay (16)
+-------------------------------
+ There are 16 input ports with no input delay specified. (HIGH)
+
+exp_n_io[0]
+exp_n_io[1]
+exp_n_io[2]
+exp_n_io[3]
+exp_n_io[4]
+exp_n_io[5]
+exp_n_io[6]
+exp_n_io[7]
+exp_p_io[0]
+exp_p_io[1]
+exp_p_io[2]
+exp_p_io[3]
+exp_p_io[4]
+exp_p_io[5]
+exp_p_io[6]
+exp_p_io[7]
+
+ There are 0 input ports with no input delay but user has a false path constraint.
+
+
+6. checking no_output_delay (40)
+--------------------------------
+ There are 40 ports with no output delay specified. (HIGH)
+
+adc_clk_o[0]
+adc_clk_o[1]
+dac_clk_o
+dac_dat_o[0]
+dac_dat_o[10]
+dac_dat_o[11]
+dac_dat_o[12]
+dac_dat_o[13]
+dac_dat_o[1]
+dac_dat_o[2]
+dac_dat_o[3]
+dac_dat_o[4]
+dac_dat_o[5]
+dac_dat_o[6]
+dac_dat_o[7]
+dac_dat_o[8]
+dac_dat_o[9]
+dac_pwm_o[0]
+dac_pwm_o[1]
+dac_pwm_o[2]
+dac_pwm_o[3]
+dac_rst_o
+dac_sel_o
+dac_wrt_o
+exp_n_io[0]
+exp_n_io[1]
+exp_n_io[2]
+exp_n_io[3]
+exp_n_io[4]
+exp_n_io[5]
+exp_n_io[6]
+exp_n_io[7]
+exp_p_io[0]
+exp_p_io[1]
+exp_p_io[2]
+exp_p_io[3]
+exp_p_io[4]
+exp_p_io[5]
+exp_p_io[6]
+exp_p_io[7]
+
+ There are 0 ports with no output delay but user has a false path constraint
+
+ There are 0 ports with no output delay but with a timing clock defined on it or propagating through it
+
+
+7. checking multiple_clock (0)
+------------------------------
+ There are 0 register/latch pins with multiple clocks.
+
+
+8. checking generated_clocks (0)
+--------------------------------
+ There are 0 generated clocks that are not connected to a clock source.
+
+
+9. checking loops (0)
+---------------------
+ There are 0 combinational loops in the design.
+
+
+10. checking partial_input_delay (0)
+------------------------------------
+ There are 0 input ports with partial input delay specified.
+
+
+11. checking partial_output_delay (0)
+-------------------------------------
+ There are 0 ports with partial output delay specified.
+
+
+12. checking latch_loops (0)
+----------------------------
+ There are 0 combinational latch loops in the design through latch input
+
+

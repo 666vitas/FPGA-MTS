@@ -1,0 +1,6 @@
+Vivado=2020.1
+XPR=E:/new/fpga_lock/v94/v0.94/project/redpitaya.xpr
+HEAD=8fc084e55cc353813edc980559a8f78fdec4658c
+Top=red_pitaya_top
+Part=xc7z010clg400-1
+ENABLE_DAISY=0; DNA clock=adc_clk/16; PHYS_OPT=disabled after crash; ROUTE=Explore

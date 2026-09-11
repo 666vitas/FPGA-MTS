@@ -2,7 +2,7 @@
 
 - Status: ACTIVE
 - Authority: 唯一项目当前状态入口
-- Snapshot-Date: 2026-09-09
+- Snapshot-Date: 2026-09-11
 - Evidence-Basis: 本地 Git/源码审查、Host 定向 pytest、Vivado 2020.1 xsim/综合/实现/报告；未连接板卡
 - Workspace-Reorganization: DONE；源码、Host、Vivado 工程未改动，历史/参考/生成资产已分层归位
 - Development-Freeze: FINAL；目录整理、旧文档归档和 Markdown 缓存清理已完成；后续进入 FPGA/Host 优化开发
@@ -37,7 +37,8 @@ LOCK-MVP-L1
 - Device：xc7z010clg400-1
 - 用户截图对应的既有 routed run：`v0.94/exp/v3-arm/impl_1`，Vivado 2020.1，2026-09-09 14:05；WNS 0.080 ns、TNS 0、WHS 0.053 ns、THS 0、TPWS 0、Failed Routes 0。该报告早于本次 RTL 修改，不能替代当前源码时序证据
 - 本次当前源码 run：`v0.94/exp/l1-contract-20260909/build/l1_contract_impl_20260909`；WNS 0.121 ns、TNS 0、WHS 0.051 ns、THS 0、TPWS 0、Failed Routes 0。源码/输入哈希前后匹配，已完成综合和 route_design；检查范围内 timing PASS，完整签核未闭合。
-- 当前可发布 bitstream：NOT DONE
+- 本轮当前源码 run：`v0.94/exp/l1-candidate-20260911` 的 `l1_candidate_impl_final_20260911`；WNS 0.024 ns、TNS 0、WHS 0.049 ns、THS 0、TPWS 0，Fully Routed。phys_opt_design 在 Vivado 2020.1 发生可复现访问冲突，已在独立 run 中禁用并以 Explore route 完成；旧 `impl_1` 和 `l1_contract_impl_20260909` 未被冒充或覆盖。
+- 当前可发布 bitstream：CANDIDATE；`E:\new\fpga_lock\releases\20260911_LOCK-MVP-L1_CANDIDATE_8fc084e\red_pitaya_top_CANDIDATE.bit`，2,083,850 bytes，SHA-256 `6E5077DE121E261C198FB828E4178687932A79BC9D468D3931FE796A2369CB0B`。这是首次板级测试候选，不是硬件验证通过的 release。
 
 ### 主要模块
 
@@ -72,18 +73,18 @@ LOCK-MVP-L1
 - VALIDATE 快速完成时，Host 仅接受 ARM 前 event sequence 基线之后、同一 config generation/方向的 VALIDATED 事件。
 - 已确认目标绑定到 GUI 生命周期内持久的 AcquisitionService；worker 不再用请求 capture_id 初始化自己的有效状态。新 capture、重扫、参数变化、主机/基址变化及断连使旧目标失效，旧上下文的异步回复被丢弃；目标偏置微调需要重新确认。
 - 离线证据位于 `v0.94/exp/l1-contract-20260909/`：最终 `host_pytest_delivery.log`、三个 `*_xsim.log`、`delivery_identity.json` 和 `delivery_worktree.patch`。`source_identity.json`/`source_worktree.patch` 是构建前快照；最后普通 STATUS 验证完成显示仅改 Host，未改变 RTL/构建输入。`host_pytest.log` 保留了诊断历史被误清除的中间失败，最终已修复并回归；当前证据不是 bit release。
-- 当前构建证据：`current_build_identity.txt`、`build_input_hashes.json`、`current_*` 报告/route checkpoint、`build_verification.json`；DRC 4 个 Daisy IOSTDTYPE-1 Critical Warning + 41 Warning，与原 v3-arm 规则数量一致；CDC 已分析路径 Unsafe=0、Unknown=0，另有 32 个 No ASYNC_REG；Methodology TIMING-17 指向未定义时钟的 DNA 单元。
+- 当前构建证据：`v0.94/exp/l1-candidate-20260911/final_build_identity.txt`、`final_*` 报告和 `final_routed.dcp`；Daisy 禁用分支已改为静态 `OBUFDS`，最终 DRC 无 IOSTDTYPE-1 Critical Warning/Error；DNA 使用实际 `adc_clk/16` generated clock，`no_clock=0`、内部未约束端点=0。扩展 GPIO、DAC 数据/控制、可选输出时钟仍有 no_input_delay=16、no_output_delay=40，因缺少板级时序资料没有填 0 或设 false path。
+- CDC 分析路径 Unsafe=0、Unknown=0，但 `clk_fpga_0 -> pll_adc_clk` false-path 行仍有 32 个 No ASYNC_REG，未宣称所有跨时钟问题已证明安全。Methodology 保留 TIMING-10=1、TIMING-18=38、XDCH-2=32；这些是候选的人工批准项。
 
 ### 未完成
 
-- Daisy I/O 标准、DNA 时钟、缺失 I/O delay 等既有约束/方法学问题的处置与完整签核。
-- 所需检查闭合后的候选 bit；本次未执行 write_bitstream，没有可加载的本轮 bit。
-- 与干净 Git commit 一一绑定的正式 bit release。
+- 板级 I/O delay 仍需原理图、连接器走线和 ADC/DAC 数据手册给出具体时序；本轮只完成可追溯候选，不把缺失资料自行批准。
+- 与干净 Git commit 一一绑定的正式 bit release；当前 manifest 明确为 CANDIDATE。
 - FPGA commit、Host version、Interface version、bit hash 的发布映射。
 
 ### 未验证
 
-- DRC Critical Warning 和未约束路径的影响是否可接受；正 WNS 不替代这些检查。
+- DRC 普通 Warning/Advisory、保留的 CDC No ASYNC_REG 和缺失板级 I/O delay 的实际影响是否可接受；正 WNS 不替代这些检查。
 - 当前 bit 是否可启动并由 Host 正确识别。
 - 真实 ERROR-Crossing、PZT 无扰捕获、P-only 收敛和持续锁定。
 - custom_debug_capture 在当前硬件和 Host 流程中的完整板级行为。
@@ -92,7 +93,7 @@ LOCK-MVP-L1
 
 资产审查快照中，v94/main 的 HEAD 为 3563136ab4f88ebf924321a7e9cd4b85d70c53d2，且存在未提交的 RTL、仿真和状态文档修改。因此该 HEAD 不能单独代表当前工作树，也不能作为当前 bit 的完整来源标识。
 
-2026-09-09 实查 HEAD 为 `7c7b6570d4197939cd8e0101b096928d2ff67486`。进入本轮时仅 XPR 和 `project/redpitaya.cache/wt` 的 Vivado 元数据有改动，已保留。本次修改 custom RTL、Host、测试及固定文档，并在 XPR 新增两个独立构建 run。构建前 XPR 快照和语义比较确认：除新增 run 和同值组件条目排序外，其余内容一致；原 synth_1/impl_1 未重置。未修改 PS/BD、ADC/DAC 外壳、时钟或 XDC。
+2026-09-11 实查 HEAD 为 `8fc084e55cc353813edc980559a8f78fdec4658c`。本轮保留 XPR/Vivado 元数据改动；只修改 disabled Daisy RTL、相关 XDC、候选构建脚本和固定文档，并在 XPR 下使用独立 final run。原 synth_1/impl_1 与旧 l1-contract run 未重置；未修改 PS/BD、ADC/DAC 主数据通路或锁定算法。
 
 ## Host状态
 
@@ -117,13 +118,12 @@ LOCK-MVP-L1
 
 ## 当前阻塞问题
 
-1. 当前 RTL 工作树不是可唯一复现的干净发布基线，且 XPR/Vivado 元数据有用户修改。
-2. 当前源码综合/实现和 timing 已有证据，但 DRC/完整约束签核未关闭：no_clock=1、内部未约束端点=2、无输入延迟=16、无输出延迟=40。Daisy/ADC/DNA 问题涉及本轮保留的板级外壳与约束，未通过改 I/O/时钟或降低 DRC 级别处理，因此停止候选 bit 生成。
-3. 尚无与当前源码一一绑定的 bit release。
-4. 尚未完成板卡身份/版本读回和 Host/FPGA 兼容性确认。
-5. 尚无绑定 release 的真实 P-only 锁定实验记录；D2 Main 双反馈和 OUT2→专用 SCAN/PZT 接线仍需人工验收。
+1. 当前 RTL 工作树不是可唯一复现的干净发布基线，且 XPR/Vivado 元数据有用户修改；本候选不宣称正式 clean release。
+2. 板级 I/O delay 资料缺失：no_input_delay=16、no_output_delay=40；扩展 GPIO、DAC 数据/控制和可选输出时钟需人工审查，不能以 0/false-path 替代。
+3. 尚未完成板卡身份/版本读回和 Host/FPGA 兼容性确认。
+4. 尚无绑定 candidate 的真实 P-only 锁定实验记录；D2 Main 双反馈和 OUT2→专用 SCAN/PZT 接线仍需人工验收。
 
-上述阻塞项未关闭前不得把历史 bit、历史报告或仿真结果写成当前硬件已验证。GUI 占用曾阻止构建；本轮复查其退出后，已在原 XPR 下完成一次独立 run，当前阻塞不再是 GUI 占用。
+上述未验证项不得把 candidate bit 写成硬件已验证。GUI 占用已不再阻塞；本轮已在原 XPR 下完成独立 final run 和 write_bitstream，保留旧报告与旧 run。
 
 ## 更新要求
 

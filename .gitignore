@@ -57,6 +57,7 @@
 ~$*
 .DS_Store
 Thumbs.db
+_work/
 
 # Python virtual environments and cache
 .venv/

@@ -873,11 +873,15 @@ if (ENABLE_DAISY) begin : g_daisy_enabled
   );
 end else begin : g_daisy_disabled
   // No SATA cable or multi-board function is part of FIRST_LOCK.  Drive the
-  // unused differential outputs to a static state, keep the optional ADC clock
-  // output local, and return a deterministic empty response for the legacy bus
-  // slot.  This is elaboration-time isolation, not a timing exception.
-  assign daisy_p_o      = 2'b00;
-  assign daisy_n_o      = 2'b11;
+  // unused differential outputs to a static state through the same OBUFDS
+  // interface used by the enabled Daisy implementation.  This keeps the
+  // board-level DIFF_HSTL_I_18 contract truthful without enabling the
+  // second-board data path; it is elaboration-time isolation, not a timing
+  // exception.
+  OBUFDS #(.IOSTANDARD("DIFF_HSTL_I_18"), .SLEW("FAST"))
+    i_daisy_disabled_dat (.O(daisy_p_o[0]), .OB(daisy_n_o[0]), .I(1'b0));
+  OBUFDS #(.IOSTANDARD("DIFF_HSTL_I_18"), .SLEW("FAST"))
+    i_daisy_disabled_clk (.O(daisy_p_o[1]), .OB(daisy_n_o[1]), .I(1'b0));
   assign adc_clk_daisy  = adc_clk;
   assign par_dat        = 16'd0;
   assign sys[5].rdata   = 32'd0;

@@ -1,13 +1,8 @@
 # 硬件测试 SOP
 
-> **LOCK-MVP-L1 当前证据（2026-09-09）**
-> 当前源码已重新综合/实现：WNS 0.121 ns、TNS 0、WHS 0.051 ns、THS 0、TPWS 0、Failed Routes 0。证据在 `v0.94/exp/l1-contract-20260909/`。Daisy I/O DRC Critical Warning、DNA 时钟和缺失 I/O delay 尚未关闭，因此未生成本轮候选 bit，暂不执行下面的板级流程；不能用旧 bit 声称验证本次修复。
-> timing 通过后，真实板卡顺序必须是 `Probe/identity -> SAFE -> SCAN
-> -> ARM VALIDATE -> 检查 event/count/direction/generation
-> -> 用户批准后 ARM ACTIVE`。不得以 Linux `lock-here`、
-> `CAPTURE_LOCK_POINT`、HOLD selected count 或 manual APPLY P
-> 作为正常获取步骤。任何 mismatch、saturation、FAILED/FAULT 或通信异常
-> 都停止并请求 SAFE。
+> **LOCK-MVP-L1 当前证据（2026-09-11）**
+> 已生成首次板级测试候选 bit：`releases/20260911_LOCK-MVP-L1_CANDIDATE_8fc084e/red_pitaya_top_CANDIDATE.bit`，SHA-256 `6E5077DE121E261C198FB828E4178687932A79BC9D468D3931FE796A2369CB0B`。它是 CANDIDATE，不是硬件验证通过的 release；未连接板卡、未加载、未烧录。
+> 本轮离线实现 run 为 `l1_candidate_impl_final_20260911`，WNS 0.024 ns、TNS 0、WHS 0.049 ns、THS 0；DRC 无 Critical Warning/Error。板级 I/O delay 和 CDC No ASYNC_REG 仍需人工审查，不能用旧 bit 声称验证本次修复。
 
 按本顺序执行。前面的检查没有通过之前，不要连接 PD、laser scan / PZT 或任何真实执行器。
 
@@ -17,7 +12,15 @@
 E:\new\fpga_lock\v94\software\redpitaya_lock_host
 ```
 
-## 1. 只做 Probe
+## 本轮 Custom FPGA 首次加载（唯一允许入口）
+
+只执行以下五步：**候选身份/哈希确认 → 用户手动加载 → identity 读回 → SAFE 读回 → 示波器验证实际输出**。
+
+加载时先将 FPGA 输出与激光执行器隔离，不改变 D2 参考主反馈链。上述五步未完成前，不连接 PD、laser scan/PZT 或任何真实执行器；本轮不批准 ACTIVE 或非零 Kp。完成后，只有在批准的接线和参数下才可进入 `ARM VALIDATE`。
+
+下面第 1–10 节中的 SCPI server、`*IDN?` 和 Official SCPI OUT1/OUT2 波形步骤是另一条 Official SCPI 路径，不是本轮 Custom FPGA 首次加载步骤；Custom FPGA 用户不得按它们替代上面的五步。
+
+## 1. Official SCPI 兼容路径（不用于本轮 Custom FPGA 首次加载）
 
 1. 不连接任何实验信号。
 2. 启动上位机。
@@ -148,7 +151,7 @@ Test-NetConnection 192.168.137.125 -Port 5000
 
 Custom FPGA Mode 下，先只接示波器验证 OUT2，再按本 SOP 接入原 AUX 所接的前面 SCAN。不要把 OUT2 接到激光器电流调制输入、D2 Main 输出或 D2 AUX，也不要与任何设备输出端并联。
 
-当前 host 可以控制 custom FPGA register path 的 SAFE/SCAN、ARM VALIDATE、用户批准后的 ARM ACTIVE 和 P-only Apply；HOLD/PI_LOCK、自动重锁和持续稳频仍不属于本轮已验证能力。验证成功、Kp=0 捕获成功、P-only 实验和持续稳频必须分别记录。
+当前 host 可以控制 custom FPGA register path 的 SAFE/SCAN、ARM VALIDATE、用户批准后的 ARM ACTIVE 和 P-only Apply；HOLD/PI_LOCK、自动重锁和持续稳频仍不属于本轮已验证能力。本轮只允许先完成身份/SAFE/示波器五步入口，未批准 ARM ACTIVE 或非零 Kp；验证成功、Kp=0 捕获成功、P-only 实验和持续稳频必须分别记录。
 
 使用 Custom FPGA Observe Mode 记录 OUT1/OUT2 手动示波器读数。OUT2 达到操作者确认的电压边界、快速爬升、振荡或随机跳变时立即停止；真实 SCAN 安全电压、极性和允许 Kp 尚待确认。
 

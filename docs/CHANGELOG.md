@@ -2,7 +2,7 @@
 
 - Status: ACTIVE
 - Authority: 工程变更记录
-- Last-Updated: 2026-09-09
+- Last-Updated: 2026-09-11
 
 本文件记录影响工程理解、接口、验证或发布的变更。它不是调试流水账，也不替代 Git 历史、CURRENT_STATUS 或 release manifest。
 
@@ -22,6 +22,19 @@
 - Release 或 NOT RELEASED
 
 验证结果必须区分 PASS、FAIL、NOT RUN 和 NOT VERIFIED。不得使用“应该可以”“预计通过”替代证据。
+
+## 2026-09-11 — 首次板级测试候选 bit
+
+- Gate: LOCK-MVP-L1
+- 修改文件: `v0.94/rtl/red_pitaya_top.sv`；`v0.94/project/redpitaya.srcs/constrs_1/imports/RedPitaya-FPGA-master/sdc/red_pitaya.xdc`；第二份 `red_pitaya.xdc`；`v0.94/exp/l1-candidate-20260911/` 构建/检查脚本；`docs/CURRENT_STATUS.md`、本文件和 `software/redpitaya_lock_host/docs/HARDWARE_TEST_SOP.md`。
+- 修改原因: 处理本轮明确的 Daisy 禁用输出 DRC、DNA 实际分频时钟约束、错误 Z20-only GPIO 约束、过宽 DAC wildcard 和过期 false-path；不重构 PS/BD、ADC/DAC 主通路或锁定算法。
+- 影响模块: disabled Daisy 输出缓冲、DNA 时钟约束、板级 I/O 约束；接口寄存器和 Host 协议不变。
+- 接口影响: NONE；`ENABLE_DAISY=0` 仍为当前配置，Daisy 第二板功能未启用。
+- 验证方式与结果: Vivado 2020.1 独立 run `l1_candidate_impl_final_20260911`（Explore route，phys_opt 因 Vivado 访问冲突禁用）Fully Routed；WNS=0.024 ns、TNS=0、WHS=0.049 ns、THS=0；`no_clock=0`、内部未约束端点=0；DRC 0 Critical Warning/0 Error；`write_bitstream` 成功。候选 bit 为 `releases/20260911_LOCK-MVP-L1_CANDIDATE_8fc084e/red_pitaya_top_CANDIDATE.bit`，SHA-256 `6E5077DE121E261C198FB828E4178687932A79BC9D468D3931FE796A2369CB0B`。
+- 保留项: no_input_delay=16、no_output_delay=40；TIMING-10=1、TIMING-18=38、XDCH-2=32；CDC 分析 Unsafe/Unknown=0，但 32 个 No ASYNC_REG 的 `clk_fpga_0 -> pll_adc_clk` false-path 仅作警示，未宣称全部 CDC 已证明安全。板级 delay 需原理图、走线及 ADC/DAC 时序资料，不能以 0 或 false-path 自行批准。
+- 尚未验证: 未连接板卡、未加载/烧录、未做 identity/SAFE 读回、示波器或 P-only/持续锁定；未批准 ACTIVE 或非零 Kp。首次加载顺序已收敛为“候选身份/哈希确认 → 用户手动加载 → identity 读回 → SAFE 读回 → 示波器验证实际输出”。
+- Git commit: NOT COMMITTED；构建基线 HEAD `8fc084e55cc353813edc980559a8f78fdec4658c`，工作树含用户/Vivado 元数据及本轮修改。
+- Release: CANDIDATE（非硬件验证 release）；完整 manifest 在 `releases/20260911_LOCK-MVP-L1_CANDIDATE_8fc084e/RELEASE_MANIFEST.md`。
 
 ## 2026-09-09 — VALIDATE/ACTIVE 与 P-only 状态契约修复
 

@@ -97,10 +97,10 @@ set_property PACKAGE_PIN D20 [get_ports {dac_dat_o[12]}]
 set_property PACKAGE_PIN D19 [get_ports {dac_dat_o[13]}]
 
 # control
-set_property IOSTANDARD LVCMOS33 [get_ports dac_*_o]
-set_property SLEW       FAST     [get_ports dac_*_o]
-set_property DRIVE      8        [get_ports dac_*_o]
-#set_property IOB        TRUE     [get_ports dac_*_o]
+set_property IOSTANDARD LVCMOS33 [get_ports {dac_wrt_o dac_sel_o dac_clk_o dac_rst_o}]
+set_property SLEW       FAST     [get_ports {dac_wrt_o dac_sel_o dac_clk_o dac_rst_o}]
+set_property DRIVE      8        [get_ports {dac_wrt_o dac_sel_o dac_clk_o dac_rst_o}]
+#set_property IOB        TRUE     [get_ports {dac_wrt_o dac_sel_o dac_clk_o dac_rst_o}]
 
 set_property PACKAGE_PIN M17 [get_ports dac_wrt_o]
 set_property PACKAGE_PIN N16 [get_ports dac_sel_o]
@@ -161,12 +161,8 @@ set_property PACKAGE_PIN K16 [get_ports {exp_p_io[6]}]
 set_property PACKAGE_PIN J16 [get_ports {exp_n_io[6]}]
 set_property PACKAGE_PIN M14 [get_ports {exp_p_io[7]}]
 set_property PACKAGE_PIN M15 [get_ports {exp_n_io[7]}]
-set_property PACKAGE_PIN Y9  [get_ports {exp_p_io[8]}]
-set_property PACKAGE_PIN Y8  [get_ports {exp_n_io[8]}]
-set_property PACKAGE_PIN Y12 [get_ports {exp_p_io[9]}]
-set_property PACKAGE_PIN Y13 [get_ports {exp_n_io[9]}]
-set_property PACKAGE_PIN Y7  [get_ports {exp_p_io[10]}]
-set_property PACKAGE_PIN Y6  [get_ports {exp_n_io[10]}]
+# The xc7z010 build has DWE=8.  Pins 8..10 belong only to the Z20 variant;
+# do not issue empty get_ports constraints in the Z10 project.
 
 #set_property PULLDOWN TRUE [get_ports {exp_p_io[0]}]
 #set_property PULLDOWN TRUE [get_ports {exp_n_io[0]}]
@@ -205,6 +201,13 @@ set_property PACKAGE_PIN J14     [get_ports {led_o[7]}]
 
 create_clock -period 8.000 -name adc_clk [get_ports adc_clk_i[1]]
 
+# DNA_PORT.CLK is driven by i_hk/dna_clk_reg, which is dna_cnt[2] clocked by
+# adc_clk.  The divider therefore has a 16-adc_clk period.  READ and SHIFT
+# are generated in the same adc_clk domain and are intentionally timed to
+# this generated clock; do not replace this with an unrelated virtual clock.
+create_generated_clock -name dna_clk -source [get_pins i_hk/dna_clk_reg/C] \
+  -divide_by 16 [get_pins i_hk/dna_clk_reg/Q]
+
 set_input_delay -clock adc_clk 3.400 [get_ports adc_dat_i[*][*]]
 
 create_clock -period 4.000 -name rx_clk  [get_ports daisy_p_i[1]]
@@ -213,7 +216,7 @@ set_false_path -from [get_clocks adc_clk]     -to [get_clocks dac_clk_o]
 set_false_path -from [get_clocks adc_clk]     -to [get_clocks dac_clk_2x]
 set_false_path -from [get_clocks adc_clk]     -to [get_clocks dac_clk_2p]
 set_false_path -from [get_clocks clk_fpga_0]  -to [get_clocks adc_clk]
-set_false_path -from [get_clocks clk_fpga_0]  -to [get_clocks pll_adc_clk]
+set_false_path -from [get_clocks clk_fpga_0]  -to [get_clocks -of_objects [get_pins pll/pll/CLKOUT0]]
 #set_false_path -from [get_clocks par_clk]     -to [get_clocks pll_adc_clk]
 
 set_false_path -from [get_clocks clk_fpga_0]  -to [get_clocks dac_clk_1x]
