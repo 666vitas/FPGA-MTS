@@ -21,7 +21,7 @@
 - 当前 top 为 red_pitaya_top，目标器件为 xc7z010clg400-1。
 - 当前 RTL 已包含锁定主链路、采集、保护、斜坡及 L1 控制模块。
 - 本轮已运行 Host/RTL 回归及一次 Vivado 综合/实现，结果在 CURRENT_STATUS 和其引用证据目录。
-- 当前已声明约束下的 timing 通过，但 DRC/完整约束签核、候选 bitstream 和板级闭环尚未形成可追溯 release。
+- 当前已声明约束下的 timing 通过；统一标准 run 候选 bitstream 已形成可追溯 candidate，但 DRC/完整约束签核和板级闭环仍未完成。
 - 历史 bitstream 和历史实验资料不能替代当前 Gate 的验证证据。
 
 详细状态和当前 Gate 只在 docs/CURRENT_STATUS.md 维护；原 version 控制文件随历史版本归档，仅作追溯。

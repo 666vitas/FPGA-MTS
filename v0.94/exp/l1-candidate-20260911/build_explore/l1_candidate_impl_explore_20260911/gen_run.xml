@@ -16,9 +16,12 @@
   <File Type="BITSTR-BMM" Name="red_pitaya_top_bd.bmm"/>
   <File Type="ROUTE-METHODOLOGY-DRC" Name="red_pitaya_top_methodology_drc_routed.rpt"/>
   <File Type="BITSTR-MMI" Name="red_pitaya_top.mmi"/>
+  <File Type="ROUTE-METHODOLOGY-DRC-PB" Name="red_pitaya_top_methodology_drc_routed.pb"/>
   <File Type="BITSTR-SYSDEF" Name="red_pitaya_top.sysdef"/>
+  <File Type="ROUTE-DRC-RPX" Name="red_pitaya_top_drc_routed.rpx"/>
   <File Type="BITSTR-LTX" Name="debug_nets.ltx"/>
   <File Type="BITSTR-LTX" Name="red_pitaya_top.ltx"/>
+  <File Type="RCFI_FILE" Name="red_pitaya_top.rcfi"/>
   <File Type="WBT-USG" Name="usage_statistics_webtalk.html"/>
   <File Type="OPT-DRC" Name="red_pitaya_top_drc_opted.rpt"/>
   <File Type="OPT-HWDEF" Name="red_pitaya_top.hwdef"/>
@@ -48,11 +51,8 @@
   <File Type="PHYSOPT-DCP" Name="red_pitaya_top_physopt.dcp"/>
   <File Type="POSTROUTE-PHYSOPT-DCP" Name="red_pitaya_top_postroute_physopt.dcp"/>
   <File Type="POSTROUTE-PHYSOPT-BLACKBOX-DCP" Name="red_pitaya_top_postroute_physopt_bb.dcp"/>
-  <File Type="ROUTE-METHODOLOGY-DRC-PB" Name="red_pitaya_top_methodology_drc_routed.pb"/>
-  <File Type="ROUTE-DRC-RPX" Name="red_pitaya_top_drc_routed.rpx"/>
   <File Type="ROUTE-METHODOLOGY-DRC-RPX" Name="red_pitaya_top_methodology_drc_routed.rpx"/>
   <File Type="PDI-FILE" Name="red_pitaya_top.pdi"/>
-  <File Type="RCFI_FILE" Name="red_pitaya_top.rcfi"/>
   <File Type="CFI_FILE" Name="red_pitaya_top.cfi"/>
   <File Type="RNPI_FILE" Name="red_pitaya_top.rnpi"/>
   <File Type="NPI_FILE" Name="red_pitaya_top.npi"/>

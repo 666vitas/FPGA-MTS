@@ -1,8 +1,30 @@
 # Current Status
 
+## 本轮构建/手动复核对照卡（2026-09-12）
+
+| 项目 | 自动构建（本轮候选） | 用户手动 `exp/test` |
+| --- | --- | --- |
+| 功能范围 | 仅现有 LOCK-MVP-L1 统一构建；不含 PZT 新功能 | PENDING |
+| 候选文件 | `E:\new\fpga_lock\releases\20260912_LOCK-MVP-L1_CANDIDATE_4d754160\red_pitaya_top_CANDIDATE.bit`；同目录 `.bit.bin` | PENDING |
+| 输入指纹 | `final_input_hashes.txt`；RTL/XDC/XPR 与本轮报告绑定，HEAD `4d754160c06346e6e0837bc38ca9d364a0301390`，工作树 dirty | 手动前运行 `check_build.ps1 -Phase pre` |
+| 配置指纹 | Vivado 2020.1；top `red_pitaya_top`；`xc7z010clg400-1`；标准 `synth_1`→`impl_1`；Synthesis/Implementation Defaults；`PHYS_OPT_DESIGN=0`；route directive `Explore`；增量关闭 | 关闭并重开同一 XPR 后核对相同配置 |
+| WNS / TNS | 0.024 ns / 0 | PENDING |
+| WHS / THS | 0.049 ns / 0 | PENDING |
+| WPWS / TPWS | 1.000 ns / 0 | PENDING |
+| 失败端点 / Failed Routes | 0 / 0（15140/15140 fully routed） | PENDING |
+| DRC | 43 violations：NSTD-1 14、PLIO-8 28、REQP-24 Advisory 1；最终 DRC Critical Warning/Error 0 | PENDING；与候选证据比较 |
+| 全流程 Critical Warning | 47 行（含重复约束加载诊断；另有 198 行 Warning） | PENDING |
+| 约束完整性 / CDC | `no_input_delay=16`、`no_output_delay=40`；未匹配 `dac_clk_o/dac_clk_*/ser_clk/pdm_clk/clk_fpga_0` false-path；`i_ams/XADC_inst` 不存在；CDC Unsafe=0、Unknown=0，但 32 `No ASYNC_REG` 保留 | PENDING；不得以 WNS 相同忽略差异 |
+| BIT 与报告绑定 | 已核实：bit SHA256 `E2FCCF86CADD9A9D67439761483C6D77DDF8FF1BCB374BFAEAD4051C378080D0`；bit.bin SHA256 `C66257193D94AF8B40488F9EEEF609032FFF2970B7B44DAF3F35CB3D8422C1CA`；DCP SHA256 `FE45A276349AB003D4BB038FFD47F5F1DE9310497C23E6E073BEA407C4A0B2F2` | PENDING；不复制自动 bit 冒充手动结果 |
+| 手动复核结论 | 不替代用户验证 | PENDING |
+
+核对入口：构建前 `powershell -ExecutionPolicy Bypass -File v0.94/exp/test/check_build.ps1 -Phase pre`；构建后先将用户报告放在 `v0.94/exp/test/impl_1`（或 `evidence`），再运行 `...check_build.ps1 -Phase post`。允许下一步仅为：用户打开同一 XPR，选择标准 `synth_1`/`impl_1`，独立重建并回填手动结果；期间不要修改 RTL、XDC、IP 或运行设置。
+
+此前用户提供的 `0.024/0/0.049/0` 仅保留为历史证据；在手动输入、配置和报告来源完成核对前，不并入本轮手动列。
+
 - Status: ACTIVE
 - Authority: 唯一项目当前状态入口
-- Snapshot-Date: 2026-09-11
+- Snapshot-Date: 2026-09-12
 - Evidence-Basis: 本地 Git/源码审查、Host 定向 pytest、Vivado 2020.1 xsim/综合/实现/报告；未连接板卡
 - Workspace-Reorganization: DONE；源码、Host、Vivado 工程未改动，历史/参考/生成资产已分层归位
 - Development-Freeze: FINAL；目录整理、旧文档归档和 Markdown 缓存清理已完成；后续进入 FPGA/Host 优化开发
@@ -35,10 +57,10 @@ LOCK-MVP-L1
 - Top：red_pitaya_top
 - Top 源文件：v0.94/rtl/red_pitaya_top.sv
 - Device：xc7z010clg400-1
-- 用户截图对应的既有 routed run：`v0.94/exp/v3-arm/impl_1`，Vivado 2020.1，2026-09-09 14:05；WNS 0.080 ns、TNS 0、WHS 0.053 ns、THS 0、TPWS 0、Failed Routes 0。该报告早于本次 RTL 修改，不能替代当前源码时序证据
-- 本次当前源码 run：`v0.94/exp/l1-contract-20260909/build/l1_contract_impl_20260909`；WNS 0.121 ns、TNS 0、WHS 0.051 ns、THS 0、TPWS 0、Failed Routes 0。源码/输入哈希前后匹配，已完成综合和 route_design；检查范围内 timing PASS，完整签核未闭合。
-- 本轮当前源码 run：`v0.94/exp/l1-candidate-20260911` 的 `l1_candidate_impl_final_20260911`；WNS 0.024 ns、TNS 0、WHS 0.049 ns、THS 0、TPWS 0，Fully Routed。phys_opt_design 在 Vivado 2020.1 发生可复现访问冲突，已在独立 run 中禁用并以 Explore route 完成；旧 `impl_1` 和 `l1_contract_impl_20260909` 未被冒充或覆盖。
-- 当前可发布 bitstream：CANDIDATE；`E:\new\fpga_lock\releases\20260911_LOCK-MVP-L1_CANDIDATE_8fc084e\red_pitaya_top_CANDIDATE.bit`，2,083,850 bytes，SHA-256 `6E5077DE121E261C198FB828E4178687932A79BC9D468D3931FE796A2369CB0B`。这是首次板级测试候选，不是硬件验证通过的 release。
+- 用户截图对应的既有 routed run：`v0.94/exp/v3-arm/impl_1`，Vivado 2020.1，2026-09-09 14:05；WNS 0.080 ns、TNS 0、WHS 0.053 ns、THS 0、TPWS 0、Failed Routes 0。该报告仅作历史证据。
+- `v0.94/exp/l1-contract-20260909/build/l1_contract_impl_20260909` 与 `v0.94/exp/l1-candidate-20260911` 均保留为历史构建，不替代本轮标准 run。
+- 本轮统一源码 run：标准 `v0.94/exp/test/synth_1` → `v0.94/exp/test/impl_1`；WNS 0.024 ns、TNS 0、WHS 0.049 ns、THS 0、WPWS 1.000 ns、TPWS 0，15140/15140 nets fully routed。`phys_opt_design` 禁用、route directive Explore 已保存到 XPR 标准 run。
+- 当前候选 bitstream：`E:\new\fpga_lock\releases\20260912_LOCK-MVP-L1_CANDIDATE_4d754160\red_pitaya_top_CANDIDATE.bit`（2,083,850 bytes，SHA-256 `E2FCCF86CADD9A9D67439761483C6D77DDF8FF1BCB374BFAEAD4051C378080D0`）；同一 bit 的 `.bit.bin` SHA-256 `C66257193D94AF8B40488F9EEEF609032FFF2970B7B44DAF3F35CB3D8422C1CA`。这是候选，不是硬件验证通过的 release。
 
 ### 主要模块
 
@@ -73,8 +95,8 @@ LOCK-MVP-L1
 - VALIDATE 快速完成时，Host 仅接受 ARM 前 event sequence 基线之后、同一 config generation/方向的 VALIDATED 事件。
 - 已确认目标绑定到 GUI 生命周期内持久的 AcquisitionService；worker 不再用请求 capture_id 初始化自己的有效状态。新 capture、重扫、参数变化、主机/基址变化及断连使旧目标失效，旧上下文的异步回复被丢弃；目标偏置微调需要重新确认。
 - 离线证据位于 `v0.94/exp/l1-contract-20260909/`：最终 `host_pytest_delivery.log`、三个 `*_xsim.log`、`delivery_identity.json` 和 `delivery_worktree.patch`。`source_identity.json`/`source_worktree.patch` 是构建前快照；最后普通 STATUS 验证完成显示仅改 Host，未改变 RTL/构建输入。`host_pytest.log` 保留了诊断历史被误清除的中间失败，最终已修复并回归；当前证据不是 bit release。
-- 当前构建证据：`v0.94/exp/l1-candidate-20260911/final_build_identity.txt`、`final_*` 报告和 `final_routed.dcp`；Daisy 禁用分支已改为静态 `OBUFDS`，最终 DRC 无 IOSTDTYPE-1 Critical Warning/Error；DNA 使用实际 `adc_clk/16` generated clock，`no_clock=0`、内部未约束端点=0。扩展 GPIO、DAC 数据/控制、可选输出时钟仍有 no_input_delay=16、no_output_delay=40，因缺少板级时序资料没有填 0 或设 false path。
-- CDC 分析路径 Unsafe=0、Unknown=0，但 `clk_fpga_0 -> pll_adc_clk` false-path 行仍有 32 个 No ASYNC_REG，未宣称所有跨时钟问题已证明安全。Methodology 保留 TIMING-10=1、TIMING-18=38、XDCH-2=32；这些是候选的人工批准项。
+- 当前构建证据：`releases/20260912_LOCK-MVP-L1_CANDIDATE_4d754160/` 的 `final_*` 报告、`final_routed.dcp` 与 `final_input_hashes.txt`，均来自标准 `impl_1` routed 设计；DNA 使用实际 `adc_clk/16` generated clock，`no_clock=0`、内部未约束端点=0。扩展 GPIO、DAC 数据/控制、可选输出时钟仍有 no_input_delay=16、no_output_delay=40，因缺少板级时序资料没有填 0 或设 false path。
+- CDC 分析路径 Unsafe=0、Unknown=0，但 `clk_fpga_0 -> pll_adc_clk` false-path 行仍有 32 个 No ASYNC_REG；Methodology 保留 TIMING-10=1、TIMING-18=38、XDCH-2=32。统一构建日志还明确记录 dac/ser/pdm/clk_fpga false-path 对象未匹配及 `i_ams/XADC_inst` 缺失，未宣称这些问题已解决。
 
 ### 未完成
 
@@ -91,9 +113,7 @@ LOCK-MVP-L1
 
 ### 工作树边界
 
-资产审查快照中，v94/main 的 HEAD 为 3563136ab4f88ebf924321a7e9cd4b85d70c53d2，且存在未提交的 RTL、仿真和状态文档修改。因此该 HEAD 不能单独代表当前工作树，也不能作为当前 bit 的完整来源标识。
-
-2026-09-11 实查 HEAD 为 `8fc084e55cc353813edc980559a8f78fdec4658c`。本轮保留 XPR/Vivado 元数据改动；只修改 disabled Daisy RTL、相关 XDC、候选构建脚本和固定文档，并在 XPR 下使用独立 final run。原 synth_1/impl_1 与旧 l1-contract run 未重置；未修改 PS/BD、ADC/DAC 主数据通路或锁定算法。
+2026-09-12 实查 HEAD 为 `4d754160c06346e6e0837bc38ca9d364a0301390`，工作树 dirty。保留用户 XPR/Vivado 元数据改动；本轮使用标准 `synth_1/impl_1`，未修改 PS/BD、ADC/DAC 主数据通路或锁定算法。旧 candidate 与历史 run 未覆盖。
 
 ## Host状态
 

@@ -84,3 +84,10 @@ Timing 未通过、存在未解释的未约束路径或报告不对应当前源�
 4. 接口影响已同步 Host 和 HOST_FPGA_INTERFACE。
 5. 若生成 bit，release manifest 和 bit 映射完整。
 
+## 统一 Vivado 构建配置（本轮起）
+
+- 用户日常活动 run 固定为同一 XPR 下的 `synth_1` → `impl_1`，目录为 `v0.94/exp/test`；综合与实现策略分别为 `Vivado Synthesis Defaults`、`Vivado Implementation Defaults`。
+- `STEPS.PHYS_OPT_DESIGN.IS_ENABLED=0`；`STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE=Explore`。Explore 只作用于 `route_design`，不得替换成 Performance_Explore 或其他策略；post-place/post-route 物理优化等其余属性保持工程默认并记录。
+- 自动候选必须复用这两个标准 run；不得以独立 `build_candidate_*.tcl` run 作为用户复核配置，也不得为诊断新增 final2/explore2 等 run。
+- 构建前后使用 `v0.94/exp/test/check_build.ps1 -Phase pre|post` 做只读核对。脚本只导出 INPUT/PROFILE/TIMING/DRC/约束/BIT 绑定状态，不修改 RTL、XDC、IP、工程设置，不重新综合/实现，不访问板卡。
+- 约束加载日志中的未匹配对象、缺失 I/O delay、CDC/Methodology 保留项必须原样记录；不能因正 WNS、相同 WNS 或无新增 Warning 而宣称输入或功能等价。

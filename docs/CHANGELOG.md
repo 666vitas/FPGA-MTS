@@ -23,6 +23,17 @@
 
 验证结果必须区分 PASS、FAIL、NOT RUN 和 NOT VERIFIED。不得使用“应该可以”“预计通过”替代证据。
 
+## 2026-09-12 — 标准 synth_1/impl_1 统一候选
+
+- Gate: LOCK-MVP-L1；范围仅为统一自动构建与用户 `exp/test` 手动复核入口，不含 PZT 新功能。
+- 修改文件: `v0.94/project/redpitaya.xpr`（保存用户既有 exp/test 活动 run 配置）；新增只读核对脚本 `v0.94/exp/test/check_build.ps1`；`docs/CURRENT_STATUS.md`、`docs/FPGA_DEVELOPMENT_RULES.md`、`docs/RELEASE_PROCESS.md`；新候选目录 `releases/20260912_LOCK-MVP-L1_CANDIDATE_4d754160/`。
+- 统一配置: Vivado 2020.1，top `red_pitaya_top`，part `xc7z010clg400-1`；标准 `synth_1`→`impl_1`；Defaults 策略；`PHYS_OPT_DESIGN=0`；route directive `Explore`；其余实现/增量属性保持默认。
+- 验证结果: 综合 0 error/0 critical warning/0 warning；实现 Fully Routed，15140/15140 nets，Failed Routes 0；WNS 0.024 ns、TNS 0、WHS 0.049 ns、THS 0、WPWS 1.000 ns、TPWS 0。最终 DRC 43 violations（0 Critical Warning/0 Error），Methodology 保留 99 warnings；CDC Unsafe/Unknown=0，32 `No ASYNC_REG` 保留。约束加载日志确认 `dac_clk_o/dac_clk_*/ser_clk/pdm_clk/clk_fpga_0` 未匹配及 `i_ams/XADC_inst` 缺失，未修改语义或隐藏问题。
+- 产物: 新候选 `.bit` SHA256 `E2FCCF86CADD9A9D67439761483C6D77DDF8FF1BCB374BFAEAD4051C378080D0`；同一 bit 经 Bootgen 2020.1 `-arch zynq -process_bitstream bin` 得 `.bit.bin` SHA256 `C66257193D94AF8B40488F9EEEF609032FFF2970B7B44DAF3F35CB3D8422C1CA`；routed DCP SHA256 `FE45A276349AB003D4BB038FFD47F5F1DE9310497C23E6E073BEA407C4A0B2F2`。
+- 尚未验证: 用户手动关闭/重开 XPR、重建 `exp/test`、bit 载荷比较和板级测试均 PENDING；旧 20260911 候选未覆盖。
+- Git commit: HEAD `4d754160c06346e6e0837bc38ca9d364a0301390`，工作树 dirty，故候选而非正式 clean release。
+- Release: CANDIDATE；manifest `releases/20260912_LOCK-MVP-L1_CANDIDATE_4d754160/RELEASE_MANIFEST.md`。
+
 ## 2026-09-11 — 首次板级测试候选 bit
 
 - Gate: LOCK-MVP-L1
