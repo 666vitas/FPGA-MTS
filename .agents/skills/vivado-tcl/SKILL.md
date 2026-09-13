@@ -1,6 +1,6 @@
 ---
 name: vivado-tcl
-description: Use this skill when the user wants to generate, write, or execute Vivado/Vitis TCL scripts for FPGA design flows. This includes creating projects, running synthesis/implementation, programming devices, working with IP Integrator block designs, debug core insertion, constraint management, simulation, and any Vivado automation task. Trigger when the user mentions Vivado, Vitis, FPGA, TCL scripts for hardware design, bitstream generation, XDC constraints, ILA/VIO debug, or any Xilinx/AMD FPGA toolchain task. This skill generates and executes TCL — it does NOT analyze Vivado output or reports. For debug strategy and core configuration decisions use vivado-debug, for timing analysis use vivado-analysis.
+description: Generate, review, or execute Vivado Tcl; execution requires explicit authorization and post-run status, log, and artifact checks.
 ---
 
 # Vivado TCL Script Generation Guide
@@ -198,7 +198,7 @@ if {[catch {<command>} result]} {
 2. **Include `file mkdir` for output directories** to avoid errors
 3. **Use `write_checkpoint`** at key stages in Non-Project Mode for recovery
 4. **Add `report_timing_summary`** after synthesis and after routing — timing closure is critical
-5. **Use `-force` on write commands** to allow re-runs without manual cleanup
+5. Use `-force` only when the target is a disposable, explicitly authorized output; never overwrite an existing release or user artifact.
 6. **For IP Integrator flows**, always `validate_bd_design` before proceeding
 7. **When programming hardware**, always check device connection before programming
 

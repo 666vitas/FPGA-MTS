@@ -1,6 +1,6 @@
 ---
 name: vivado-synth
-description: Use this skill when the user needs help with Vivado synthesis strategy selection, synthesis attribute configuration, synth_design option tuning, resource inference control (RAM/DSP/SRL/BRAM), hierarchy optimization (flatten_hierarchy, KEEP_HIERARCHY), OOC (out-of-context) synthesis, incremental synthesis, RTL linting, Block-Level synthesis (BLOCK_SYNTH), or any synthesis optimization decision. Trigger when the user mentions synthesis strategies, synthesis directives, synthesis attributes, resource mapping control, FSM encoding, retiming, or asks how to optimize synthesis results for area/timing/power. This skill provides decision-making knowledge — for TCL command execution, use vivado-tcl skill.
+description: Review or run Vivado synthesis for an explicitly requested RTL, DSP, register, or pipeline task.
 ---
 
 # Vivado Synthesis Decision Guide

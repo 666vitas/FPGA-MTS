@@ -46,7 +46,7 @@ The goal is not a clean repro but a **higher reproduction rate**. Loop the trigg
 
 ### When you genuinely cannot build a loop
 
-Stop and say so explicitly. List what you tried. Ask the user for: (a) access to whatever environment reproduces it, (b) a captured artifact (HAR file, log dump, core dump, screen recording with timestamps), or (c) permission to add temporary production instrumentation. Do **not** proceed to hypothesise without a loop.
+If a live reproduction loop is unavailable, continue with static analysis, offline replay, or an executable related check when useful. Mark root-cause claims as hypotheses until evidence is sufficient; do not block all progress solely because the original loop is unavailable.
 
 Do not proceed to Phase 2 until you have a loop you believe in.
 
@@ -64,7 +64,7 @@ Do not proceed until you reproduce the bug.
 
 ## Phase 3 — Hypothesise
 
-Generate **3–5 ranked hypotheses** before testing any of them. Single-hypothesis generation anchors on the first plausible idea.
+Generate a small ranked set of falsifiable hypotheses when the problem warrants it; the count is not fixed.
 
 Each hypothesis must be **falsifiable**: state the prediction it makes.
 
@@ -72,7 +72,7 @@ Each hypothesis must be **falsifiable**: state the prediction it makes.
 
 If you cannot state the prediction, the hypothesis is a vibe — discard or sharpen it.
 
-**Show the ranked list to the user before testing.** They often have domain knowledge that re-ranks instantly ("we just deployed a change to #3"), or know hypotheses they've already ruled out. Cheap checkpoint, big time saver. Don't block on it — proceed with your ranking if the user is AFK.
+Share hypotheses when user input could materially change the investigation; otherwise continue and label uncertainty.
 
 ## Phase 4 — Instrument
 

@@ -1,6 +1,6 @@
 ---
 name: vivado-constraints
-description: Use this skill when the user needs help writing XDC/SDC timing or physical constraints for Vivado FPGA designs. This includes clock definitions (create_clock, create_generated_clock, virtual clocks), I/O delay constraints (set_input_delay, set_output_delay, DDR timing), timing exceptions (set_false_path, set_multicycle_path, set_max_delay, set_min_delay), clock domain crossing (CDC) constraints (set_clock_groups, set_bus_skew), clock uncertainty/jitter/latency, physical constraints (IOSTANDARD, PACKAGE_PIN, LOC, Pblock, placement, routing), XDC precedence rules, constraint scoping (SCOPED_TO_REF), constraint ordering optimization, or constraint debugging (check_timing, report_exceptions, report_clock_interaction). Trigger when the user mentions XDC, SDC, timing constraints, clock constraints, IO delay, false path, multicycle path, clock groups, or physical pin assignment. For timing report interpretation and analysis use vivado-analysis.
+description: Write or review Vivado XDC clocks, I/O delays, CDC, or timing exceptions for an explicitly requested constraints task.
 ---
 
 # Vivado XDC Constraints Decision Guide

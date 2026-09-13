@@ -81,18 +81,18 @@ SAFE
 
 真实 P-only 硬件 Gate 通过前，不把主任务扩展到 PI/Ki、自动重锁、AI、IQ 重构、双执行器或大规模 GUI 重做。deterministic ARM 源码和测试必须保留，但它是否进入某个 build 只由当前 `CURRENT_GATE` 决定。
 
-## 3. 强制读取顺序
+## 3. 按任务读取当前文档
 
-每个任务开始前依次读取：
+每个任务先读取本文件，再按任务需要读取当前固定入口：
 
-1. `AGENTS.md`
-2. `version/CURRENT_GATE.md`
-3. `version/STATUS.md`
-4. `version/CURRENT_REVIEW_MANIFEST.md`
-5. manifest 中列出的 active rules、active spec 和当前代码范围
-6. 与本次任务直接相关的实现、测试、SOP 或实验记录
+- 当前能力、开发范围或硬件阶段：`docs/CURRENT_STATUS.md`。
+- Host 控制或接口：`docs/HOST_FPGA_INTERFACE.md` 及相关 Host 文件。
+- RTL、约束或构建：`docs/FPGA_DEVELOPMENT_RULES.md` 及相关源码/脚本。
+- 产物交付：`docs/RELEASE_PROCESS.md`。
+- 硬件操作说明：现有 `HARDWARE_TEST_SOP` 文档（若存在）。
+- 项目背景或变更记录：按需读取 `docs/PROJECT_CONTEXT.md`、`docs/CHANGELOG.md`。
 
-不得先读历史 review、旧 Gate 或修改日期较新的副本，再据此覆盖当前 Gate。
+历史材料只在需要追溯时读取，不重新成为当前规则。不得仅凭文件名或修改日期选择规则。
 
 ## 4. 文档冲突优先级
 
@@ -138,6 +138,8 @@ SAFE
 - `IMPLEMENT`：只在用户授权范围内实施最小修改并验证。
 - `VERIFY`：只运行验证和报告证据，不改变产品代码或硬件状态。
 - `HARDWARE-GATE`：每轮只给一个实验；用户操作并批准结果。
+
+已明确授权的本地工作可连续完成必要的检查、修改、相关验证及本轮引入问题的修复，不重复索要逐步批准。只读审查不自动授权实施，编写脚本不自动授权执行；RTL 编辑、仿真、综合/实现、候选 bit 生成和真实硬件操作分别确认范围。候选 bit 不等于允许加载或烧录，旧任务授权不继承到新任务。未知副作用的测试先检查入口和依赖；不能据此宣布所有测试都不访问硬件。
 
 ## 7. Host / FPGA 职责边界
 
@@ -211,16 +213,9 @@ SAFE
 
 本节自 2026-09-04 起更新第 3 节的必读顺序，并补充第 4、5 节的文档职责；原有安全边界、Gate 限制、证据标签和 Git 保护规则保持不变。
 
-### 11.1 进入项目必须首先读取
+### 11.1 当前文档入口
 
-1. `AGENTS.md`
-2. `docs/PROJECT_CONTEXT.md`
-3. `docs/CURRENT_STATUS.md`
-4. `docs/HOST_FPGA_INTERFACE.md`
-5. `docs/FPGA_DEVELOPMENT_RULES.md`
-6. `docs/RELEASE_PROCESS.md`
-
-随后按任务需要读取相关 RTL/Host 文件、测试和证据；历史追溯只读取 `../archive/obsolete/` 下的归档内容。不得只凭文件名、修改日期或历史报告判断当前状态。
+第 3 节的按任务读取规则是本工程唯一当前入口。随后读取相关 RTL/Host 文件、测试和证据；历史追溯只读取 `../archive/obsolete/` 下的归档内容。
 
 ### 11.2 文档权威关系
 
@@ -245,10 +240,10 @@ SAFE
 
 ### 11.5 重构后的路径边界
 
-- `v94/docs/` 只保留六个规范入口：`PROJECT_CONTEXT.md`、`CURRENT_STATUS.md`、`CHANGELOG.md`、`FPGA_DEVELOPMENT_RULES.md`、`HOST_FPGA_INTERFACE.md`、`RELEASE_PROCESS.md`。
+- `v94/docs/` 的固定入口包括 `PROJECT_CONTEXT.md`、`CURRENT_STATUS.md`、`CHANGELOG.md`、`FPGA_DEVELOPMENT_RULES.md`、`HOST_FPGA_INTERFACE.md`、`RELEASE_PROCESS.md`；其他有实际用途的现有文档可以保留。
 - `v94/reference/` 只保存不参与自研 build 的 open source 与 guanfang-v0.94 参考工程。
 - `archive/obsolete/v94_version/` 保存 version 下的全部历史版本、旧规则、review、Gate/状态快照和产品化草稿；当前 Gate 与项目状态只由 `docs/CURRENT_STATUS.md` 管理。
-- 原有章节中对 `version/CURRENT_GATE.md`、`version/STATUS.md` 和 `version/CURRENT_REVIEW_MANIFEST.md` 的引用属于历史路径；进入项目时以本节规定的六个固定入口为准。
+- 原有章节中对 `version/CURRENT_GATE.md`、`version/STATUS.md` 和 `version/CURRENT_REVIEW_MANIFEST.md` 的引用属于历史路径；进入项目时以第 3 节规定的当前入口为准。
 - 原第 5 节中的 `version/rules/*.md`、`docs/architecture/`、`docs/process/`、`docs/hardware/` 和 `docs/experiment_logs/` 已归档；当前规则、上下文、接口和发布要求分别以 `docs/FPGA_DEVELOPMENT_RULES.md`、`docs/PROJECT_CONTEXT.md`、`docs/HOST_FPGA_INTERFACE.md` 和 `docs/RELEASE_PROCESS.md` 为准。
 - 根目录的历史审查输出、旧计划、旧 README 和旧 docs 已归档；不得把归档文件重新当作当前状态入口。
 - 生成缓存和日志进入 `archive/delete_candidates/`，删除前仍需人工确认，不因移动到该目录而自动删除。

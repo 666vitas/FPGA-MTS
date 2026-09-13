@@ -1,6 +1,6 @@
 ---
 name: vivado-analysis
-description: Use this skill when the user needs help with Vivado design analysis, timing report interpretation, or timing closure. This includes report_timing interpretation (slack calculation, path analysis, clock skew/uncertainty), report_timing_summary signoff verification, report_qor_assessment (QoR scoring 1-5, assessment categories), report_qor_suggestions (automated optimization suggestions, .rqs workflow), report_design_analysis (timing path characteristics, complexity/Rent analysis, congestion analysis), report_methodology (design rule compliance), report_utilization (resource usage analysis), report_cdc (clock domain crossing checks), report_drc (design rule checks), report_bus_skew, timing closure strategies (setup/hold violation resolution, congestion mitigation), message severity management, and design check waivers. This skill provides analysis and interpretation knowledge — for TCL command execution use vivado-tcl, for constraint modifications use vivado-constraints, for implementation strategy changes use vivado-impl.
+description: Analyze Vivado synthesis or routed timing, utilization, fanout, or congestion reports supplied by the task.
 ---
 
 # Vivado Design Analysis & Timing Closure Guide

@@ -23,6 +23,15 @@
 
 验证结果必须区分 PASS、FAIL、NOT RUN 和 NOT VERIFIED。不得使用“应该可以”“预计通过”替代证据。
 
+## 2026-09-13 — Astra 指令与 Skill 规则维护
+
+- Gate: LOCK-MVP-L1；仅修改 `AGENTS.md`、项目 Skills、`scripts/verify.ps1` 和本记录。
+- 修改原因: 合并当前文档入口，按任务读取；允许已授权本地工作连续完成；收窄 Skill 触发描述并修正 Rules 校验路径。
+- 接口/产品影响: 无；Host、RTL、Vivado 工程、约束、bitstream 和 release 未修改。
+- 验证: `scripts/verify.ps1 -Scope Rules`、PowerShell 语法检查；未运行 Host、RTL、Vivado 或硬件验证。
+- 未验证: 客户端实际 Skill 自动加载链仍需新会话确认。
+- Git: NOT COMMITTED；Release: NOT RELEASED。
+
 ## 2026-09-12 — Host VALIDATE → Kp=0 HOLD → APPLY P 流程修复
 
 - Gate: LOCK-MVP-L1；仅修改 Host、Host 测试和固定文档；RTL/XDC/Vivado/bitstream 未修改、未运行。

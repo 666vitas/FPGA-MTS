@@ -120,30 +120,25 @@ function Invoke-RulesVerification {
 
     $activeRuleDocs = @(
         "AGENTS.md",
-        "version\STATUS.md",
-        "version\CURRENT_REVIEW_MANIFEST.md",
-        "version\rules\20_FPGA_MTS_ENGINEERING_WORKFLOW.md"
+        "docs\CURRENT_STATUS.md",
+        "docs\FPGA_DEVELOPMENT_RULES.md",
+        "docs\HOST_FPGA_INTERFACE.md",
+        "docs\RELEASE_PROCESS.md"
     )
-    $navigationDocs = @("README.md")
+    $navigationDocs = @("docs\PROJECT_CONTEXT.md", "docs\CHANGELOG.md")
     $requiredPaths = @(
         "AGENTS.md",
-        "README.md",
-        "version\STATUS.md",
-        "version\CURRENT_REVIEW_MANIFEST.md",
-        "version\rules\20_FPGA_MTS_ENGINEERING_WORKFLOW.md",
-        "version\HARDWARE_VALIDATION.md",
-        "version\history\README.md",
-        "version\history\STATUS_HISTORY_THROUGH_2026-07-18.md",
-        "version\history\SKILL_USAGE_GUIDE_LEGACY.md",
-        "version\history\CURRENT_MAINLINE_REVIEW_LEGACY.md",
+        "docs\PROJECT_CONTEXT.md",
+        "docs\CURRENT_STATUS.md",
+        "docs\FPGA_DEVELOPMENT_RULES.md",
+        "docs\HOST_FPGA_INTERFACE.md",
+        "docs\RELEASE_PROCESS.md",
         "v0.94\rtl",
         "v0.94\sim",
         "v0.94\project\redpitaya.xpr",
         "software\redpitaya_lock_host\redpitaya_lock_host",
         "software\redpitaya_lock_host\tests",
         "software\redpitaya_lock_host\scripts",
-        "software\redpitaya_lock_host\docs\HARDWARE_CALIBRATION_SOP.md",
-        "software\redpitaya_lock_host\docs\DEVELOPMENT_LOG.md",
         "scripts\verify.ps1"
     )
 
@@ -178,31 +173,22 @@ function Invoke-RulesVerification {
     Write-Host "No historical compatibility file is declared by active documents."
 
     Write-Step "Rules: STATUS shape"
-    $statusPath = Join-Path $repoRoot "version\STATUS.md"
+    $statusPath = Join-Path $repoRoot "docs\CURRENT_STATUS.md"
     $statusLines = @(Get-Content -Encoding utf8 -LiteralPath $statusPath)
     $currentEntries = @($statusLines | Where-Object { $_ -match "^## " })
-    Assert-Condition ($currentEntries.Count -eq 1) "STATUS.md must contain exactly one current entry."
-    foreach ($heading in @(
-        "### Stage",
-        "### Current Gate",
-        "### Current Blocker",
-        "### Verified",
-        "### Not Verified",
-        "### Forbidden Scope",
-        "### Unique Next Experiment"
-    )) {
-        Assert-Condition ($statusLines -contains $heading) "STATUS.md is missing heading: $heading"
-    }
-    Write-Host "STATUS.md contains one current Gate and all required sections."
+    Assert-Condition ($currentEntries.Count -ge 1) "CURRENT_STATUS.md must contain a current entry."
+    Assert-Condition (($statusLines -match "LOCK-MVP-L1").Count -gt 0) "CURRENT_STATUS.md is missing the current Gate identifier."
+    Assert-Condition (($statusLines -match "Status: ACTIVE").Count -gt 0) "CURRENT_STATUS.md is missing ACTIVE status metadata."
+    Write-Host "CURRENT_STATUS.md contains current Gate and ACTIVE metadata."
 
     Write-Step "Rules: active local skills"
-    $expectedSkills = @("diagnose", "tdd", "zoom-out")
+    $expectedSkills = @("diagnose", "tdd", "vivado-analysis", "vivado-constraints", "vivado-debug", "vivado-impl", "vivado-sim", "vivado-synth", "vivado-tcl", "zoom-out")
     $actualSkills = @(
         Get-ChildItem -LiteralPath (Join-Path $repoRoot ".agents\skills") -Directory |
             Sort-Object Name |
             ForEach-Object { $_.Name }
     )
-    Assert-Condition (($actualSkills -join "|") -eq ($expectedSkills -join "|")) "Active skill set differs from diagnose/tdd/zoom-out: $($actualSkills -join ', ')"
+    Assert-Condition (($actualSkills -join "|") -eq ($expectedSkills -join "|")) "Active skill set differs from expected project skills: $($actualSkills -join ', ')"
     foreach ($skill in $expectedSkills) {
         Assert-Condition (Test-Path -LiteralPath (Join-Path $repoRoot ".agents\skills\$skill\SKILL.md")) "Missing SKILL.md for $skill."
     }

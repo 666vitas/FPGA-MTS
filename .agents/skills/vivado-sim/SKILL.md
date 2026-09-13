@@ -1,6 +1,6 @@
 ---
 name: vivado-sim
-description: Use this skill when the user needs help with Vivado simulation strategy, flow selection, and debugging. This includes behavioral simulation (RTL functional verification), post-synthesis simulation (netlist functional verification), post-implementation timing simulation (SDF back-annotation, timing verification), Vivado Simulator xsim usage (xvlog/xvhdl/xelab/xsim three-step flow, launch_simulation Project Mode), third-party simulator integration (Questa/ModelSim/VCS/Xcelium/Riviera/ActiveHDL, compile_simlib, export_simulation), SAIF/VCD power simulation (open_saif/log_saif, open_vcd/log_vcd, read_saif + report_power), simulation netlist generation (write_verilog -mode funcsim/timesim, write_sdf), xsim debugging commands (add_force, add_wave, log_wave, add_bp, step, run, restart, get_objects, get_value), simulation properties and settings, glbl.v usage, or any question about choosing the right simulation approach for verification or power analysis.
+description: Choose or run Vivado/xsim behavioral, post-synthesis, timing, or power simulation when the task explicitly requires simulation.
 ---
 
 # Vivado Simulation Decision Guide

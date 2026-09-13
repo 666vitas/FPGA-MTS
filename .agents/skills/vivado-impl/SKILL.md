@@ -1,6 +1,6 @@
 ---
 name: vivado-impl
-description: Use this skill when the user needs help with Vivado implementation strategy selection and optimization. This includes opt_design (logic optimization directives and options), place_design (placement directives, congestion analysis, PSIP physical synthesis), phys_opt_design (physical optimization - fanout/placement/routing/SLR crossing/register optimization, hold fixing), route_design (routing directives, congestion resolution, pre-routing critical nets), power_opt_design (clock gating, BRAM power optimization), incremental implementation (read_checkpoint -incremental, auto_incremental, reuse analysis), ECO flow, implementation run strategies (Performance/Congestion/Area strategies), or any question about choosing between implementation directives or resolving timing/congestion issues during implementation. This skill provides decision-making knowledge for the implementation phase — for TCL command execution use vivado-tcl, for synthesis use vivado-synth, for constraints use vivado-constraints, for timing report interpretation and analysis use vivado-analysis.
+description: Review or run Vivado place, route, or implementation strategy when explicitly required by the task and authorized.
 ---
 
 # Vivado Implementation Decision Guide

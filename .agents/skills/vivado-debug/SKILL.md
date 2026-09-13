@@ -1,9 +1,11 @@
 ---
 name: vivado-debug
-description: Use this skill when the user needs help with Vivado in-system debugging, hardware programming, or debug core configuration. This includes ILA (Integrated Logic Analyzer) configuration and trigger strategies, VIO (Virtual I/O) usage for signal monitoring and control, JTAG-to-AXI Master for AXI transaction generation, mark_debug attribute and debug probing flows (Netlist Insertion, HDL Instantiation), Set Up Debug Wizard, ILA cross-trigger architecture, debug core timing impact and mitigation, Vivado Hardware Manager operation, FPGA/SoC device programming, Versal debugging architecture (AXI4 Debug Hub, CIPS integration), SVF file programming, debug clock requirements, and common debug error troubleshooting. This skill provides debugging strategy and decision-making knowledge — for TCL command execution use vivado-tcl, for implementation strategies use vivado-impl, for timing analysis use vivado-analysis.
+description: Plan or perform Vivado ILA, VIO, JTAG, programming, or in-system debug only when explicitly requested and authorized.
 ---
 
 # Vivado Programming & Debugging Guide
+
+Connection, programming, VIO, and AXI writes are planning examples only and are never automatic defaults; they require explicit authorization and a confirmed target.
 
 Based on UG908 (v2025.2). This skill helps choose debug strategies, configure debug cores, and troubleshoot hardware debugging. For complete command syntax, see REFERENCE.md. For TCL execution, use vivado-tcl.
 

@@ -1,5 +1,11 @@
 # Current Status
 
+## 规则维护（2026-09-13）
+
+- 已完成一次有限的 Astra 指令/Skill 规则维护：合并当前文档入口、按任务读取、授权连续执行边界，并更新 Rules 校验路径。
+- 本轮未修改 Host/RTL、接口、Vivado 工程、约束、构建产物或硬件状态；未运行 Host、RTL、Vivado 或硬件验证。
+- 客户端实际 Skill 自动加载链无法由仓库文件确认，需新会话核实。
+
 ## Host PZT-only 流程修复（2026-09-12）
 
 - 本轮仅修改 Host、测试和固定文档；RTL、XDC、Vivado run、bitstream 均未修改/未运行。
