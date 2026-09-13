@@ -219,11 +219,15 @@ def test_fast_validate_completion_accepts_matching_event_after_scan_return() -> 
         validate_state=1,
         validate_payload_extra={
             "validation_completed_before_readback": True,
-            "acquisition_event": {
-                "valid": True,
-                "event_type": 7,
-                "config_generation": 11,
-            },
+                "acquisition_event": {
+                    "valid": True,
+                    "event_type": 7,
+                    "config_generation": 11,
+                    "sequence": 8,
+                    "scan_direction": 1,
+                    "error_crossing_direction": 1,
+                },
+                "validation_sequence_before": 7,
         },
     )
     acquisition = AcquisitionService(backend)
@@ -437,3 +441,51 @@ def test_worker_rejects_stale_capture_before_any_arm_write(monkeypatch) -> None:
     assert errors[0]["_host_context_epoch"] == 3
     assert "stale" in str(errors[0]["error"])
     assert acquisition.capture_id == target.capture_id
+
+
+def test_confirmed_target_cannot_arm_active_before_matching_validation() -> None:
+    backend = FakeBackend()
+    acquisition = AcquisitionService(backend)
+    target = make_target()
+    acquisition.adopt_capture_id(target.capture_id)
+    acquisition.bind_confirmed_target(target)
+    service = LockService(backend, acquisition)
+
+    with pytest.raises(CustomFpgaBackendError, match="VALIDATED"):
+        service.request_lock(
+            BasicLockRequest(
+                target=target,
+                kp=0,
+                polarity=0,
+                correction_limit_counts=12,
+                absolute_limit_counts=300,
+            )
+        )
+    assert backend.arm_configs == []
+
+
+def test_validation_qualification_rejects_old_sticky_sequence() -> None:
+    acquisition = AcquisitionService(FakeBackend())
+    target = make_target()
+    acquisition.adopt_capture_id(target.capture_id)
+    acquisition.bind_confirmed_target(target)
+
+    with pytest.raises(CustomFpgaBackendError, match="sequence"):
+        acquisition.mark_validated(
+            target,
+            {
+                "acquisition_state": 1,
+                "mode": 1,
+                "enable": 1,
+                "saturated": False,
+                "validation_sequence_before": 8,
+                "acquisition_event": {
+                    "valid": True,
+                    "event_type": 7,
+                    "sequence": 8,
+                    "config_generation": target.config_generation,
+                    "scan_direction": target.scan_direction,
+                    "error_crossing_direction": target.error_crossing_direction,
+                },
+            },
+        )

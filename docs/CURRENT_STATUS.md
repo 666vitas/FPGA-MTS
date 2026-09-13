@@ -1,5 +1,14 @@
 # Current Status
 
+## Host PZT-only 流程修复（2026-09-12）
+
+- 本轮仅修改 Host、测试和固定文档；RTL、XDC、Vivado run、bitstream 均未修改/未运行。
+- `ARM VALIDATE` 现在等待新的 VALIDATED sticky event、generation/双方向匹配，并自动确认 `SCAN/ENABLE=1、saturation=false`；不再要求手动 `REFRESH IDENTITY`。
+- `ARM BASIC LOCK` 仅在当前 confirmed target 已完成本 generation VALIDATE 后启用，并固定从 Kp=0 开始。匹配 TRIGGERED 后显示 `PZT HOLD / Kp=0 / NOT LOCKED`，并显示 captured bias、delta 和 APPLY P。
+- `APPLY P` 只开放 Kp=4，复用同一 captured bias、ERROR_SETPOINT 和 generation；Kp=0 hold 不宣称锁定。
+- Host 定向回归：201 passed（含新增 VALIDATE→HOLD→APPLY P 门禁测试）；完整 `pytest -q` 曾因既有 GUI 测试不退出而中断，未作全量通过声明。
+- 2026-09-12 板级事实仍按人工记录：OUT2 约 50 Hz scan、ERROR crossing 可选、VALIDATE 可产生 VALIDATED 并回 SCAN、Kp=0 后 OUT2 三角波停止并进入近似 DC hold；Kp=4 收敛/极性/持续锁定仍未验证。
+
 ## 本轮构建/手动复核对照卡（2026-09-12）
 
 | 项目 | 自动构建（本轮候选） | 用户手动 `exp/test` |
@@ -90,8 +99,8 @@ LOCK-MVP-L1
 - 当前 XPR、top 和主要模块关系已由资产审查识别。
 - 锁定、采集、保护和 Host CSR 所需的 RTL 路径已存在。
 - `tb_simple_lock_acquisition` 37/37、`tb_out2_lock_controller` 60/60、`tb_l1_error_crossing_plant` 10/10 PASS；覆盖 VALIDATE→SCAN→人工 ACTIVE、实际 OUT2 捕获、Q8 正负截断/限幅及输出模式优先级。plant 为简化数字模型，其 Kp=128 等数值不是硬件建议值。
-- Host 定向套件（lock services、custom backend/workflow、低幅过零、操作员诊断）194 passed。
-- Host `apply-p` 现在依据 FPGA 状态 4/5 设置 ACQUIRING/P_LOCKED；异常读回进入 SAFE/FAILED。
+- Host 定向套件（lock services、custom backend/workflow、低幅过零、操作员诊断、波形预览）201 passed。
+- Host `apply-p` 复用 Kp=0 captured context，仅开放 Kp=4；依据 FPGA 状态 4/5 设置 P-ONLY ACQUIRING 或 FPGA P_LOCKED/PHYSICAL VERIFICATION REQUIRED，异常读回进入 SAFE/FAILED。
 - VALIDATE 快速完成时，Host 仅接受 ARM 前 event sequence 基线之后、同一 config generation/方向的 VALIDATED 事件。
 - 已确认目标绑定到 GUI 生命周期内持久的 AcquisitionService；worker 不再用请求 capture_id 初始化自己的有效状态。新 capture、重扫、参数变化、主机/基址变化及断连使旧目标失效，旧上下文的异步回复被丢弃；目标偏置微调需要重新确认。
 - 离线证据位于 `v0.94/exp/l1-contract-20260909/`：最终 `host_pytest_delivery.log`、三个 `*_xsim.log`、`delivery_identity.json` 和 `delivery_worktree.patch`。`source_identity.json`/`source_worktree.patch` 是构建前快照；最后普通 STATUS 验证完成显示仅改 Host，未改变 RTL/构建输入。`host_pytest.log` 保留了诊断历史被误清除的中间失败，最终已修复并回归；当前证据不是 bit release。
@@ -121,7 +130,7 @@ LOCK-MVP-L1
 - 启动入口：software/redpitaya_lock_host/run.bat
 - Python 入口：redpitaya_lock_host.main
 - FPGA 访问：SSH + /dev/mem，自定义 CSR 基址 0x40600000
-- 当前操作链：Probe Registers → Status → SAFE → SCAN → Capture → 选择过零点 → LOCK HERE → Apply Kp → SAFE
+- 当前操作链：Probe Registers → SAFE → SCAN → Capture → PICK/CONFIRM → ARM VALIDATE（自动等待 VALIDATED/READY）→ Kp=0 ARM BASIC LOCK（PZT HOLD）→ Kp=4 APPLY P
 - 当前独立 Host release/tag：未识别
 - 与正式 FPGA bit 的兼容性绑定：NOT DONE
 - 现有 Host 测试结果：本次定向回归 PASS；完整 `pytest -q` 未完成（长时间未结束后中断，具体阻塞项未定位）

@@ -1208,6 +1208,8 @@ class MainWindow(QMainWindow):
         self.capture_in_flight = False
         self.lock_error_over_threshold_count = 0
         self.p_lock_ready = False
+        self.target_validated = False
+        self.validated_config_generation: int | None = None
         self.acquisition_state = 0
         self.applied_kp = 0
         self.applied_polarity_index = 0
@@ -1440,6 +1442,8 @@ class MainWindow(QMainWindow):
         self.system_l1_capability_matched = False
         self.last_fpga_status_payload = {}
         self.p_lock_ready = False
+        self.target_validated = False
+        self.validated_config_generation = None
         if connection in {"Disconnected", "Communication lost"} or error:
             self._invalidate_lock_target()
         self.system_connection_value.setText(connection)
@@ -2294,7 +2298,8 @@ class MainWindow(QMainWindow):
         self.custom_limit_counts.setValue(8191)
         self.custom_hold_v = self._custom_double_spin(0.0, -1.0, 1.0, 4, " V")
         self.custom_kp = QComboBox()
-        self.custom_kp.addItems(["0", "4", "8", "16", "32"])
+        # LOCK-MVP-L1 operator path intentionally exposes only the first safe step.
+        self.custom_kp.addItems(["0", "4"])
         self.custom_kp.setCurrentText("0")
         self.custom_ki = QSpinBox()
         self.custom_ki.setRange(0, 8191)
@@ -3379,6 +3384,8 @@ class MainWindow(QMainWindow):
             self.basic_lock_active = False
             self.basic_lock_queue = []
             self.p_lock_ready = False
+            self.target_validated = False
+            self.validated_config_generation = None
             self.acquisition_state = 0
             self.applied_kp = 0
             self.operator_state_label.setText("SAFE")
@@ -3388,6 +3395,11 @@ class MainWindow(QMainWindow):
             self._invalidate_lock_target()
             self.operator_state_label.setText("SCANNING")
             self.operator_scan_state_label.setText("SCANNING")
+        if operation == "validate-lock":
+            self.target_validated = False
+            self.validated_config_generation = None
+            self.last_arm_result = "VALIDATING"
+            self.operator_state_label.setText("VALIDATING")
         if self._official_mode():
             self.mode_combo.setCurrentText("Custom FPGA Mode")
         try:
@@ -3463,6 +3475,12 @@ class MainWindow(QMainWindow):
                 self.custom_warning_text.setPlainText(message)
                 self.statusBar().showMessage(message)
                 return
+            if requested_kp not in (0, 4):
+                message = "APPLY P is limited to Kp=0 or Kp=4 for LOCK-MVP-L1"
+                self.operator_alert_label.setText(message)
+                self.custom_warning_text.setPlainText(message)
+                self.statusBar().showMessage(message)
+                return
             if requested_kp == 0 and self.acquisition_state not in (4, 5):
                 message = "Kp=0 APPLY P requires FPGA state P_LOCK_KP0 or P_LOCK_ACTIVE"
                 self.operator_alert_label.setText(message)
@@ -3484,6 +3502,18 @@ class MainWindow(QMainWindow):
                 )
                 self.operator_alert_label.setText("Lock point not confirmed")
                 self.statusBar().showMessage("LOCK HERE blocked: no waveform point selected")
+                return
+            if operation == "lock" and not self.target_validated:
+                message = "ARM BASIC LOCK requires VALIDATED / READY for the current target"
+                self.operator_alert_label.setText(message)
+                self.custom_warning_text.setPlainText(message)
+                self.statusBar().showMessage(message)
+                return
+            if operation == "lock" and int(self.custom_kp.currentText()) != 0:
+                message = "ARM BASIC LOCK starts with Kp=0; choose Kp=0 before ARM BASIC LOCK"
+                self.operator_alert_label.setText(message)
+                self.custom_warning_text.setPlainText(message)
+                self.statusBar().showMessage(message)
                 return
             requested_kp = int(self.custom_kp.currentText())
             if requested_kp not in (0, 4):
@@ -4234,6 +4264,8 @@ class MainWindow(QMainWindow):
         self.pending_lock_point = None
         self.pending_target_peak = None
         self.p_lock_ready = False
+        self.target_validated = False
+        self.validated_config_generation = None
         self.custom_scope_valid_for_selection = False
         self._mark_diagnostics_not_live(stale=True, reason="Target context invalidated")
         if had_target:
@@ -4274,6 +4306,8 @@ class MainWindow(QMainWindow):
             self.operator_alert_label.setText("Target expired; capture and select again")
             return
         self.selected_lock_point = dict(self.pending_lock_point)
+        self.target_validated = False
+        self.validated_config_generation = None
         self.acquisition_config_generation += 1
         self.selected_lock_point["config_generation"] = self.acquisition_config_generation
         self.selected_lock_point["initial_polarity_suggestion"] = (
@@ -4722,22 +4756,46 @@ class MainWindow(QMainWindow):
         elif operation == "validate-lock":
             self.acquisition_state = int(payload.get("acquisition_state", 2))
             completed = bool(payload.get("validation_completed_before_readback"))
-            self.last_arm_result = "VALIDATED" if completed else "ACCEPTED"
+            selected_generation = int((self.selected_lock_point or {}).get("config_generation", 0))
+            event = payload.get("acquisition_event")
+            event = event if isinstance(event, dict) else {}
+            completed = completed and self.selected_lock_point is not None and (
+                selected_generation > 0
+                and int(payload.get("acquisition_state", -1)) == 1
+                and int(payload.get("mode", -1)) == 1
+                and int(payload.get("enable", -1)) == 1
+                and not bool(payload.get("saturated", False))
+                and bool(event.get("valid"))
+                and int(event.get("event_type", 0)) == 7
+                and int(event.get("config_generation", 0)) == selected_generation
+                and int(event.get("scan_direction", -1)) == int(payload.get("required_scan_direction", -2))
+                and int(event.get("error_crossing_direction", -1)) == int(payload.get("required_error_crossing_direction", -2))
+                and payload.get("validation_sequence_before") is not None
+                and int(event.get("sequence", -1)) != int(payload.get("validation_sequence_before"))
+            )
+            self.target_validated = bool(completed)
+            self.validated_config_generation = selected_generation if completed else None
+            self.last_arm_result = "VALIDATED" if completed else "FAILED"
             self.last_arm_diagnostic_payload = dict(payload)
             self.operator_state_label.setText(
-                "VALIDATED / SCAN" if completed else "FPGA VALIDATING"
+                "VALIDATED / READY" if completed else "VALIDATE FAILED"
             )
-            self.operator_alert_label.setText("")
+            self.operator_alert_label.setText(
+                "" if completed else "VALIDATE gate failed: event/generation/direction or SCAN readback mismatch"
+            )
             self.custom_warning_text.setPlainText(
-                "VALIDATE observes the crossing without feedback and returns to SCAN "
-                "after its event. Check the event sequence/generation in STATUS; "
-                "ACTIVE requires a separate operator request."
+                "VALIDATED / READY: target generation and scan/error directions match. "
+                "Choose Kp=0 and press ARM BASIC LOCK; no feedback is enabled yet."
+                if completed else
+                "VALIDATE did not pass all gates (fresh event, generation, directions, SCAN/ENABLE, saturation)."
             )
         elif operation == "lock":
             event = payload.get("acquisition_event")
             event = event if isinstance(event, dict) else {}
             if bool(event.get("valid")) and int(event.get("event_type", 0)) == 2:
-                payload["captured_lock_bias_counts"] = int(event["out2_counts"])
+                payload["captured_lock_bias_counts"] = int(
+                    payload.get("lock_bias_counts", event["out2_counts"])
+                )
                 payload["captured_error_setpoint_counts"] = int(
                     payload.get("error_setpoint_counts", 0)
                 )
@@ -4769,31 +4827,52 @@ class MainWindow(QMainWindow):
                 else "REJECTED"
             )
             triggered_kp = int(payload.get("kp", self.custom_kp.currentText()))
+            captured_bias = payload.get("captured_lock_bias_counts", payload.get("lock_bias_counts"))
+            selected_scan_direction = int(
+                self.selected_lock_point.get(
+                    "scan_direction",
+                    1 if self.selected_lock_point and self.selected_lock_point.get("ramp_direction") == "rising" else 2,
+                )
+            )
+            selected_error_direction = int(
+                self.selected_lock_point.get(
+                    "error_crossing_direction_code",
+                    1 if self.selected_lock_point and self.selected_lock_point.get("error_crossing_direction") == "neg_to_pos" else 2,
+                )
+            )
             triggered = (
                 operation_verified
                 and state in (4, 5)
+                and self.target_validated
+                and self.validated_config_generation == selected_generation
+                and self.selected_lock_point is not None
+                and int(self.selected_lock_point.get("capture_generation", -1)) == int(self.custom_capture_generation)
+                and int(payload.get("mode", -1)) == 3
+                and int(payload.get("enable", -1)) == 1
+                and not bool(payload.get("saturated", False))
                 and bool(event.get("valid"))
                 and int(event.get("event_type", 0)) == 2
+                and payload.get("active_sequence_before") is not None
+                and int(event.get("sequence", -1)) != int(payload.get("active_sequence_before"))
                 and int(event.get("config_generation", 0)) == selected_generation
+                and int(event.get("scan_direction", -1)) == selected_scan_direction
+                and int(event.get("error_crossing_direction", -1)) == selected_error_direction
+                and captured_bias is not None
+                and int(self.selected_lock_point.get("safe_min_counts", -8191)) <= int(captured_bias) <= int(self.selected_lock_point.get("safe_max_counts", 8191))
+                and int(captured_bias) == int(event.get("out2_counts", captured_bias))
+                and triggered_kp == 0
             )
-            self.p_lock_ready = False
+            self.p_lock_ready = bool(triggered)
+            self.custom_apply_p_button.setVisible(bool(self.p_lock_ready))
             self.applied_kp = triggered_kp if triggered else 0
             if triggered:
                 self.applied_polarity_index = self.custom_polarity.currentIndex()
-                self.operator_state_label.setText(
-                    "ACQUIRING / FPGA TRIGGERED"
-                    if state == 4
-                    else "P_LOCKED / FPGA VERIFIED"
-                )
+                self.operator_state_label.setText("PZT HOLD / Kp=0 / NOT LOCKED")
                 self.operator_alert_label.setText("")
-                if state == 4:
-                    self.custom_warning_text.append(
-                        "FPGA TRIGGERED matches the target generation; FPGA is ramping Kp and evaluating convergence."
-                    )
-                else:
-                    self.custom_warning_text.append(
-                        "FPGA supervisor reports P_LOCKED; continue monitoring ERROR, OUT2 and saturation."
-                    )
+                self.custom_warning_text.append(
+                    "Kp=0 only holds the captured PZT bias; this is not laser locking. "
+                    "Confirm the OUT2 triangle stopped, then choose Kp=4 and press APPLY P."
+                )
             elif state == 3:
                 self.operator_state_label.setText("ARMED")
                 self.operator_alert_label.setText("")
@@ -4814,7 +4893,21 @@ class MainWindow(QMainWindow):
             )
             self.applied_kp = kp
             self.applied_polarity_index = self.custom_polarity.currentIndex()
-            self.operator_state_label.setText("P_LOCK Kp=0" if kp == 0 else "P_LOCK ACTIVE")
+            self.p_lock_ready = False
+            self.custom_apply_p_button.setVisible(False)
+            self.operator_state_label.setText(
+                "PZT HOLD / Kp=0 / NOT LOCKED"
+                if kp == 0
+                else "P-ONLY ACQUIRING"
+                if int(payload.get("acquisition_state", -1)) == 4
+                else "FPGA P_LOCKED / PHYSICAL VERIFICATION REQUIRED"
+            )
+            self.custom_warning_text.setPlainText(
+                "P-only gain is active. Monitor ERROR, OUT2, absorption/PD and saturation; "
+                "FPGA P_LOCKED is an internal supervisor result and does not replace physical verification."
+                if kp != 0 else
+                "Kp=0 only holds the captured PZT bias; this is not laser locking."
+            )
             self.operator_alert_label.setText("")
         elif operation == "status" and operation_verified:
             event = payload.get("acquisition_event")
@@ -4826,17 +4919,34 @@ class MainWindow(QMainWindow):
             self.acquisition_state = state
             matching_trigger = (
                 state in (4, 5)
+                and int(payload.get("mode", -1)) == 3
+                and int(payload.get("enable", -1)) == 1
+                and not bool(payload.get("saturated", False))
                 and bool(event.get("valid"))
                 and int(event.get("event_type", 0)) == 2
+                and self.last_arm_diagnostic_payload.get("active_sequence_before") is not None
+                and int(event.get("sequence", -1)) != int(self.last_arm_diagnostic_payload.get("active_sequence_before"))
                 and selected_generation > 0
                 and int(event.get("config_generation", 0)) == selected_generation
+                and payload.get("lock_bias_counts") is not None
+                and int((self.selected_lock_point or {}).get("safe_min_counts", -8191))
+                <= int(payload.get("lock_bias_counts", 0))
+                <= int((self.selected_lock_point or {}).get("safe_max_counts", 8191))
             )
-            self.p_lock_ready = False
-            if matching_trigger:
+            self.p_lock_ready = bool(
+                matching_trigger
+                and self.target_validated
+                and int(payload.get("kp", -1)) == 0
+                and self.selected_lock_point is not None
+                and int(self.selected_lock_point.get("capture_generation", -1)) == int(self.custom_capture_generation)
+            )
+            if self.p_lock_ready:
+                self.operator_state_label.setText("PZT HOLD / Kp=0 / NOT LOCKED")
+            elif matching_trigger:
                 self.operator_state_label.setText(
                     "ACQUIRING / FPGA TRIGGERED"
                     if state == 4
-                    else "P_LOCKED / FPGA VERIFIED"
+                    else "FPGA P_LOCKED / PHYSICAL VERIFICATION REQUIRED"
                 )
             elif state == 1:
                 validation = self.last_arm_diagnostic_payload
@@ -4844,6 +4954,9 @@ class MainWindow(QMainWindow):
                 matching_validation = (
                     self.last_arm_intent == "VALIDATE"
                     and sequence_before is not None
+                    and int(payload.get("mode", -1)) == 1
+                    and int(payload.get("enable", -1)) == 1
+                    and not bool(payload.get("saturated", False))
                     and bool(event.get("valid"))
                     and int(event.get("event_type", 0)) == 7
                     and int(event.get("sequence", -1)) != int(sequence_before)
@@ -4856,8 +4969,10 @@ class MainWindow(QMainWindow):
                 )
                 if matching_validation:
                     self.last_arm_result = "VALIDATED"
+                    self.target_validated = True
+                    self.validated_config_generation = selected_generation
                 self.operator_state_label.setText(
-                    "VALIDATED / SCAN" if matching_validation else "SCANNING"
+                    "VALIDATED / READY" if matching_validation else "SCANNING"
                 )
             elif state == 2:
                 self.operator_state_label.setText("FPGA VALIDATING")
@@ -5807,13 +5922,14 @@ class MainWindow(QMainWindow):
         arm_common_enabled = identity_enabled and not arm_block_reason
         active_kp = int(self.custom_kp.currentText())
         self.custom_lock_button.setEnabled(
-            arm_common_enabled and active_kp in (0, 4)
+            arm_common_enabled and self.target_validated and active_kp == 0
         )
         self.custom_validate_lock_button.setEnabled(
             arm_common_enabled and active_kp == 0
         )
         lock_reason = arm_block_reason or (
-            "" if active_kp in (0, 4) else "BASIC LOCK Kp must be 0 or 4"
+            "" if self.target_validated and active_kp == 0 else
+            "target must be VALIDATED / READY and Kp=0 before ARM BASIC LOCK"
         )
         validate_reason = arm_block_reason or (
             "" if active_kp == 0 else "VALIDATE requires Kp=0"
@@ -5837,6 +5953,7 @@ class MainWindow(QMainWindow):
             and not self.capture_in_flight
             and self.current_custom_operation is None
         )
+        self.custom_apply_p_button.setVisible(bool(self.p_lock_ready))
         self.custom_apply_p_button.setEnabled(identity_enabled and self.p_lock_ready)
         self.custom_stop_live_button.setEnabled(self.live_capture_active or custom_busy)
         for widget in (

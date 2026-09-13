@@ -23,6 +23,17 @@
 
 验证结果必须区分 PASS、FAIL、NOT RUN 和 NOT VERIFIED。不得使用“应该可以”“预计通过”替代证据。
 
+## 2026-09-12 — Host VALIDATE → Kp=0 HOLD → APPLY P 流程修复
+
+- Gate: LOCK-MVP-L1；仅修改 Host、Host 测试和固定文档；RTL/XDC/Vivado/bitstream 未修改、未运行。
+- 修改文件: `software/redpitaya_lock_host/redpitaya_lock_host/core/acquisition_service.py`、`core/lock_service.py`、`main_window.py`、`scripts/custom_fpga_scan_control.py` 及相关 Host 测试；`docs/CURRENT_STATUS.md`。
+- 修改原因: VALIDATE 在首次读到 `VALIDATING` 时提前结束；Kp=0 matching TRIGGERED 后 `p_lock_ready` 被清零，导致 APPLY P 永远不可用。
+- 影响模块: Host 目标资格、远程 acquisition polling、GUI 操作员状态与 P-only 接管按钮。
+- 接口影响: NONE；保持既有 CSR 地址、寄存器语义和 FPGA/Host 协议。
+- 验证方式与结果: Host 定向回归 201 passed（含新增 VALIDATE→HOLD→APPLY P 门禁测试）；完整 `pytest -q` 因既有 GUI 测试不退出而中断，未声明全量通过。
+- 尚未验证: Kp=4 P-only 收敛、极性、ERROR 回设定点、持续锁定和 D2 双环；本轮无 Vivado/板级操作。
+- Git commit: NOT COMMITTED；Release: NOT RELEASED。
+
 ## 2026-09-12 — 标准 synth_1/impl_1 统一候选
 
 - Gate: LOCK-MVP-L1；范围仅为统一自动构建与用户 `exp/test` 手动复核入口，不含 PZT 新功能。

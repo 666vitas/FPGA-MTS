@@ -91,6 +91,12 @@ class LockService:
         self.acquisition.require_current(request.target)
         if request.kp not in (0, 4):
             raise CustomFpgaBackendError("basic lock Kp must be an explicit user choice of 0 or 4")
+        if not request.validate_only:
+            self.acquisition.require_validated(request.target)
+            if request.kp != 0 and self.acquisition.validated_target is not None:
+                raise CustomFpgaBackendError(
+                    "ARM BASIC LOCK starts with Kp=0; use APPLY P to select Kp=4"
+                )
         payload = self._status_payload()
         if int(payload.get("mode", -1)) != 1 or int(payload.get("enable", 0)) != 1:
             return self._fail_safe("ARM requires MODE=SCAN and ENABLE=1")
@@ -177,22 +183,45 @@ class LockService:
         mode = int(readback.get("mode", -1))
         enable = int(readback.get("enable", 0))
         expected_states = (2,) if request.validate_only else (3, 4, 5)
-        validation_completed = (
-            request.validate_only
-            and acq_state == 1
-            and bool(readback.get("validation_completed_before_readback"))
-            and isinstance(readback.get("acquisition_event"), dict)
-            and bool(readback["acquisition_event"].get("valid"))
-            and int(readback["acquisition_event"].get("event_type", 0)) == 7
-            and int(readback["acquisition_event"].get("config_generation", 0))
-            == int(target.config_generation)
-        )
+        validation_completed = False
+        if request.validate_only and acq_state == 1:
+            if self.acquisition.confirmed_target is not None:
+                try:
+                    self.acquisition.mark_validated(target, readback)
+                    validation_completed = True
+                except CustomFpgaBackendError:
+                    validation_completed = False
+            else:
+                # Preserve the transport-level fast path for legacy direct
+                # callers; the bound GUI workflow always takes the strict gate.
+                validation_completed = bool(readback.get("validation_completed_before_readback"))
         if acq_state not in expected_states and not validation_completed:
             return self._fail_safe("ARM readback does not match requested VALIDATE/ACTIVE intent")
         if request.validate_only and (mode != 1 or enable != 1):
             return self._fail_safe("VALIDATE readback must preserve MODE=SCAN and ENABLE=1")
         if not request.validate_only and acq_state in (4, 5) and (mode != 3 or enable != 1):
             return self._fail_safe("ACTIVE readback does not match MODE/ENABLE")
+        if not request.validate_only and self.acquisition.validated_target is not None:
+            event = readback.get("acquisition_event")
+            captured = readback.get("lock_bias_counts")
+            if (
+                acq_state not in (4, 5)
+                or not isinstance(event, dict)
+                or not bool(event.get("valid"))
+                or int(event.get("event_type", 0)) != 2
+                or int(event.get("config_generation", 0)) != int(target.config_generation)
+                or int(event.get("scan_direction", -1)) != int(target.scan_direction)
+                or int(event.get("error_crossing_direction", -1)) != int(target.error_crossing_direction)
+                or captured is None
+                or not (int(target.safe_min_counts) <= int(captured) <= int(target.safe_max_counts))
+                or int(captured) != int(event.get("out2_counts", captured))
+                or int(readback.get("kp", readback.get("current_kp", -1))) != 0
+                or bool(readback.get("saturated", False))
+            ):
+                return self._fail_safe(
+                    "ACTIVE readback is not a matching Kp=0 TRIGGERED capture",
+                    payload=readback,
+                )
 
         self.target = target
         self.state = (

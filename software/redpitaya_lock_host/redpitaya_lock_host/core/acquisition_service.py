@@ -15,6 +15,7 @@ class AcquisitionService:
         self._backend = backend
         self._capture_id = 0
         self._confirmed_target: LockTarget | None = None
+        self._validated_target: LockTarget | None = None
 
     @property
     def capture_id(self) -> int:
@@ -27,20 +28,76 @@ class AcquisitionService:
             raise CustomFpgaBackendError("capture id must be positive")
         self._capture_id = value
         self._confirmed_target = None
+        self._validated_target = None
 
     def invalidate(self) -> None:
         self._capture_id = 0
         self._confirmed_target = None
+        self._validated_target = None
+
+    @property
+    def validated_target(self) -> LockTarget | None:
+        return self._validated_target
+
+    @property
+    def confirmed_target(self) -> LockTarget | None:
+        return self._confirmed_target
 
     def bind_confirmed_target(self, target: LockTarget) -> None:
         self.require_current(target)
         self._confirmed_target = target
+        self._validated_target = None
 
     def require_confirmed(self, target: LockTarget) -> None:
         self.require_current(target)
         if self._confirmed_target is None or target != self._confirmed_target:
             raise CustomFpgaBackendError(
                 "target does not match the persistent confirmed capture/configuration"
+            )
+
+    def mark_validated(self, target: LockTarget, payload: dict[str, Any]) -> None:
+        """Record only a complete, fresh FPGA VALIDATED result for this target."""
+        self.require_confirmed(target)
+        event = payload.get("acquisition_event")
+        before = payload.get("validation_sequence_before")
+        failures: list[str] = []
+        if not isinstance(event, dict) or not bool(event.get("valid")):
+            failures.append("event invalid")
+        else:
+            if int(event.get("event_type", 0)) != 7:
+                failures.append("event is not VALIDATED")
+            if before is None or int(event.get("sequence", -1)) == int(before):
+                failures.append("event sequence did not advance")
+            if int(event.get("config_generation", 0)) != int(target.config_generation):
+                failures.append("generation mismatch")
+            if int(event.get("scan_direction", -1)) != int(target.scan_direction):
+                failures.append("scan direction mismatch")
+            if int(event.get("error_crossing_direction", -1)) != int(target.error_crossing_direction):
+                failures.append("error crossing direction mismatch")
+        if int(payload.get("acquisition_state", -1)) != 1:
+            failures.append("FPGA state is not SCAN")
+        if int(payload.get("mode", -1)) != 1 or int(payload.get("enable", -1)) != 1:
+            failures.append("MODE/ENABLE is not SCAN/1")
+        if bool(payload.get("saturated", False)):
+            failures.append("saturation is active")
+        if failures:
+            raise CustomFpgaBackendError("VALIDATE completion rejected: " + "; ".join(failures))
+        self._validated_target = target
+
+    def require_validated(self, target: LockTarget) -> None:
+        # Legacy direct callers may not bind a GUI confirmation. The operator
+        # workflow always binds first, so only that path receives the strict
+        # VALIDATE gate.
+        self.require_current(target)
+        if self._confirmed_target is None:
+            return
+        if target != self._confirmed_target:
+            raise CustomFpgaBackendError(
+                "target does not match the persistent confirmed capture/configuration"
+            )
+        if self._validated_target is None or target != self._validated_target:
+            raise CustomFpgaBackendError(
+                "ARM BASIC LOCK requires a matching VALIDATED target for this generation"
             )
 
     def capture(self, *, capture_length: int, capture_decimation: int):

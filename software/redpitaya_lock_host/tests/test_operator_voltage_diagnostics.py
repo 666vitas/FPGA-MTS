@@ -107,7 +107,7 @@ def test_status_finishes_only_the_current_validation(sequence, generation, expec
             ),
         })
         assert (window.last_arm_result == "VALIDATED") is expected
-        assert window.operator_state_label.text() == ("VALIDATED / SCAN" if expected else "SCANNING")
+        assert window.operator_state_label.text() == ("VALIDATED / READY" if expected else "SCANNING")
         assert not window.p_lock_ready
     finally:
         window.close()
@@ -387,22 +387,30 @@ def test_fpga_trigger_result_uses_sticky_event_and_matching_generation() -> None
     selected_counts = window.selected_lock_point["target_out2_counts"]
     try:
         window.current_custom_operation = "lock"
+        window.target_validated = True
+        window.validated_config_generation = 1
         window._on_custom_fpga_finished(
             {
                 "operation": "lock",
                 "payload": identity_payload(
-                    mode=3,
-                    acquisition_state=4,
-                    current_kp=0,
+                        mode=3,
+                        acquisition_state=4,
+                        enable=1,
+                        lock_bias_counts=selected_counts + 2,
+                        current_kp=0,
+                        active_sequence_before=1,
                     acquisition_event={
                         "valid": True,
                         "event_type": 2,
-                        "event_type_name": "TRIGGERED",
+                            "event_type_name": "TRIGGERED",
+                            "sequence": 2,
                         "out2_counts": selected_counts + 2,
-                        "error_counts": 20,
-                        "config_generation": 1,
+                            "error_counts": 20,
+                            "config_generation": 1,
+                            "scan_direction": 1,
+                            "error_crossing_direction": 1,
                     },
-                ),
+                        ),
                 "stderr": "",
             }
         )
@@ -412,9 +420,9 @@ def test_fpga_trigger_result_uses_sticky_event_and_matching_generation() -> None
         assert diagnostics["captured_error_setpoint_counts"] == 10
         assert diagnostics["delta_error_setpoint_counts"] == 0
         assert window.operator_alert_label.text() == ""
-        assert not window.p_lock_ready
-        assert not window.custom_apply_p_button.isVisible()
-        assert "ACQUIRING" in window.operator_state_label.text()
+        assert window.p_lock_ready
+        assert not window.custom_apply_p_button.isHidden()
+        assert window.operator_state_label.text() == "PZT HOLD / Kp=0 / NOT LOCKED"
         assert window.applied_kp == 0
     finally:
         window.close()

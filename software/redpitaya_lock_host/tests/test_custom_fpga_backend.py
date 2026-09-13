@@ -1262,7 +1262,7 @@ def test_main_window_constructs_without_legacy_scpi_output_controls() -> None:
         assert not window.custom_advanced_body.isVisible()
         assert window.custom_lock_button.text() == "ARM BASIC LOCK"
         assert window.custom_apply_p_button.text() == "APPLY P"
-        assert [window.custom_kp.itemText(index) for index in range(window.custom_kp.count())] == ["0", "4", "8", "16", "32"]
+        assert [window.custom_kp.itemText(index) for index in range(window.custom_kp.count())] == ["0", "4"]
         assert window.custom_correction_limit_counts.value() == 128
         assert window.custom_lock_limit_counts.value() == 8191
         assert window.custom_capture_once_button.text() == "SINGLE"
@@ -1638,7 +1638,7 @@ def test_arm_buttons_require_l1_scan_readback_current_target_and_idle_worker() -
         window.custom_kp.setCurrentText("0")
         window._apply_button_state(window.connection_state)
 
-        assert window.custom_lock_button.isEnabled()
+        assert not window.custom_lock_button.isEnabled()
         assert window.custom_validate_lock_button.isEnabled()
 
         active = dict(ready)
@@ -3015,7 +3015,7 @@ def test_target_region_click_finds_error_zero_crossing_and_only_creates_pending(
         assert window.selected_lock_point["config_generation"] == 1
         assert window.operator_state_label.text() == "LOCK POINT CONFIRMED"
         assert "Status: Confirmed" in window.operator_candidate_label.text()
-        assert window.custom_lock_button.isEnabled()
+        assert not window.custom_lock_button.isEnabled()
     finally:
         window.close()
         app.processEvents()
@@ -3105,12 +3105,13 @@ def test_arm_basic_lock_accepts_only_kp_zero_or_four() -> None:
     window = MainWindow({}, start_mock=True)
     try:
         window.selected_lock_point = {"out2_counts": 7000}
-        window.custom_kp.setCurrentText("8")
+        window.target_validated = True
+        window.custom_kp.setCurrentText("4")
 
         window._start_custom_fpga_operation("lock")
 
         assert window.current_custom_operation is None
-        assert "Kp choice of 0 or 4" in window.custom_warning_text.toPlainText()
+        assert "Kp=0" in window.custom_warning_text.toPlainText()
         assert not window.p_lock_ready
     finally:
         window.close()
@@ -3214,3 +3215,52 @@ def test_lock_view_capture_window_tracks_scan_frequency_and_length() -> None:
     finally:
         window.close()
         app.processEvents()
+
+
+def test_validation_completion_requires_fresh_matching_event_and_scan_readback() -> None:
+    namespace = load_remote_helper_namespace()
+    states = iter([
+        {
+            "acquisition_state": 2, "acquisition_state_name": "VALIDATING",
+            "mode": 1, "enable": 1, "saturated": False,
+            "acquisition_event": {"valid": False, "event_type": 0, "sequence": 7},
+        },
+        {
+            "acquisition_state": 1, "acquisition_state_name": "SCAN",
+            "mode": 1, "enable": 1, "saturated": False,
+            "acquisition_event": {
+                "valid": True, "event_type": 7, "sequence": 8,
+                "config_generation": 11, "scan_direction": 1,
+                "error_crossing_direction": 2,
+            },
+        },
+    ])
+    namespace["acquisition_status"] = lambda _regs: next(states)
+    clock = FakeMonotonicClock()
+    result = namespace["wait_for_validation_completion"](
+        object(), sequence_before=7, generation=11, directions=(1, 2),
+        clock=clock.monotonic, sleeper=clock.sleep,
+    )
+    assert result["validation_completed_before_readback"] is True
+    assert result["validation_sequence_before"] == 7
+
+
+def test_active_capture_requires_matching_kp0_trigger_and_captured_bias() -> None:
+    namespace = load_remote_helper_namespace()
+    namespace["acquisition_status"] = lambda _regs: {
+        "acquisition_state": 4, "acquisition_state_name": "ACQUIRING",
+        "mode": 3, "enable": 1, "saturated": False, "kp": 0,
+        "lock_bias_counts": 123,
+        "acquisition_event": {
+            "valid": True, "event_type": 2, "sequence": 4,
+            "config_generation": 11, "scan_direction": 1,
+            "error_crossing_direction": 2, "out2_counts": 123,
+        },
+    }
+    result = namespace["wait_for_active_capture"](
+        object(), sequence_before=3, generation=11, directions=(1, 2),
+        safe_min_counts=0, safe_max_counts=300,
+        clock=lambda: 0.0, sleeper=lambda _seconds: None,
+    )
+    assert result["active_completed"] is True
+    assert result["captured_lock_bias_counts"] == 123

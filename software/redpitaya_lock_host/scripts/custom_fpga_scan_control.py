@@ -535,6 +535,125 @@ def wait_for_safe_readback(
         sleep(min(interval, max(0.0, deadline - now)))
 
 
+def wait_for_validation_completion(
+    regs,
+    *,
+    sequence_before,
+    generation,
+    directions,
+    timeout_s=2.0,
+    poll_interval_s=0.005,
+    clock=None,
+    sleeper=None,
+):
+    # Wait until VALIDATE has produced a fresh, fully matching event and SCAN readback.
+    monotonic = time.monotonic if clock is None else clock
+    sleep = time.sleep if sleeper is None else sleeper
+    deadline = monotonic() + max(0.0, float(timeout_s))
+    last = {}
+    while True:
+        last = acquisition_status(regs)
+        state = int(last.get("acquisition_state", -1))
+        if state in (6, 7):
+            raise SystemExit("VALIDATE failed: " + json.dumps(last, sort_keys=True))
+        if bool(last.get("saturated", False)):
+            raise SystemExit("VALIDATE failed: saturation is active: " + json.dumps(last, sort_keys=True))
+        if int(last.get("mode", -1)) != 1 or int(last.get("enable", -1)) != 1:
+            raise SystemExit("VALIDATE failed: MODE/ENABLE is not SCAN/1: " + json.dumps(last, sort_keys=True))
+        event = last.get("acquisition_event")
+        matching = (
+            state == 1
+            and isinstance(event, dict)
+            and bool(event.get("valid"))
+            and int(event.get("event_type", 0)) == 7
+            and int(event.get("sequence", -1)) != int(sequence_before)
+            and int(event.get("config_generation", 0)) == int(generation)
+            and (
+                int(event.get("scan_direction", -1)),
+                int(event.get("error_crossing_direction", -1)),
+            ) == tuple(int(value) for value in directions)
+        )
+        if matching:
+            last["validation_completed_before_readback"] = True
+            last["validation_sequence_before"] = int(sequence_before)
+            return last
+        now = monotonic()
+        if now >= deadline:
+            diagnostic = dict(last)
+            diagnostic.update({
+                "validation_sequence_before": int(sequence_before),
+                "expected_generation": int(generation),
+                "expected_directions": list(directions),
+                "timeout_s": max(0.0, float(timeout_s)),
+            })
+            raise SystemExit("VALIDATE completion timeout/gate failure: " + json.dumps(diagnostic, sort_keys=True))
+        sleep(min(max(0.0, float(poll_interval_s)), max(0.0, deadline - now)))
+
+
+def wait_for_active_capture(
+    regs,
+    *,
+    sequence_before,
+    generation,
+    directions,
+    safe_min_counts,
+    safe_max_counts,
+    expected_kp=0,
+    timeout_s=2.0,
+    poll_interval_s=0.005,
+    clock=None,
+    sleeper=None,
+):
+    # Wait for a new TRIGGERED event and verify the captured Kp=0 PZT hold.
+    monotonic = time.monotonic if clock is None else clock
+    sleep = time.sleep if sleeper is None else sleeper
+    deadline = monotonic() + max(0.0, float(timeout_s))
+    last = {}
+    while True:
+        last = acquisition_status(regs)
+        state = int(last.get("acquisition_state", -1))
+        if state in (6, 7):
+            raise SystemExit("ACTIVE failed: " + json.dumps(last, sort_keys=True))
+        event = last.get("acquisition_event")
+        captured = last.get("lock_bias_counts")
+        matching = (
+            state in (4, 5)
+            and int(last.get("mode", -1)) == 3
+            and int(last.get("enable", -1)) == 1
+            and not bool(last.get("saturated", False))
+            and isinstance(event, dict)
+            and bool(event.get("valid"))
+            and int(event.get("event_type", 0)) == 2
+            and int(event.get("sequence", -1)) != int(sequence_before)
+            and int(event.get("config_generation", 0)) == int(generation)
+            and (
+                int(event.get("scan_direction", -1)),
+                int(event.get("error_crossing_direction", -1)),
+            ) == tuple(int(value) for value in directions)
+            and captured is not None
+            and int(safe_min_counts) <= int(captured) <= int(safe_max_counts)
+            and int(captured) == int(event.get("out2_counts", captured))
+            and int(last.get("kp", last.get("current_kp", -1))) == int(expected_kp)
+        )
+        if matching:
+            last["active_completed"] = True
+            last["active_sequence_before"] = int(sequence_before)
+            last["captured_lock_bias_counts"] = int(captured)
+            return last
+        now = monotonic()
+        if now >= deadline:
+            diagnostic = dict(last)
+            diagnostic.update({
+                "active_sequence_before": int(sequence_before),
+                "expected_generation": int(generation),
+                "expected_directions": list(directions),
+                "expected_kp": int(expected_kp),
+                "timeout_s": max(0.0, float(timeout_s)),
+            })
+            raise SystemExit("ACTIVE capture timeout/gate failure: " + json.dumps(diagnostic, sort_keys=True))
+        sleep(min(max(0.0, float(poll_interval_s)), max(0.0, deadline - now)))
+
+
 def write_acquisition_shadow(regs, args):
     requirements = (
         (int(args.required_scan_direction) & 0x3)
@@ -616,9 +735,7 @@ def run_preload_acquisition(regs, args, arm, validate=False):
     validation = regs.read(REGISTERS["CONFIG_VALIDATION"])
     if not (validation & (1 << 7)):
         raise SystemExit(f"FPGA acquisition shadow validation failed: 0x{validation:08X}")
-    validation_sequence_before = (
-        regs.read(REGISTERS["EVENT_SEQUENCE"]) if arm and validate else None
-    )
+    event_sequence_before = regs.read(REGISTERS["EVENT_SEQUENCE"]) if arm else None
     if arm:
         regs.write(REGISTERS["ACQ_COMMAND"], 8 if validate else 1)
     expected_states = (2,) if validate else (3, 4, 5)
@@ -626,14 +743,13 @@ def run_preload_acquisition(regs, args, arm, validate=False):
         wait_for_acquisition_state(
             regs,
             expected_states,
+            timeout_s=2.0,
             diagnostic_context={
                 "config_validation": f"0x{validation:08X}",
                 "config_generation": int(args.config_generation),
             },
-            completed_validation_generation=(
-                int(args.config_generation) if validate else None
-            ),
-            validation_sequence_before=validation_sequence_before,
+            completed_validation_generation=(int(args.config_generation) if validate else None),
+            validation_sequence_before=event_sequence_before,
             validation_directions=(
                 int(args.required_scan_direction),
                 int(args.required_error_crossing_direction),
@@ -642,6 +758,23 @@ def run_preload_acquisition(regs, args, arm, validate=False):
         if arm
         else acquisition_status(regs)
     )
+    if validate:
+        result = wait_for_validation_completion(
+            regs,
+            sequence_before=event_sequence_before,
+            generation=int(args.config_generation),
+            directions=(int(args.required_scan_direction), int(args.required_error_crossing_direction)),
+        )
+    elif arm:
+        result = wait_for_active_capture(
+            regs,
+            sequence_before=event_sequence_before,
+            generation=int(args.config_generation),
+            directions=(int(args.required_scan_direction), int(args.required_error_crossing_direction)),
+            safe_min_counts=int(args.safe_min_counts),
+            safe_max_counts=int(args.safe_max_counts),
+            expected_kp=int(args.preloaded_kp),
+        )
     result["config_validation"] = f"0x{validation:08X}"
     result["config_generation"] = int(args.config_generation)
     result["target_out2_counts"] = int(args.target_out2_counts)
@@ -655,7 +788,9 @@ def run_preload_acquisition(regs, args, arm, validate=False):
     result["lock_state"] = result["acquisition_state_name"]
     result["arm_intent"] = "VALIDATE" if validate else "ACTIVE"
     if validate:
-        result["validation_sequence_before"] = validation_sequence_before
+        result["validation_sequence_before"] = event_sequence_before
+    elif arm:
+        result["active_sequence_before"] = event_sequence_before
     return result
 
 

@@ -159,10 +159,10 @@ Custom FPGA Mode 下，先只接示波器验证 OUT2，再按本 SOP 接入原 A
 
 操作前提：Probe/identity 匹配、MAGIC/VERSION/capability 正确、OUT2 示波器幅度安全、MODE=SCAN、ENABLE=1、无 saturation；目标点必须来自本次 capture，会话重连或重扫后旧目标作废。
 
-真实按钮顺序：`Capture Waveform` → 选零交叉 → `Confirm Lock Point` → `ARM VALIDATE` → 刷新 `Status` → 核对 `event_type=VALIDATED`、`valid=1`、新 sequence、方向和本次 generation。下一阶段需用户明确批准，先在 Kp 下拉框选择 0，再点击 `ARM BASIC LOCK`（ACTIVE）；接管后核对偏置。非零 P-only 实验另经批准，工程诊断按钮名称为 `APPLY P`，不得把它作为正常实时获取的替代。
+真实按钮顺序：`Capture Waveform` → 选零交叉 → `CONFIRM` → `ARM VALIDATE` → 软件自动等待并显示 `VALIDATED / READY`（无需 `REFRESH IDENTITY`）→ 选择 Kp=0 → `ARM BASIC LOCK`。匹配的新 `TRIGGERED` 事件、generation、方向、captured `LOCK_BIAS` 和安全范围全部通过后，Host 显示 `PZT HOLD / Kp=0 / NOT LOCKED`。示波器确认 OUT2 三角波停止后，才允许选择 Kp=4 并点击 `APPLY P`；该操作复用同一 captured bias、ERROR_SETPOINT 和 generation。
 
 预期寄存器/事件：VALIDATE 先进入 `acquisition_state=2`，事件完成后回到 `SCAN=1`，MODE/ENABLE、偏置和 Kp 不变；快速完成可以首次读回就是 SCAN，但必须有新 sequence 和匹配 generation/方向。ACTIVE 匹配事件后进入 `ACQUIRING=4`，事件中的 OUT2 是实际捕获样本；Kp=0 时校正量为零。示波器测点为 OUT2 及前面 SCAN 输入、OUT1 误差信号，确认接管前后偏置连续；可接受跳变量需由操作者按仪器噪声和硬件范围预先规定。
 
-判据分层：① 验证成功＝本次匹配事件且无反馈接入；② Kp=0 捕获成功＝停扫并保持正确偏置；③ P-only＝另经批准后观察真实误差是否减小且无振荡/限幅；④ 持续稳频＝预先规定的持续时间、扰动和误差统计下实测通过。`P_LOCKED=5` 仅表示 FPGA 监督窗口判据通过，不替代第④项。
+判据分层：① 验证成功＝本次匹配事件且无反馈接入；② Kp=0 捕获成功＝停扫并保持正确偏置（`PZT HOLD / Kp=0 / NOT LOCKED`）；③ P-only＝另经批准后观察真实误差是否减小且无振荡/限幅，Host 显示 `P-ONLY ACQUIRING`；④ 持续稳频＝预先规定的持续时间、扰动和误差统计下实测通过。`P_LOCKED=5` 仅表示 FPGA 监督窗口判据通过，Host 显示 `FPGA P_LOCKED / PHYSICAL VERIFICATION REQUIRED`，不替代第④项。
 
 失败条件：旧/错 generation 事件、方向不符、目标过期、读回状态不符、非零 Kp 但状态不是 ACQUIRING/P_LOCKED、saturation、FAILED/FAULT 或通信中断。立即点击 `UNLOCK / SAFE`，确认 MODE=SAFE、ENABLE=0、acquisition_state=SAFE；无法确认 SAFE 时停止后级连接并人工断开执行器。
