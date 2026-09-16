@@ -2,7 +2,7 @@
 
 FPGA-MTS contains original project work, Red Pitaya-derived integration material, tool-generated files, and upstream projects retained under `reference/` for engineering comparison and traceability. These components do **not** all share one license.
 
-This document records the major third-party sources currently identifiable in the repository. File-level copyright and license notices remain authoritative.
+This document records the major third-party sources currently identifiable in the repository. File-level copyright and license notices remain authoritative. The open provenance/license audit is tracked in [issue #4](https://github.com/666vitas/FPGA-MTS/issues/4).
 
 ## Red Pitaya material
 
@@ -75,5 +75,7 @@ Until that audit is complete:
 - do not assume third-party reference code is relicensed by FPGA-MTS;
 - do not copy new external code into active project paths without recording its source and license;
 - treat the absence of a root `LICENSE` as an open-source-readiness issue to be resolved explicitly, not as permission to apply an arbitrary license.
+
+The audit is complete only when a reviewer can identify which files are project-owned, which are derived from upstream material, which are vendor-generated, and which license applies to each relevant category. The final root-license decision must not erase stronger or different obligations attached to individual third-party files or directories.
 
 If a missing or incorrect attribution is identified, please open an issue or pull request with the source repository, relevant file paths, and license information.
