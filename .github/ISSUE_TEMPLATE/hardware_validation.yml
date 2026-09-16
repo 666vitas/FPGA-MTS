@@ -1,0 +1,72 @@
+name: Hardware validation record
+description: Record a board/lab validation task or result with explicit source and physical-state evidence.
+title: "[Hardware]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for real Red Pitaya / laser-path validation. Do not use GUI state or simulation as a substitute for physical evidence.
+  - type: input
+    id: commit
+    attributes:
+      label: FPGA source commit
+      placeholder: full Git commit SHA
+    validations:
+      required: true
+  - type: input
+    id: bit
+    attributes:
+      label: Candidate/release and bitstream hash
+      description: Provide the release/candidate name and SHA-256 when available.
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host/interface identity
+      description: Host commit/version and interface version used for the run.
+    validations:
+      required: true
+  - type: textarea
+    id: wiring
+    attributes:
+      label: Physical connections
+      description: Record IN1, IN2, OUT1, OUT2 and the actual actuator/measurement connections. Never include credentials.
+    validations:
+      required: true
+  - type: textarea
+    id: parameters
+    attributes:
+      label: Relevant parameters and limits
+      description: Include scan amplitude/offset, mode, Kp/Ki if applicable, polarity, correction/output limits, scope loading/coupling, and any protective attenuation.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Observed evidence
+      description: Separate register/GUI readback, oscilloscope measurement, loaded PZT behavior, and laser response. State the observation interval for any sustained-lock claim.
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - PASS with stated evidence
+        - FAIL
+        - INCONCLUSIVE / needs more evidence
+        - ABORTED to SAFE
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: No two active outputs were paralleled.
+          required: true
+        - label: OUT2 was connected only to the gate-authorized PZT/Scan or measurement path.
+          required: true
+        - label: SAFE behavior was available and used for any anomaly.
+          required: true
