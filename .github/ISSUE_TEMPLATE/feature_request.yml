@@ -1,0 +1,54 @@
+name: Enhancement proposal
+description: Propose a bounded improvement that fits the maintained architecture and current safety model.
+title: "[Enhancement]: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the concrete limitation or maintenance burden, not only the desired implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Explain the smallest useful change and the FPGA/Host boundary it affects.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      options:
+        - Host software / GUI
+        - FPGA RTL
+        - Vivado build / constraints
+        - Host-FPGA interface
+        - Verification / simulation
+        - Documentation / reproducibility
+        - Release / maintainer automation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: How should this be verified?
+      description: Identify tests, reports, or hardware evidence needed to show the change is correct.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety and compatibility impact
+      description: State whether the proposal affects OUT2, PZT/Scan, gain, polarity, limits, register semantics, or release compatibility. Write "none" only if it genuinely has no such impact.
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope acknowledgement
+      options:
+        - label: I checked the current roadmap/status and this proposal does not silently promote an out-of-scope research direction into the current hardware gate.
+          required: true
