@@ -1,16 +1,4 @@
-FPGA-MTS License Scope
-======================
-
-Except where a file or directory carries a different copyright or license
-notice, original FPGA-MTS contributions in this repository are licensed under
-the BSD 3-Clause License below.
-
-Third-party and vendor material is not relicensed by this file. In particular,
-upstream/reference snapshots and files with their own notices retain those
-terms. See THIRD_PARTY_NOTICES.md and file-level notices for details.
-
 BSD 3-Clause License
-====================
 
 Copyright (c) 2026, 666vitas and FPGA-MTS contributors
 All rights reserved.
