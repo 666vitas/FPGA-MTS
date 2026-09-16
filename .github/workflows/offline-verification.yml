@@ -1,0 +1,58 @@
+name: Offline verification
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offline-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-and-rules:
+    name: Windows host and repository checks
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: "1"
+      QT_QPA_PLATFORM: offscreen
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: software/redpitaya_lock_host/requirements.txt
+
+      - name: Install host test dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r software/redpitaya_lock_host/requirements.txt
+          python -m pip install pytest
+
+      - name: Verify repository rules and structure
+        shell: pwsh
+        run: ./scripts/verify.ps1 -Scope Rules
+
+      - name: Run safe targeted host verification
+        shell: pwsh
+        run: |
+          $python = (Get-Command python).Source
+          ./scripts/verify.ps1 -Scope Host -PythonPath $python -TimeoutSeconds 600
+
+      - name: Evidence boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "This workflow performs offline repository/Host checks only."
+          Write-Host "It does not program a Red Pitaya, run Vivado implementation, drive OUT2, or validate physical laser lock performance."
