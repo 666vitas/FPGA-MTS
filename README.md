@@ -1,5 +1,8 @@
 # FPGA-MTS
 
+[![Offline verification](https://github.com/666vitas/FPGA-MTS/actions/workflows/offline-verification.yml/badge.svg)](https://github.com/666vitas/FPGA-MTS/actions/workflows/offline-verification.yml)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
+
 **FPGA-MTS** is a research-stage FPGA/host control stack for modulation-transfer-spectroscopy (MTS) laser-frequency stabilization on the **Red Pitaya STEMlab 125-14**.
 
 The project separates deterministic real-time signal processing and lock control in the FPGA from configuration, acquisition, operator decisions, and experiment logging on the host. Its current engineering target is a simple, reproducible **PZT P-only lock** with explicit safety gates and traceable verification evidence.
@@ -24,7 +27,7 @@ The project is deliberately conservative about claims: code presence, RTL simula
 
 FPGA-MTS sits at the intersection of open FPGA instrumentation, AMO laboratory control, and reproducible experimental software. The repository is intended to become useful to researchers who want to inspect and adapt a Red Pitaya-based laser-locking stack instead of treating the FPGA image, host controls, and physical experiment as an opaque appliance.
 
-The project does **not** currently claim broad adoption or production maturity. Its near-term open-source value is the maintained engineering record: explicit signal semantics, Host/FPGA contracts, safety boundaries, simulation and timing evidence, candidate-bit provenance, and a public path toward a hardware-validated release. Outside reuse should become easier as the licensing and clean-clone reproducibility work is completed.
+The project does **not** currently claim broad adoption or production maturity. Its near-term open-source value is the maintained engineering record: explicit signal semantics, Host/FPGA contracts, safety boundaries, simulation and timing evidence, candidate-bit provenance, and a public path toward a hardware-validated release.
 
 ## System overview
 
@@ -75,6 +78,12 @@ For the authoritative, evidence-backed state of the project, see [`docs/CURRENT_
 
 The active Vivado project is under `v0.94/project/`. Build and release claims are governed by the repository's documented verification process rather than by file timestamps or generated-run folders.
 
+## Quick offline verification
+
+A new contributor can start with the no-laser path in [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md). The same targeted repository/Host checks are represented in GitHub Actions by `.github/workflows/offline-verification.yml`.
+
+A green CI result is intentionally narrow evidence: it does **not** mean that Vivado implementation, hardware programming, OUT2 electrical behavior, PZT convergence, or physical laser locking has been validated.
+
 ## Repository map
 
 | Path | Purpose |
@@ -83,7 +92,7 @@ The active Vivado project is under `v0.94/project/`. Build and release claims ar
 | `v0.94/sim/`, `v0.94/tbn/` | RTL simulation/testbench assets |
 | `v0.94/project/` | Active Vivado project |
 | `software/redpitaya_lock_host/` | Host-side control, acquisition, readback, and GUI/backend code |
-| `docs/` | Current project context, status, FPGA/Host interface, development and release rules |
+| `docs/` | Current project context, status, interface, reproducibility, development and release rules |
 | `scripts/` | Project maintenance/build-support scripts |
 | `reference/` | Upstream/reference material and engineering comparisons; not the authority for the current build |
 
@@ -91,10 +100,11 @@ Recommended reading order for new contributors:
 
 1. [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) — project intent and architecture context
 2. [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md) — current gate, verified facts, blockers, and next action
-3. [`ROADMAP.md`](ROADMAP.md) — public maintainer priorities
-4. [`docs/HOST_FPGA_INTERFACE.md`](docs/HOST_FPGA_INTERFACE.md) — host/FPGA contract
-5. [`docs/FPGA_DEVELOPMENT_RULES.md`](docs/FPGA_DEVELOPMENT_RULES.md) — FPGA verification requirements
-6. [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md) — bitstream provenance and release rules
+3. [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) — fresh-clone safe verification path
+4. [`ROADMAP.md`](ROADMAP.md) — public maintainer priorities
+5. [`docs/HOST_FPGA_INTERFACE.md`](docs/HOST_FPGA_INTERFACE.md) — host/FPGA contract
+6. [`docs/FPGA_DEVELOPMENT_RULES.md`](docs/FPGA_DEVELOPMENT_RULES.md) — FPGA verification requirements
+7. [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md) — bitstream provenance and release rules
 
 ## Maintenance and project health
 
@@ -102,8 +112,8 @@ FPGA-MTS is currently maintained by **[@666vitas](https://github.com/666vitas)**
 
 Current public maintenance priorities are intentionally concrete:
 
-- [#4 — complete license/provenance audit and select the top-level OSS license](https://github.com/666vitas/FPGA-MTS/issues/4)
-- [#5 — document a clean clone-to-test workflow without laser hardware](https://github.com/666vitas/FPGA-MTS/issues/5)
+- [#4 — source provenance and licensing](https://github.com/666vitas/FPGA-MTS/issues/4)
+- [#5 — clean clone-to-test workflow without laser hardware](https://github.com/666vitas/FPGA-MTS/issues/5)
 - [#6 — close the real-hardware `LOCK-MVP-L1` sustained P-only lock gate](https://github.com/666vitas/FPGA-MTS/issues/6)
 - [#7 — publish the first hardware-validated, traceable release](https://github.com/666vitas/FPGA-MTS/issues/7)
 
@@ -137,19 +147,6 @@ At minimum:
 
 See [`SECURITY.md`](SECURITY.md) for security and hardware-safety reporting.
 
-## Getting started
-
-This is currently a laboratory research repository rather than a one-command end-user package. A safe first interaction is therefore to inspect and reproduce the documented software/RTL evidence **without connecting a laser**.
-
-```bash
-git clone https://github.com/666vitas/FPGA-MTS.git
-cd FPGA-MTS
-```
-
-Then read the current status and the relevant development rules before running Vivado, changing RTL, or interacting with a Red Pitaya. Do not treat old `exp/` runs or historical bitstreams as current releases.
-
-The clean-clone reproducibility task is tracked in [issue #5](https://github.com/666vitas/FPGA-MTS/issues/5). Until that closes, maintainer-local commands or paths in older documentation should not be presented as a verified portable workflow.
-
 ## Contributing and support
 
 Contributions that improve reproducibility, verification, documentation, host/FPGA interface clarity, simulation coverage, and safe laboratory operation are welcome.
@@ -158,11 +155,11 @@ Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request. 
 
 For questions, reproducibility reports, and hardware-reporting expectations, see [`SUPPORT.md`](SUPPORT.md).
 
-## Third-party material and licensing status
+## License and third-party material
 
-This repository contains upstream/reference snapshots under `reference/` as well as Red Pitaya-derived integration material. Those components retain their original copyright and license terms; known notices are summarized in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+Original FPGA-MTS contributions are licensed under the scoped **BSD 3-Clause License** in [`LICENSE`](LICENSE), except where a file or directory carries different terms.
 
-**A repository-wide top-level license has not yet been finalized.** The provenance audit and license decision are tracked publicly in [issue #4](https://github.com/666vitas/FPGA-MTS/issues/4). Until that work is complete and a root license is added, do not assume that every file in this repository is granted under a single license.
+The repository also contains Red Pitaya-derived integration material, GPL-licensed Linien/redpid reference snapshots, and AMD/Xilinx generated material. Those components retain their original terms and are **not** relicensed by the root license. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`docs/PROVENANCE.md`](docs/PROVENANCE.md) for the license boundaries.
 
 ## 中文说明
 
