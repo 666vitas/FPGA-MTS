@@ -1,0 +1,11 @@
+# FPGA-MTS is currently maintained by a single primary maintainer.
+* @666vitas
+
+# Safety- and release-critical areas remain explicitly owned.
+/v0.94/ @666vitas
+/software/redpitaya_lock_host/ @666vitas
+/docs/ @666vitas
+/SECURITY.md @666vitas
+/THIRD_PARTY_NOTICES.md @666vitas
+/MAINTAINERS.md @666vitas
+/ROADMAP.md @666vitas
