@@ -1,6 +1,7 @@
 # FPGA-MTS
 
 [![Offline verification](https://github.com/666vitas/FPGA-MTS/actions/workflows/offline-verification.yml/badge.svg)](https://github.com/666vitas/FPGA-MTS/actions/workflows/offline-verification.yml)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 
 **FPGA-MTS** is a research-stage FPGA/host control stack for modulation-transfer-spectroscopy (MTS) laser-frequency stabilization on the **Red Pitaya STEMlab 125-14**.
 
@@ -111,8 +112,8 @@ FPGA-MTS is currently maintained by **[@666vitas](https://github.com/666vitas)**
 
 Current public maintenance priorities are intentionally concrete:
 
-- [#4 — complete license/provenance audit and select the top-level OSS license](https://github.com/666vitas/FPGA-MTS/issues/4)
-- [#5 — document a clean clone-to-test workflow without laser hardware](https://github.com/666vitas/FPGA-MTS/issues/5)
+- [#4 — source provenance and licensing](https://github.com/666vitas/FPGA-MTS/issues/4)
+- [#5 — clean clone-to-test workflow without laser hardware](https://github.com/666vitas/FPGA-MTS/issues/5)
 - [#6 — close the real-hardware `LOCK-MVP-L1` sustained P-only lock gate](https://github.com/666vitas/FPGA-MTS/issues/6)
 - [#7 — publish the first hardware-validated, traceable release](https://github.com/666vitas/FPGA-MTS/issues/7)
 
@@ -154,11 +155,11 @@ Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request. 
 
 For questions, reproducibility reports, and hardware-reporting expectations, see [`SUPPORT.md`](SUPPORT.md).
 
-## Third-party material and licensing status
+## License and third-party material
 
-This repository contains upstream/reference snapshots under `reference/` as well as Red Pitaya-derived integration material. Those components retain their original copyright and license terms; known notices are summarized in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+Original FPGA-MTS contributions are licensed under the scoped **BSD 3-Clause License** in [`LICENSE`](LICENSE), except where a file or directory carries different terms.
 
-**A repository-wide top-level license has not yet been finalized.** The provenance audit and license decision are tracked publicly in [issue #4](https://github.com/666vitas/FPGA-MTS/issues/4). Until that work is complete and a root license is added, do not assume that every file in this repository is granted under a single license.
+The repository also contains Red Pitaya-derived integration material, GPL-licensed Linien/redpid reference snapshots, and AMD/Xilinx generated material. Those components retain their original terms and are **not** relicensed by the root license. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`docs/PROVENANCE.md`](docs/PROVENANCE.md) for the license boundaries.
 
 ## 中文说明
 
