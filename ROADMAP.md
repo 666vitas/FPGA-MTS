@@ -14,14 +14,14 @@ Tracked work:
 
 - [#6 — Hardware validation: close the LOCK-MVP-L1 sustained P-only lock gate](https://github.com/666vitas/FPGA-MTS/issues/6)
 
-## Open-source readiness
+## Open-source readiness baseline — completed
 
-Before presenting FPGA-MTS as an easily reusable open-source package, two repository-level gaps should be closed:
+The first public OSS-readiness pass is complete:
 
-- [#4 — Licensing: complete provenance audit and select a top-level OSS license](https://github.com/666vitas/FPGA-MTS/issues/4)
-- [#5 — Reproducibility: document a clean clone-to-test workflow without laser hardware](https://github.com/666vitas/FPGA-MTS/issues/5)
+- [#4 — licensing/provenance baseline](https://github.com/666vitas/FPGA-MTS/issues/4) — **completed**. Original FPGA-MTS contributions now have a BSD 3-Clause root license, with third-party exceptions and provenance documented separately.
+- [#5 — clean clone-to-test workflow](https://github.com/666vitas/FPGA-MTS/issues/5) — **completed**. `docs/REPRODUCIBILITY.md` and the public Windows/Python offline-verification workflow provide a controlled no-laser entry path; the workflow has completed successfully on a GitHub-hosted clean checkout.
 
-These are not cosmetic tasks. Clear licensing and a reproducible no-laser entry path determine whether outside users can safely understand, test, and contribute to the project.
+These tasks establish a reviewable public maintenance baseline. They do not upgrade the physical laser-lock status.
 
 ## First traceable release
 
@@ -48,7 +48,6 @@ These directions should only be promoted into an active gate after the determini
 
 The most useful contributions at the current stage are those that improve:
 
-- reproducibility from a clean clone;
 - verification coverage and evidence quality;
 - Host/FPGA interface clarity;
 - release provenance;
