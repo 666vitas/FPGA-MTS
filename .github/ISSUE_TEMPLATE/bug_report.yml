@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a reproducible software, RTL, build, documentation, or interface defect.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Keep simulation, build, GUI/readback, board, and physical laser observations separate.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Host software / GUI
+        - FPGA RTL
+        - Vivado build / constraints
+        - Host-FPGA interface
+        - Documentation / reproducibility
+        - Hardware behavior
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Repository commit or branch
+      description: Provide the commit SHA when possible.
+      placeholder: e.g. 274e471c4bc5...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: State whether this came from source inspection, automated test, Vivado report, GUI/readback, oscilloscope, or physical laser behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Include commands and configuration values. For hardware reports, include board model and signal connections.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Paste concise logs/results or link to non-sensitive artifacts. Do not include credentials or private lab network details.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Hardware safety check
+      options:
+        - label: I did not connect two active outputs together while reproducing this issue.
+        - label: If this involved non-zero feedback gain, I verified the intended actuator path and knew how to return the system to SAFE.
